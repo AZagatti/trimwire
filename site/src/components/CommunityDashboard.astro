@@ -1,0 +1,383 @@
+---
+// Community stats dashboard widget. PUBLIC_AGGREGATES_URL is read at build time and
+// baked onto the host's data-* attr; the bundled script reads it at runtime. Logic +
+// a11y live in src/scripts/dashboard.ts (typed + unit-tested).
+const url = import.meta.env.PUBLIC_AGGREGATES_URL ?? "";
+---
+
+<div class="tw-dash" data-aggregates={url}>
+  <div class="tw-dash-kpi"></div>
+  <div class="tw-dash-filters" role="group" aria-label="Filter cohorts" hidden></div>
+  <div class="tw-dash-table"></div>
+  <p class="tw-dash-status" role="status" aria-live="polite">Loading…</p>
+</div>
+
+<style is:global>
+  /* Global (not scoped): the table/bars are created at runtime by the script, so
+     Astro's build-time scope attribute would never reach them. Keys off Starlight
+     CSS vars + the trimwire semantic tokens (custom.css) for dark/light parity. */
+
+  /* The whole page content is widened for this data page (see the page's
+     --sl-content-width override); the dashboard just fills it. */
+  .tw-dash { margin-top: 1.2rem; }
+
+  /* ── KPI strip ── */
+  .tw-dash-kpi {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 0.7rem;
+    margin-bottom: 1rem;
+  }
+  /* Reuse shared KPI card tokens from BenchmarkTable */
+  .tw-kpi {
+    background: var(--sl-color-gray-7, var(--sl-color-black));
+    border: 1px solid var(--sl-color-gray-5);
+    border-top: 3px solid var(--sl-color-accent);
+    border-radius: 0.55rem;
+    padding: 0.7rem 0.9rem;
+    /* Neutralize Starlight's content-flow `:not(:first-child)` top margin, which
+       leaks onto these grid items and makes all cards but the first 16px off. */
+    margin: 0;
+  }
+  .tw-kpi-l {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--sl-color-gray-3);
+  }
+  .tw-kpi-v {
+    font-size: 1.7rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--sl-color-white);
+    font-variant-numeric: tabular-nums;
+    margin-top: 0.1rem;
+  }
+  .tw-kpi-s {
+    font-size: 0.76rem;
+    color: var(--sl-color-accent);
+    margin-top: 0.15rem;
+    /* Reserve one line even when empty so subtitle-less cards match the rest. */
+    min-height: 1.1rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Filter controls ── */
+  .tw-dash-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 1rem;
+    margin: 0 0 0.8rem;
+    align-items: end;
+  }
+  .tw-dash-filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--sl-color-gray-2);
+  }
+  .tw-dash-filters select {
+    font-size: 0.85rem;
+    padding: 0.27rem 0.45rem;
+    border-radius: 0.35rem;
+    background: var(--sl-color-gray-7, var(--sl-color-black));
+    color: var(--sl-color-white);
+    border: 1px solid var(--sl-color-gray-5);
+    cursor: pointer;
+  }
+  .tw-dash-filters select:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 1px;
+  }
+
+  /* ── Table wrapper ── */
+  /* Horizontal scroll + a JS-free "more columns →" affordance: edge shadows that
+     appear only when there is overflow content to scroll to (Lea Verou's technique).
+     The two `local`-attachment cover gradients hide the shadow at each scroll end. */
+  .tw-dash-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    background:
+      linear-gradient(to right, var(--sl-color-bg) 30%, transparent) 0 0,
+      linear-gradient(to left, var(--sl-color-bg) 30%, transparent) 100% 0,
+      radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.16), transparent) 0 0,
+      radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.16), transparent) 100% 0;
+    background-repeat: no-repeat;
+    background-size: 36px 100%, 36px 100%, 14px 100%, 14px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+
+  table.twd {
+    width: 100%;
+    /* Override Starlight's `table { display: block }` (which makes the columns
+       size to content and leave the rest of a wide container empty). The
+       .tw-dash-table wrapper handles mobile horizontal scroll via overflow-x. */
+    display: table;
+    /* Stay readable: below this the 8 columns get unreadably cramped, so the
+       wrapper scrolls horizontally instead (with the edge-shadow affordance). */
+    min-width: 44rem;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+
+  /* Sticky header */
+  table.twd thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--sl-color-gray-7, var(--sl-color-black));
+    color: var(--sl-color-gray-2);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    text-align: right;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--sl-color-accent);
+  }
+  table.twd thead th.twd-th-first { text-align: left; }
+  table.twd thead th.twd-th-toggle {
+    cursor: default;
+    width: 2rem;
+    padding: 0.5rem 0.3rem;
+  }
+  table.twd thead th[aria-sort="descending"]::after { content: " ↓"; color: var(--sl-color-accent); }
+  table.twd thead th[aria-sort="ascending"]::after  { content: " ↑"; color: var(--sl-color-accent); }
+
+  /* Body rows */
+  table.twd tbody td {
+    padding: 0;
+    height: 2.5rem;
+    text-align: right;
+    white-space: nowrap;
+    /* Center every cell vertically so bar columns line up with plain columns. */
+    vertical-align: middle;
+    border-bottom: 1px solid var(--sl-color-gray-6);
+    font-variant-numeric: tabular-nums;
+  }
+  table.twd tbody tr.twd-row:nth-child(4n+1),
+  table.twd tbody tr.twd-row:nth-child(4n+2) {
+    /* stripe every pair (main + detail = 2 trs per visual row) */
+    background: color-mix(in srgb, var(--sl-color-gray-7) 45%, transparent);
+  }
+  table.twd tbody tr.twd-row:hover { background: color-mix(in srgb, var(--sl-color-accent) 9%, transparent); }
+
+  /* Toggle button cell */
+  td.twd-toggle-cell {
+    text-align: center;
+    width: 2rem;
+    padding: 0 0.3rem;
+    border-bottom: 1px solid var(--sl-color-gray-6);
+  }
+  button.twd-toggle {
+    background: transparent;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.3rem;
+    color: var(--sl-color-gray-3);
+    cursor: pointer;
+    font-size: 0.6rem;
+    line-height: 1;
+    padding: 0.25rem 0.35rem;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  button.twd-toggle:hover,
+  button.twd-toggle.twd-toggle-open {
+    border-color: var(--sl-color-accent);
+    color: var(--sl-color-accent);
+    background: color-mix(in srgb, var(--sl-color-accent) 10%, transparent);
+  }
+  button.twd-toggle:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Cohort label cells */
+  table.twd td.twd-cohort {
+    text-align: left;
+    font-weight: 500;
+    color: var(--sl-color-white);
+    padding: 0 0.7rem;
+  }
+  table.twd td.twd-cohort:first-of-type {
+    /* the cohort name column — slightly heavier */
+    max-width: 18rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Number cells */
+  table.twd td.twd-num {
+    padding: 0 0.7rem;
+    font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", monospace;
+  }
+  table.twd td.twd-n { color: var(--sl-color-gray-3); }
+
+  /* In-cell mini-bar (reduction / cache / strategy hit / native compact) */
+  table.twd td.twd-bar {
+    position: relative;
+    /* Vertically center the value so it aligns with the centered ::before fill
+       (the bug: with default alignment the number sat above the bar). Keep it a
+       real table-cell — `display:flex` here collapses the table's columns. */
+    vertical-align: middle;
+    padding: 0 0.7rem;
+    min-width: 6rem;
+  }
+  table.twd td.twd-bar::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 22%;
+    bottom: 22%;
+    width: calc(var(--pct, 0) * 1%);
+    background: color-mix(in srgb, var(--sl-color-accent) 20%, transparent);
+    border-radius: 0 2px 2px 0;
+    pointer-events: none;
+  }
+  /* Value text is always a solid readable foreground — the semantic colour lives on
+     the td itself (background tint) but must never bleed into the number text so it
+     merges with the bar fill. --sl-color-white is Starlight's semantic primary-content
+     token: dark in light mode, light in dark mode — giving correct contrast in both. */
+  table.twd td.twd-bar .twd-bar-v {
+    position: relative;
+    z-index: 1;
+    color: var(--sl-color-white) !important;
+  }
+
+  /* Semantic value colours */
+  .tw-good { color: var(--tw-good) !important; }
+  .tw-warn { color: var(--tw-warn) !important; }
+  .tw-bad  { color: var(--tw-bad) !important; font-weight: 700; }
+  .tw-dim  { color: var(--sl-color-gray-4, var(--sl-color-gray-3)); }
+
+  /* ── Detail panel (expandable per-strategy breakdown) ── */
+  tr.twd-detail-row td.twd-detail {
+    padding: 0;
+    border-bottom: 2px solid var(--sl-color-accent);
+    background: color-mix(in srgb, var(--sl-color-accent) 4%, var(--sl-color-gray-7, var(--sl-color-black)));
+  }
+  .twd-inner {
+    padding: 0.9rem 1.1rem 1rem 2.5rem;
+    display: grid;
+    gap: 0.15rem;
+  }
+  .twd-section {
+    margin: 0.65rem 0 0.25rem;
+    font-size: 0.7rem;
+    color: var(--sl-color-accent);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-weight: 600;
+  }
+  .twd-section:first-child { margin-top: 0; }
+
+  /* Bars inside detail panels (shared .twbar class) */
+  .twbar {
+    display: grid;
+    grid-template-columns: minmax(10rem, max-content) 1fr 3.5rem;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+    margin: 0.2rem 0;
+  }
+  .twbar > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .twbar .track {
+    background: var(--sl-color-gray-6);
+    border-radius: 999px;
+    height: 0.65rem;
+    overflow: hidden;
+  }
+  .twbar .fill {
+    background: var(--sl-color-accent);
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .twbar--fire .fill {
+    background: color-mix(in srgb, var(--sl-color-accent) 55%, var(--sl-color-gray-5));
+  }
+  .twbar .val {
+    text-align: right;
+    color: var(--sl-color-gray-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Status + banners ── */
+  .tw-dash-status {
+    color: var(--sl-color-gray-3);
+    font-size: 0.78rem;
+    margin-top: 0.7rem;
+  }
+  .tw-banner {
+    border-left: 3px solid var(--sl-color-accent);
+    padding: 0.55rem 0.85rem;
+    background: var(--sl-color-gray-6);
+    border-radius: 0 0.4rem 0.4rem 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--sl-color-white);
+  }
+
+  /* ── Honest empty-state ── */
+  .tw-dash-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
+    border: 1px dashed var(--sl-color-gray-5);
+    border-radius: 0.55rem;
+    padding: 1.4rem 1.5rem;
+    background: color-mix(in srgb, var(--sl-color-accent) 4%, transparent);
+  }
+  .tw-dash-empty .tw-empty-title { font-size: 1.05rem; font-weight: 700; color: var(--sl-color-white); margin: 0; }
+  .tw-dash-empty p { margin: 0; color: var(--sl-color-gray-2); font-size: 0.9rem; max-width: 52ch; }
+  .tw-empty-cmd {
+    font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", monospace;
+    background: var(--sl-color-gray-6);
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.4rem;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.85rem;
+    color: var(--sl-color-white);
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 28rem) {
+    .twbar {
+      grid-template-columns: 1fr 3rem;
+      grid-template-rows: auto auto;
+      row-gap: 0.12rem;
+    }
+    .twbar > span:first-child { grid-column: 1 / -1; color: var(--sl-color-gray-3); }
+    .twbar .track { grid-column: 1; grid-row: 2; }
+    .twbar .val   { grid-column: 2; grid-row: 2; }
+    .twd-inner { padding-left: 0.75rem; }
+  }
+
+  /* ── Light mode ── */
+  :root[data-theme="light"] .twd-section {
+    color: var(--sl-color-accent-high);
+  }
+
+  /* ── Motion preference ── */
+  @media (prefers-reduced-motion: reduce) {
+    .twbar .fill { transition: none; }
+    button.twd-toggle { transition: none; }
+  }
+</style>
+
+<script>
+  import { init } from "../scripts/dashboard";
+  for (const el of document.querySelectorAll<HTMLElement>(".tw-dash")) init(el);
+</script>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Rounded square background — transparent so it reads on any tab bar colour -->
+  <rect width="32" height="32" rx="7" fill="#2aa39c"/>
+  <!-- Monospace "t" glyph: crossbar + stem, crisp at 16×16 and up -->
+  <!-- Crossbar -->
+  <rect x="8" y="10" width="16" height="2.5" rx="1.25" fill="#ffffff"/>
+  <!-- Stem -->
+  <rect x="13.75" y="10" width="4.5" height="15" rx="1.25" fill="#ffffff"/>
+</svg>

@@ -1,0 +1,206 @@
+---
+/**
+ * PageTitle override — Starlight component override.
+ *
+ * On /guides/* pages only, renders a compact "page actions" row beneath the
+ * page <h1>. On every other page the component is transparent (renders only
+ * the default <h1> with no extras).
+ *
+ * Actions:
+ *  • Copy page as Markdown  — writes entry.body (raw .md source) to clipboard.
+ *  • Open in ChatGPT        — https://chatgpt.com/?q=<encoded-prompt>
+ *  • Open in Claude         — https://claude.ai/new?q=<encoded-prompt>
+ *
+ * The chat-URL prompt is: "Read <absolute-page-url> and help me with it."
+ * Both links open in a new tab.
+ *
+ * Markdown source: Astro's content-layer entry.body carries the raw .md text
+ * (everything after the frontmatter fence). This is embedded as a JSON-escaped
+ * data-attribute on the copy button so the inline client script can reach it
+ * without an extra HTTP fetch. Works fully in a static build.
+ *
+ * Limitation: entry.body is the raw source text including any MDX import
+ * statements, but NOT the rendered/resolved content of imported components.
+ * For these pages (plain .md files) this is a perfect 1-to-1 markdown copy.
+ */
+
+// PAGE_TITLE_ID is the stable anchor id Starlight uses for the page-level a11y skip target.
+const PAGE_TITLE_ID = "_top";
+
+const { entry, id } = Astro.locals.starlightRoute;
+const isGuidePage = id.startsWith("guides/");
+
+// Absolute page URL used in the chat prompt and displayed to the user.
+// Astro.site is the `site:` key in astro.config.mjs (trimwire.example placeholder).
+// Astro.url.pathname gives us the path (/guides/faq/).
+const siteBase = (Astro.site?.toString() ?? "").replace(/\/$/, "");
+const pageUrl = siteBase + Astro.url.pathname;
+
+// Build the chat prompt and encode it for URL embedding.
+const chatPrompt = `Read ${pageUrl} and help me with it`;
+const encodedPrompt = encodeURIComponent(chatPrompt);
+
+const chatGptUrl = `https://chatgpt.com/?q=${encodedPrompt}`;
+const claudeUrl = `https://claude.ai/new?q=${encodedPrompt}`;
+
+// The raw markdown text (entry.body is everything after the frontmatter ---).
+// JSON.stringify gives us a safely-escaped string literal for the data attr.
+const rawMarkdown = entry.body ?? "";
+---
+
+<h1 id={PAGE_TITLE_ID}>{entry.data.title}</h1>
+
+{
+  isGuidePage && (
+    <div class="page-actions" role="toolbar" aria-label="Page actions">
+      <button
+        class="pa-btn pa-copy"
+        type="button"
+        aria-label="Copy this page as Markdown"
+        data-md={rawMarkdown}
+      >
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="none"/>
+          <path d="M3 11H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="pa-label">Copy as Markdown</span>
+        <span class="pa-success" aria-live="polite" aria-atomic="true"></span>
+      </button>
+
+      <a
+        class="pa-btn pa-chat"
+        href={chatGptUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Open this page in ChatGPT (opens in new tab)"
+      >
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/>
+        </svg>
+        <span class="pa-label">Open in ChatGPT</span>
+      </a>
+
+      <a
+        class="pa-btn pa-chat"
+        href={claudeUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Open this page in Claude (opens in new tab)"
+      >
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17.304 4.274c-1.366-.163-2.755-.139-4.163.047C10.47 4.702 7.938 5.82 6.006 7.71 4.074 9.6 2.922 12.175 2.738 14.9c-.085 1.255.046 2.528.38 3.696.38 1.314 1.018 2.473 1.872 3.34l.19.19h1.073l-.166-.277c-.76-1.27-1.202-2.718-1.29-4.303-.135-2.412.67-4.915 2.23-6.851 1.56-1.937 3.823-3.3 6.385-3.77 1.38-.254 2.77-.254 4.112-.003.993.185 1.91.548 2.698 1.063.757.496 1.36 1.12 1.79 1.858.436.748.657 1.568.657 2.418 0 .942-.247 1.89-.74 2.765-.49.875-1.195 1.644-2.066 2.26l-.032.023.028.028c.348.356.674.742.977 1.153.07.094.138.19.204.286l.05.076.09-.038c1.245-.519 2.24-1.303 2.93-2.283.71-1.012 1.073-2.198 1.073-3.434 0-1.245-.371-2.457-1.068-3.516-.682-1.038-1.655-1.885-2.82-2.444a9.293 9.293 0 0 0-1.972-.606zm-4.13 1.603l-.12.012c-.7.086-1.392.238-2.055.455-2.18.71-3.99 2.178-5.09 4.12-.86 1.515-1.29 3.235-1.244 5.005.023.888.163 1.75.413 2.545.265.844.654 1.6 1.148 2.233l.012.015h5.898l-.056-.078c-.36-.503-.666-1.03-.904-1.562-.42-.937-.618-1.906-.582-2.865.04-1.052.346-2.032.903-2.898.558-.866 1.346-1.587 2.33-2.11l.046-.025-.015-.048a10.52 10.52 0 0 0-.453-1.17c-.183-.393-.39-.77-.616-1.133l-.012-.02-.036.003-.036.004c-1.148.178-2.172.638-2.995 1.334-.823.697-1.396 1.614-1.666 2.668l-.028.11-.11-.027c-.36-.089-.707-.22-1.023-.384l-.067-.037.013-.074c.216-1.26.795-2.44 1.685-3.397.886-.953 2.032-1.66 3.34-2.063.475-.145.962-.248 1.45-.305l.094-.01-.055-.077a12.02 12.02 0 0 0-.344-.425zm3.226.234c.46.258.88.572 1.25.939.583.576 1.011 1.252 1.261 2.01.23.706.28 1.44.155 2.148-.12.685-.4 1.332-.814 1.887-.4.535-.918.985-1.538 1.33l-.056.03.04.05c.26.324.49.665.682 1.022l.024.043.049-.007c.748-.115 1.45-.373 2.076-.77.64-.405 1.18-.952 1.578-1.608.397-.655.635-1.395.7-2.154.064-.762-.038-1.538-.295-2.254-.266-.735-.702-1.392-1.275-1.94a6.63 6.63 0 0 0-1.995-1.24l-.055-.022-.05.06c-.252.302-.484.62-.694.95l-.043.073zm-1.594 5.455c-.726.386-1.3.929-1.698 1.585-.382.63-.572 1.343-.565 2.092.004.44.077.88.213 1.296.132.404.327.788.573 1.124l.023.031h4.252l-.028-.062a7.49 7.49 0 0 1-.431-1.3c-.1-.467-.137-.943-.108-1.412.04-.618.2-1.215.464-1.738.195-.384.452-.733.762-1.026l.043-.04-.044-.038a7.617 7.617 0 0 0-1.111-.812l-.066-.04-.065.04c-.078.047-.155.096-.23.148l-.048.034-.048-.033a7.577 7.577 0 0 0-.889-.468l-.044-.021-.044.021z"/>
+        </svg>
+        <span class="pa-label">Open in Claude</span>
+      </a>
+    </div>
+  )
+}
+
+<style>
+  @layer starlight.core {
+    h1 {
+      margin-top: 1rem;
+      font-size: var(--sl-text-h1);
+      line-height: var(--sl-line-height-headings);
+      font-weight: 600;
+      color: var(--sl-color-white);
+    }
+  }
+
+  @layer starlight.components {
+    /* ── Page-actions row ─────────────────────────────────────────────── */
+    .page-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.65rem;
+      margin-bottom: -0.25rem; /* optically closes gap before content panel border */
+    }
+
+    .pa-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35em;
+      padding: 0.28em 0.65em;
+      font-size: 0.75rem;
+      font-weight: 500;
+      line-height: 1.4;
+      color: var(--sl-color-gray-2);
+      background: transparent;
+      border: 1px solid var(--sl-color-gray-5);
+      border-radius: 0.35rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition:
+        color 0.15s,
+        border-color 0.15s,
+        background 0.15s;
+      white-space: nowrap;
+      /* reset <button> defaults */
+      font-family: inherit;
+      appearance: none;
+    }
+
+    .pa-btn:hover,
+    .pa-btn:focus-visible {
+      color: var(--sl-color-accent-high);
+      border-color: var(--sl-color-accent);
+      background: color-mix(in srgb, var(--sl-color-accent) 8%, transparent);
+    }
+
+    /* Teal focus ring — overrides the global rule to use the right offset */
+    .pa-btn:focus-visible {
+      outline: 2px solid var(--sl-color-accent);
+      outline-offset: 2px;
+    }
+
+    /* Success state on copy button */
+    .pa-copy.pa-copied {
+      color: var(--tw-good, #22c87a);
+      border-color: var(--tw-good, #22c87a);
+    }
+
+    .pa-success {
+      font-size: 0.7rem;
+      display: none;
+    }
+    .pa-copy.pa-copied .pa-success {
+      display: inline;
+    }
+    .pa-copy.pa-copied .pa-label {
+      display: none;
+    }
+
+    /* Light mode: darken slightly so border has enough contrast on white */
+    :root[data-theme="light"] .pa-btn {
+      border-color: var(--sl-color-gray-4);
+    }
+  }
+</style>
+
+<script>
+  // Copy-as-Markdown handler.
+  // We use event delegation on the document so it works after any future
+  // client-side navigation (Astro view transitions etc.).
+  document.addEventListener("click", async (e) => {
+    const btn = (e.target as Element).closest<HTMLButtonElement>("button.pa-copy");
+    if (!btn) return;
+
+    const md = btn.dataset.md ?? "";
+    // navigator.clipboard requires a secure context (https or localhost).
+    // In a static-site deployment this is always satisfied.
+    await navigator.clipboard.writeText(md);
+
+    // Show success state for 2 s
+    const successSpan = btn.querySelector<HTMLElement>(".pa-success");
+    if (successSpan) successSpan.textContent = "Copied!";
+    btn.classList.add("pa-copied");
+    btn.setAttribute("aria-label", "Copied to clipboard");
+
+    setTimeout(() => {
+      btn.classList.remove("pa-copied");
+      btn.setAttribute("aria-label", "Copy this page as Markdown");
+      if (successSpan) successSpan.textContent = "";
+    }, 2000);
+  });
+</script>

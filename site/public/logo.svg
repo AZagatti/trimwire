@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+  <!-- Rounded square mark -->
+  <rect x="1" y="1" width="22" height="22" rx="5" fill="#2aa39c"/>
+  <!-- "t" crossbar -->
+  <rect x="5.5" y="7" width="13" height="2" rx="1" fill="#ffffff"/>
+  <!-- "t" stem -->
+  <rect x="9.5" y="7" width="4" height="13" rx="1" fill="#ffffff"/>
+</svg>

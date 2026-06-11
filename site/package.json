@@ -1,0 +1,32 @@
+{
+  "name": "trimwire-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "trimwire's public site: landing page, docs, community telemetry dashboard, and performance page (Astro + Starlight).",
+  "scripts": {
+    "sync-docs": "node scripts/sync-docs.mjs",
+    "predev": "npm run sync-docs",
+    "dev": "astro dev",
+    "prebuild": "npm run sync-docs",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "test": "vitest run",
+    "test:e2e": "npm run build && playwright test"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.34.0",
+    "astro": "^5.5.0",
+    "sharp": "^0.33.0",
+    "starlight-llms-txt": "^0.6.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.60.0",
+    "happy-dom": "^20.10.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.8"
+  }
+}

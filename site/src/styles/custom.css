@@ -1,0 +1,231 @@
+/* trimwire — site theme. Teal accent + restrained polish.
+   Everything keys off Starlight's own CSS custom properties so dark/light
+   parity is automatic; the only hardcoded brand colour is the teal accent. */
+
+/* ── Design tokens ──────────────────────────────────────────────────────────
+   Brand surface token: the dark card/panel background used across hero-visual,
+   KPI cards, and table headers. Keeps all dark surfaces in sync via one token.
+   Light override below uses Starlight's gray-6 (off-white card surface). */
+:root {
+  --sl-color-accent-low: #0c2b29;
+  --sl-color-accent: #2aa39c;
+  --sl-color-accent-high: #9fe7e2;
+  /* Theme-aware ambient hero glow (low-alpha teal; no color-mix dependency). */
+  --tw-hero-glow: rgba(42, 163, 156, 0.1);
+  /* Semantic metric colours for the data tables (good / warn / bad), tuned WCAG-AA
+     on the dark table background. Light overrides below shift green/red darker. */
+  --tw-good: #22c87a;
+  --tw-warn: #e0a000;
+  --tw-bad: #e85d3f;
+  /* Shared border-radius token — all cards, panels, KPI cards, and table
+     containers use this so radius reads as one system, not a collection
+     of per-component magic numbers. */
+  --tw-radius: 0.55rem;
+  /* Shared top-accent border width — the 3-px teal cap on cards, panels,
+     KPI tiles, and hero-visual. One token → one visual language. */
+  --tw-cap: 3px;
+}
+:root[data-theme="light"] {
+  --sl-color-accent-low: #c7efec;
+  --sl-color-accent: #178a83;
+  --sl-color-accent-high: #0c413e;
+  --tw-hero-glow: rgba(23, 138, 131, 0.1);
+  --tw-good: #1a9a5e; /* ≈ 5.2:1 on the light card bg */
+  --tw-bad: #c94022; /* ≈ 5.5:1 on the light card bg */
+}
+
+/* ── Light-mode link contrast fix ────────────────────────────────────────────
+   --sl-color-accent (#178a83) achieves only 4.2:1 on white, below WCAG 2 AA's
+   4.5:1 for normal text. Override the Starlight link colour token in light mode
+   to #0f6e68, which clears 4.5:1 (#0f6e68 on #fff ≈ 5.4:1). Decorative uses
+   of --sl-color-accent (borders, fills, focus rings) keep the original teal. */
+:root[data-theme="light"] {
+  --sl-color-text-accent: #0f6e68;
+}
+
+/* ── Site title: logo glyph sizing ──────────────────────────────────────────
+   Starlight sizes the logo image to nav-height - 2*nav-pad-y. The result can
+   feel oversized on the compact header. Cap it to a smaller value so the logo
+   sits at the same optical weight as the text wordmark beside it. */
+.site-title img {
+  height: 1.3rem !important;
+  width: auto;
+  border-radius: 0.25rem; /* tiny rounding so the svg shape looks intentional */
+}
+
+/* ── Type rhythm ── */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+}
+
+/* ── Hero: a faint teal ambient glow behind the copy + an accent underline on
+   the title. Type-first, no illustration. The gradient is a background on the
+   hero itself (no extra layer / z-index juggling). ── */
+.hero {
+  background: radial-gradient(
+    ellipse 70% 60% at 25% 40%,
+    var(--tw-hero-glow),
+    transparent 72%
+  );
+}
+.hero h1 {
+  display: inline-block; /* so the underline hugs the text, not the column */
+  text-decoration: underline;
+  text-decoration-color: var(--sl-color-accent);
+  text-decoration-thickness: 3px;
+  text-underline-offset: 6px;
+}
+.hero .tagline {
+  max-width: 44ch;
+}
+
+/* ── Section headings on content pages get a teal tick for clear hierarchy. ── */
+.sl-markdown-content h2 {
+  border-inline-start: var(--tw-cap) solid var(--sl-color-accent);
+  padding-inline-start: 0.6rem;
+}
+
+/* ── Cards: one cohesive monochrome surface (override Starlight's per-card
+   colour vars), with a teal left-accent + subtle lift revealed on hover.
+   border-radius now uses --tw-radius so it matches hero-visual + KPI tiles. ── */
+.card-grid .card {
+  --sl-card-border: var(--sl-color-gray-5);
+  --sl-card-bg: var(--sl-color-gray-6);
+  border-radius: var(--tw-radius);
+  border-inline-start: var(--tw-cap) solid transparent; /* reserved; teal on hover */
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+@media (hover: hover) {
+  .card-grid .card:hover {
+    border-inline-start-color: var(--sl-color-accent);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.45);
+  }
+}
+/* Keyboard users: a clear ring when focus lands inside a card. */
+.card-grid .card:focus-within {
+  outline: 2px solid var(--sl-color-accent);
+  outline-offset: 2px;
+}
+
+/* ── A consistent teal focus ring (the polish that reads as "considered"). ── */
+:where(a, button, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--sl-color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ── Motion is decorative here — fully disable it on request. ── */
+@media (prefers-reduced-motion: reduce) {
+  .card-grid .card {
+    transition: none;
+  }
+  .card-grid .card:hover {
+    transform: none;
+  }
+}
+
+/* ── Mobile header: show theme-toggle button, hide social icons ─────────────
+   Starlight's .right-group is `sl-hidden md:sl-flex` — hidden on mobile.
+   On splash pages there is no sidebar-toggle / hamburger, so the theme
+   switcher is completely unreachable at ≤ 49.99rem.  Fix: restore the
+   right-group as a flex container on all widths, but hide the social-icons
+   child on narrow viewports so only the theme-toggle button is exposed.
+   Uses Starlight's own class names — no extra markup or component override. */
+header .right-group {
+  display: flex !important;
+}
+@media (max-width: 49.99rem) {
+  header .right-group .social-icons {
+    display: none;
+  }
+}
+
+/* ── Demo-mode badge (shown when ?demo or ?preview is in the URL) ── */
+.tw-demo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  background: color-mix(in srgb, var(--tw-warn) 12%, transparent);
+  border: 1px solid var(--tw-warn);
+  color: var(--tw-warn);
+  border-radius: calc(var(--tw-radius) * 0.65);
+  padding: 0.3rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  margin-bottom: 1rem;
+}
+.tw-demo-badge::before {
+  content: "⚠";
+  font-style: normal;
+}
+
+/* ── Dashboard: light-mode contrast fix for .sub labels ── */
+/* --sl-color-accent in light mode is ~3.7:1 on the card background (fails
+   WCAG AA). Switch to --sl-color-accent-high which clears the 4.5:1 threshold. */
+:root[data-theme="light"] .twg .sub {
+  color: var(--sl-color-accent-high);
+}
+
+/* ── KPI cards + hero-visual: harmonise radius with --tw-radius ─────────────
+   Both widgets define their border-radius inline in their component <style>.
+   The global tokens below override them via the cascade so all surfaces read
+   as one system. No !important needed — specificity is equal, last wins. */
+.tw-kpi {
+  border-radius: var(--tw-radius);
+}
+
+/* ── Light mode: KPI card background tint ───────────────────────────────────
+   In light mode Starlight's --sl-color-gray-7 is very close to white, making
+   the KPI cards invisible against the page background. Add a subtle teal wash
+   so the cards have lift without a heavy border. */
+:root[data-theme="light"] .tw-kpi {
+  background: color-mix(in srgb, var(--sl-color-accent) 5%, var(--sl-color-gray-6));
+}
+
+/* ── Light mode: table header background ────────────────────────────────────
+   table.twb thead th and table.twd thead th use --sl-color-gray-7 / black as
+   their sticky background. In light mode this renders near-white, which is
+   fine — but the bottom border (2px teal) then "floats" without a surface.
+   A very subtle gray keeps the sticky header grounded. */
+:root[data-theme="light"] table.twb thead th,
+:root[data-theme="light"] table.twd thead th {
+  background: var(--sl-color-gray-6);
+}
+
+/* ── Banner: radius harmonisation ─────────────────────────────────────────── */
+.tw-banner {
+  border-radius: 0 var(--tw-radius) var(--tw-radius) 0;
+}
+
+/* ── Empty-state: radius harmonisation ─────────────────────────────────────── */
+.tw-bench-empty,
+.tw-dash-empty {
+  border-radius: var(--tw-radius);
+}
+
+/* ── Doc-content table: prevent long monospace field names from wrapping ──────
+   The telemetry/benchmark payload tables have a "Field" first column whose
+   `code` names can be 30+ chars (e.g. `strategy_any_fired_pct_bucket`). With
+   the browser's default table layout these names break mid-token into a very
+   narrow column, making the table unreadable.
+
+   Fix: `nowrap` on the first-column code so the name stays on one line, and
+   `overflow-x: auto` on the table wrapper so the table scrolls horizontally
+   when the page is narrower than the expanded first column. The wrapper is the
+   Starlight `.sl-markdown-content` element itself (no extra div). */
+.sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.sl-markdown-content table td:first-child code,
+.sl-markdown-content table th:first-child {
+  white-space: nowrap;
+}

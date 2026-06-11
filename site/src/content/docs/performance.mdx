@@ -1,0 +1,58 @@
+---
+title: Performance
+description: What trimwire's pruning actually buys — measured by offline replay of real strategy code. Headroom, not dollars.
+sidebar:
+  order: 0
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+trimwire optimizes for **clean context — window headroom**, not your bill. These
+numbers come from **offline replay**: deterministic `/v1/messages` bodies fed
+through the *real* strategy code under the shipped `default` config. Byte figures
+are exact and reproducible; cost/token figures are estimates; timing is
+host-dependent.
+
+<CardGrid>
+  <Card title="0–99% lighter">
+    Request size shrinks by session shape — **nothing** when there's no
+    redundancy, a lot on long tool-heavy sessions. trimwire never invents
+    savings.
+  </Card>
+  <Card title="Headroom, not money">
+    The reliable win is context-window headroom. Net cost is **non-monotonic**
+    under prompt caching: a wash-to-slight-loss on short sessions, **≈ −52% at
+    256 turns**. We report headroom and refuse to quote a dollar figure.
+  </Card>
+  <Card title="Sub-2 ms overhead">
+    Pruning runs off the network critical path; the streamed response is
+    forwarded byte-for-byte, unbuffered.
+  </Card>
+  <Card title="Safe on every corpus">
+    Orphan-free (never splits a tool call↔result pair), `system` and `tools[]`
+    untouched, validated across the corpus set plus a 3,000-body fuzz.
+  </Card>
+</CardGrid>
+
+## Why "headroom, not dollars"
+
+Prompt caching makes net cost non-monotonic: pruning can bust a cached prefix
+and cost *more* on a short session, while saving substantially on a long one.
+Quoting a single "% saved on your bill" would be dishonest. What trimwire
+reliably does is keep the request **focused** — the share that is the recent
+window you're actually working on — and **low-redundancy** — less repeated tool
+output crowding the model. On a redundancy-heavy corpus, focus climbs (e.g.
+41.6% → 67.2%) purely by shedding dead weight.
+
+## See it yourself
+
+- `trimwire preview <session.jsonl>` — replay the strategies over one of your own
+  recorded transcripts, read-only, no network, and see exactly what would trim.
+- The full methodology, every corpus, and the cost model live in the repo:
+  [benchmark/results/RESULTS.md](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md).
+
+:::note
+The headline figures are **offline-replay** measurements of synthetic-but-realistic
+session shapes, not a live A/B on your account. Treat cost/token numbers as
+estimates and verify with your own `trimwire stats` over time.
+:::

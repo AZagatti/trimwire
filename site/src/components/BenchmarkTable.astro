@@ -1,0 +1,161 @@
+---
+// Community model-benchmark leaderboard. PUBLIC_BENCHMARK_URL is read at build time
+// and baked onto the host's data-* attr; the bundled script reads it at runtime.
+// Logic + a11y live in src/scripts/benchmark.ts (typed + unit-tested).
+const url = import.meta.env.PUBLIC_BENCHMARK_URL ?? "";
+---
+
+<div class="tw-bench" data-benchmark={url}>
+  <div class="tw-bench-kpi"></div>
+  <div class="tw-bench-controls"></div>
+  <div class="tw-bench-table"></div>
+  <p class="tw-bench-status" role="status" aria-live="polite">Loading…</p>
+</div>
+
+<style is:global>
+  /* Leaderboard widget. Everything is created at runtime by the script, so styles
+     are global (scoped styles wouldn't reach the generated DOM). Keys off Starlight
+     CSS vars + the trimwire semantic tokens (custom.css) for dark/light parity. */
+  /* The whole page content is widened for this data page (see the page's
+     --sl-content-width override); the benchmark just fills it. */
+  .tw-bench { margin-top: 1.2rem; }
+
+  /* KPI strip */
+  .tw-bench-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+                  gap: 0.7rem; margin-bottom: 1rem; }
+  /* Equal-height cards: grid stretches every item to the row height. A reserved
+     min-height for the optional subtitle line keeps subtitle-less cards (MODELS,
+     CONTRIBUTORS) the SAME height as the others instead of the grid sizing the
+     row off a single card. */
+  .tw-kpi { background: var(--sl-color-gray-7, var(--sl-color-black));
+            border: 1px solid var(--sl-color-gray-5); border-top: 3px solid var(--sl-color-accent);
+            border-radius: 0.55rem; padding: 0.7rem 0.9rem;
+            /* Neutralize Starlight's markdown content-flow `:not(:first-child)`
+               top margin, which leaks onto these grid items and makes every card
+               but the first 16px taller-by-row (the first card stretched to fill
+               it, the rest didn't). margin:0 keeps all cards equal height. */
+            margin: 0; }
+  .tw-kpi-l { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em;
+              color: var(--sl-color-gray-3); }
+  .tw-kpi-v { font-size: 1.7rem; font-weight: 700; line-height: 1.1; color: var(--sl-color-white);
+              font-variant-numeric: tabular-nums; margin-top: 0.1rem; }
+  /* min-height reserves one line even when the subtitle is empty, so every card
+     is the same height regardless of whether it has a subtitle. */
+  .tw-kpi-s { font-size: 0.76rem; color: var(--sl-color-accent); margin-top: 0.15rem;
+              min-height: 1.1rem;
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Controls: search + family chips */
+  .tw-bench-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem 0.75rem;
+                       margin-bottom: 0.8rem; }
+  .tw-search { flex: 0 1 18rem; min-width: 11rem; font-size: 0.86rem;
+               padding: 0.4rem 0.7rem 0.4rem 1.9rem; border-radius: 0.45rem;
+               background: var(--sl-color-gray-7, var(--sl-color-black)) no-repeat 0.55rem center / 0.85rem;
+               background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa7b4' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
+               color: var(--sl-color-white); border: 1px solid var(--sl-color-gray-5); }
+  .tw-search:focus-visible { outline: 2px solid var(--sl-color-accent); outline-offset: 1px; }
+  .tw-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  /* font-weight 600 in BOTH states so selecting a chip never changes its width.
+     margin:0 neutralizes Starlight's content-flow `:not(:first-child)` top margin,
+     which leaked onto the flex chips and made the FIRST chip ("all") stretch
+     taller than the rest (same class of bug as the KPI cards). */
+  .tw-chip { font-size: 0.76rem; font-weight: 600; padding: 0.24rem 0.7rem; cursor: pointer;
+             margin: 0;
+             border-radius: 999px; border: 1px solid var(--sl-color-gray-5); background: transparent;
+             color: var(--sl-color-gray-2); transition: background 0.12s, color 0.12s; }
+  .tw-chip:hover { border-color: var(--sl-color-accent); color: var(--sl-color-white); }
+  .tw-chip-on { background: var(--sl-color-accent); border-color: var(--sl-color-accent);
+                color: var(--sl-color-black); }
+
+  /* Table */
+  /* Horizontal scroll + edge-shadow affordance for "more columns →" (see dashboard). */
+  .tw-bench-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    background:
+      linear-gradient(to right, var(--sl-color-bg) 30%, transparent) 0 0,
+      linear-gradient(to left, var(--sl-color-bg) 30%, transparent) 100% 0,
+      radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.16), transparent) 0 0,
+      radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.16), transparent) 100% 0;
+    background-repeat: no-repeat;
+    background-size: 36px 100%, 36px 100%, 14px 100%, 14px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+  /* min-width keeps columns readable; below it the wrapper scrolls horizontally. */
+  /* display:table overrides Starlight's `table{display:block}` so columns fill the
+     container; the .tw-bench-table wrapper handles mobile scroll via overflow-x. */
+  table.twb { width: 100%; display: table; min-width: 40rem; border-collapse: collapse; font-size: 0.85rem; }
+  table.twb thead th { position: sticky; top: 0; z-index: 2;
+                       background: var(--sl-color-gray-7, var(--sl-color-black));
+                       color: var(--sl-color-gray-2); font-size: 0.72rem; font-weight: 600;
+                       text-transform: uppercase; letter-spacing: 0.06em; text-align: right;
+                       white-space: nowrap; cursor: pointer; user-select: none;
+                       padding: 0.5rem 0.7rem; border-bottom: 2px solid var(--sl-color-accent); }
+  table.twb thead th:first-child { text-align: left; }
+  table.twb thead th.twb-th-fcs { color: var(--sl-color-white); }
+  table.twb thead th[aria-sort="descending"]::after { content: " ↓"; color: var(--sl-color-accent); }
+  table.twb thead th[aria-sort="ascending"]::after { content: " ↑"; color: var(--sl-color-accent); }
+  /* vertical-align:middle on EVERY body cell so the bar-column values line up
+     with the plain numeric columns (FCS, N, false-done) on one center line. */
+  table.twb tbody td { padding: 0; height: 2.5rem; text-align: right; white-space: nowrap;
+                       vertical-align: middle;
+                       border-bottom: 1px solid var(--sl-color-gray-6);
+                       font-variant-numeric: tabular-nums; }
+  table.twb tbody tr:nth-child(even) { background: color-mix(in srgb, var(--sl-color-gray-7) 45%, transparent); }
+  table.twb tbody tr:hover { background: color-mix(in srgb, var(--sl-color-accent) 9%, transparent); }
+  /* cell inner padding via the content elements so the bar can be full-bleed */
+  table.twb td.twb-model { text-align: left; font-weight: 500; color: var(--sl-color-white);
+                           padding: 0 0.7rem; }
+  table.twb td.twb-num { padding: 0 0.7rem; font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", monospace; }
+  table.twb td.twb-n { color: var(--sl-color-gray-3); }
+  table.twb td.twb-fcs { font-size: 1rem; font-weight: 700; color: var(--sl-color-white);
+                         border-left: 1px solid var(--sl-color-gray-6); }
+  table.twb tr[data-hero] td.twb-fcs { color: var(--sl-color-accent); }
+
+  /* in-cell mini-bar (retention / compression / usable) */
+  /* Vertically center the value to align with the centered ::before fill (keep it a
+     real table-cell — display:flex here collapses the table's columns). */
+  table.twb td.twb-bar { position: relative; vertical-align: middle;
+                         padding: 0 0.7rem; min-width: 6rem; }
+  table.twb td.twb-bar::before { content: ""; position: absolute; left: 0; top: 22%; bottom: 22%;
+                                 width: calc(var(--pct, 0) * 1%);
+                                 background: color-mix(in srgb, var(--sl-color-accent) 20%, transparent);
+                                 border-radius: 0 2px 2px 0; pointer-events: none; }
+  /* Value text is always a solid readable foreground — the semantic colour lives on
+     the td itself (background tint) but must never bleed into the number text so it
+     merges with the bar fill. --sl-color-white is Starlight's semantic primary-content
+     token: dark in light mode, light in dark mode — giving correct contrast in both. */
+  table.twb td.twb-bar .twb-bar-v {
+    position: relative;
+    z-index: 1;
+    color: var(--sl-color-white) !important;
+  }
+
+  /* semantic value colours */
+  .tw-good { color: var(--tw-good) !important; }
+  .tw-warn { color: var(--tw-warn) !important; }
+  .tw-bad { color: var(--tw-bad) !important; font-weight: 700; }
+  .tw-dim { color: var(--sl-color-gray-4, var(--sl-color-gray-3)); }
+  .twb-flag { color: var(--tw-bad); }
+
+  .tw-bench-status { color: var(--sl-color-gray-3); font-size: 0.78rem; margin-top: 0.7rem; }
+  .tw-banner { border-left: 3px solid var(--sl-color-accent); padding: 0.55rem 0.85rem;
+               background: var(--sl-color-gray-6); border-radius: 0 0.4rem 0.4rem 0;
+               font-size: 0.85rem; line-height: 1.5; color: var(--sl-color-white); }
+  /* Honest empty-state (collector not published / fetch failed) — a CTA, not fake data. */
+  .tw-bench-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem;
+                    border: 1px dashed var(--sl-color-gray-5); border-radius: 0.55rem;
+                    padding: 1.4rem 1.5rem; background: color-mix(in srgb, var(--sl-color-accent) 4%, transparent); }
+  .tw-bench-empty .tw-empty-title { font-size: 1.05rem; font-weight: 700; color: var(--sl-color-white); margin: 0; }
+  .tw-bench-empty p { margin: 0; color: var(--sl-color-gray-2); font-size: 0.9rem; max-width: 52ch; }
+  .tw-empty-cmd { font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", monospace;
+                  background: var(--sl-color-gray-6); border: 1px solid var(--sl-color-gray-5);
+                  border-radius: 0.4rem; padding: 0.35rem 0.6rem; font-size: 0.85rem; color: var(--sl-color-white); }
+
+  @media (prefers-reduced-motion: reduce) { .tw-chip { transition: none; } }
+</style>
+
+<script>
+  import { init } from "../scripts/benchmark";
+  for (const el of document.querySelectorAll<HTMLElement>(".tw-bench")) init(el);
+</script>

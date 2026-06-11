@@ -1,0 +1,31 @@
+---
+title: Community dashboard
+description: Aggregate, k-anonymous statistics shared by trimwire users who opted in via `trimwire share stats`.
+template: splash
+head:
+  # Widen the whole content column (prose + data) for this data-heavy page — the
+  # 8-column table needs more room than the default ~67.5rem reading width.
+  - tag: style
+    content: ".sl-container { max-width: 90rem !important; }"
+---
+
+import CommunityDashboard from '../../components/CommunityDashboard.astro';
+
+Numbers below come from trimwire users who **opted in** with `trimwire share
+stats`. Everything is **anonymous, content-free, and aggregated** — coarse
+buckets only, with small groups suppressed (k-anonymity). No prompts, code,
+paths, or identifiers are ever collected. See
+[how the data is collected & protected](/guides/telemetry/).
+
+<div class="tw-reading-help">
+
+**Reading the table:** each row is a *cohort* — grouped by the user's Claude Code
+model, profile, summarizer backend, and session length. The columns are the
+always-on **model-free pruning** metrics (reduction, cache stability, strategy
+fire rates). Expand a row (▶) for its per-strategy breakdown and, where the
+optional summarizer was used, its stats. (The "model" is your Claude session
+model, not the summarizer model.)
+
+</div>
+
+<CommunityDashboard />

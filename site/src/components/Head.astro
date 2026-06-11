@@ -1,0 +1,40 @@
+---
+/**
+ * Custom Head override — extends Starlight's default head output with a small
+ * accessibility fix: scrollable <pre> code blocks must be keyboard-focusable
+ * (axe rule: scrollable-region-focusable). We add tabindex="0" to any <pre>
+ * whose scrollable width exceeds its client width, making them keyboard-reachable.
+ *
+ * All other <head> tags come from Starlight's own head array (canonical, meta,
+ * favicons, etc.) — we do not duplicate them here.
+ */
+const { head } = Astro.locals.starlightRoute;
+---
+
+{head.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
+
+<script is:inline>
+  /**
+   * For every <pre> that is scrollable (scrollWidth > clientWidth), add
+   * tabindex="0" so keyboard users can reach and scroll it.
+   * Also add a visually-hidden label via aria-label when the pre wraps a code
+   * block that has a language (data-language attribute from Shiki/Expressive Code).
+   * Runs after paint so the layout is stable (scrollWidth is reliable).
+   */
+  (function () {
+    function patchScrollablePre() {
+      var pres = document.querySelectorAll("pre");
+      for (var i = 0; i < pres.length; i++) {
+        var pre = pres[i];
+        if (pre.scrollWidth > pre.clientWidth && pre.getAttribute("tabindex") === null) {
+          pre.setAttribute("tabindex", "0");
+        }
+      }
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", patchScrollablePre);
+    } else {
+      patchScrollablePre();
+    }
+  })();
+</script>

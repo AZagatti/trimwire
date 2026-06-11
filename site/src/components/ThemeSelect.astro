@@ -1,0 +1,140 @@
+---
+// ThemeSelect override: replaces the <select> widget with a single icon button
+// that cycles dark → light → auto on each click.
+// Uses Starlight's existing localStorage key ("starlight-theme") and
+// StarlightThemeProvider.updatePickers() so it stays in sync with the rest of
+// Starlight's theme machinery.  SSR/no-JS safe: defaults to "auto".
+---
+
+<starlight-theme-select>
+  <button
+    type="button"
+    id="tw-theme-btn"
+    aria-label="Toggle color theme"
+    title="Toggle color theme"
+    class="sl-flex tw-theme-btn"
+  >
+    {/* Icons rendered by the ThemeProvider template; updated by StarlightThemeProvider */}
+    {/* Inline SVGs for sun/moon/auto so we have no extra fetch */}
+    <svg class="tw-icon tw-icon--light" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <!-- sun -->
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+    </svg>
+    <svg class="tw-icon tw-icon--dark" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <!-- moon -->
+      <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+    </svg>
+    <svg class="tw-icon tw-icon--auto" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <!-- laptop/auto -->
+      <rect x="2" y="4" width="20" height="13" rx="2" ry="2" stroke="currentColor" stroke-width="2" fill="none"/>
+      <path d="M22 19H2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+    </svg>
+  </button>
+</starlight-theme-select>
+
+{/* Inlined to avoid FOUC — same pattern as Starlight's default ThemeSelect */}
+<script is:inline>
+  StarlightThemeProvider.updatePickers();
+</script>
+
+<script>
+  // StarlightThemeProvider is injected as a global by ThemeProvider.astro (inline script).
+  declare const StarlightThemeProvider: { updatePickers(theme?: string): void };
+
+  type Theme = 'auto' | 'dark' | 'light';
+
+  const storageKey = 'starlight-theme';
+
+  const parseTheme = (theme: unknown): Theme =>
+    theme === 'auto' || theme === 'dark' || theme === 'light' ? theme : 'auto';
+
+  const loadTheme = (): Theme =>
+    parseTheme(typeof localStorage !== 'undefined' && localStorage.getItem(storageKey));
+
+  function storeTheme(theme: Theme): void {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(storageKey, theme === 'light' || theme === 'dark' ? theme : '');
+    }
+  }
+
+  const getPreferredColorScheme = (): Theme =>
+    matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+
+  const cycleOrder: Theme[] = ['dark', 'light', 'auto'];
+
+  function nextTheme(current: Theme): Theme {
+    const idx = cycleOrder.indexOf(current);
+    return cycleOrder[(idx + 1) % cycleOrder.length];
+  }
+
+  function onThemeChange(theme: Theme): void {
+    StarlightThemeProvider.updatePickers(theme);
+    document.documentElement.dataset.theme =
+      theme === 'auto' ? getPreferredColorScheme() : theme;
+    storeTheme(theme);
+    // Update the visible icon on our own button(s).
+    document.querySelectorAll<HTMLElement>('starlight-theme-select .tw-theme-btn').forEach((btn) => {
+      btn.setAttribute('data-theme', theme);
+    });
+  }
+
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (loadTheme() === 'auto') onThemeChange('auto');
+  });
+
+  class StarlightThemeSelect extends HTMLElement {
+    constructor() {
+      super();
+      onThemeChange(loadTheme());
+      this.querySelector('.tw-theme-btn')?.addEventListener('click', () => {
+        onThemeChange(nextTheme(loadTheme()));
+      });
+    }
+  }
+  customElements.define('starlight-theme-select', StarlightThemeSelect);
+</script>
+
+<style>
+  @layer starlight.core {
+    .tw-theme-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: var(--sl-color-text-accent);
+      padding: 0.5em;
+      margin: -0.5em;
+      border-radius: 2px;
+      align-items: center;
+      justify-content: center;
+    }
+    .tw-theme-btn:hover {
+      opacity: 0.66;
+    }
+
+    /* Show only the icon that matches the current theme; default to auto */
+    .tw-icon--light,
+    .tw-icon--dark {
+      display: none;
+    }
+    .tw-icon--auto {
+      display: block;
+    }
+
+    .tw-theme-btn[data-theme="light"] .tw-icon--auto,
+    .tw-theme-btn[data-theme="light"] .tw-icon--dark {
+      display: none;
+    }
+    .tw-theme-btn[data-theme="light"] .tw-icon--light {
+      display: block;
+    }
+
+    .tw-theme-btn[data-theme="dark"] .tw-icon--auto,
+    .tw-theme-btn[data-theme="dark"] .tw-icon--light {
+      display: none;
+    }
+    .tw-theme-btn[data-theme="dark"] .tw-icon--dark {
+      display: block;
+    }
+  }
+</style>

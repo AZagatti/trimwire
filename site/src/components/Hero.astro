@@ -1,0 +1,376 @@
+---
+/**
+ * Custom Hero — overrides Starlight's default.
+ *
+ * Differences from the default:
+ *  1. The right column is always rendered (no hero.image needed).
+ *     It shows a minimal before→after stat block + flow diagram.
+ *  2. The actions row is split: primary CTA + one secondary button in the
+ *     hero proper; three lighter "data" links rendered as a sub-row with
+ *     sm text so the hero doesn't become a wall of equal-weight buttons.
+ *  3. Tagline capped at ~52ch for readability.
+ */
+import { LinkButton } from "@astrojs/starlight/components";
+
+// PAGE_TITLE_ID is the stable anchor id Starlight uses for page-level a11y.
+const PAGE_TITLE_ID = "_top";
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title = data.title, tagline, actions = [] } = data.hero || {};
+
+// Split actions: primary/secondary hero CTAs vs data-page links.
+// Treat the first two actions (Get started, View on GitHub) as hero CTAs.
+// Anything after index 1 lands in the data links strip.
+const heroActions = actions.slice(0, 2);
+const dataActions = actions.slice(2);
+---
+
+<div class="hero">
+  <!-- ── Left: copy + CTAs ───────────────────────────────────── -->
+  <div class="sl-flex stack">
+    <div class="sl-flex copy">
+      <h1 id={PAGE_TITLE_ID} data-page-title>
+        <span set:html={title} />
+        <span class="sr-suffix"> — context pruning for Claude Code</span>
+      </h1>
+      {tagline && <div class="tagline" set:html={tagline} />}
+    </div>
+
+    {
+      heroActions.length > 0 && (
+        <div class="sl-flex actions">
+          {heroActions.map(
+            ({ attrs: { class: className, ...attrs } = {}, icon, link: href, text, variant }) => (
+              <LinkButton {href} {variant} icon={icon?.name} class:list={[className]} {...attrs}>
+                {text}
+                {icon?.html && <Fragment set:html={icon.html} />}
+              </LinkButton>
+            )
+          )}
+        </div>
+      )
+    }
+
+    {
+      dataActions.length > 0 && (
+        <div class="data-links-wrap">
+          <span class="data-links-label" aria-hidden="true">Data pages</span>
+          <nav class="data-links" aria-label="Data pages">
+            {dataActions.map(({ link: href, text }) => (
+              <a href={href} class="data-link">
+                {text}
+              </a>
+            ))}
+          </nav>
+        </div>
+      )
+    }
+  </div>
+
+  <!-- ── Right: stats + flow diagram ──────────────────────────── -->
+  <aside class="hero-visual" aria-label="trimwire at a glance">
+    <!-- Flow diagram: Claude Code → trimwire → Anthropic -->
+    <div class="flow" role="img" aria-label="Request flow: Claude Code sends to trimwire, which prunes and forwards to Anthropic">
+      <div class="flow-node flow-cc">
+        <span class="flow-label">Claude Code</span>
+        <span class="flow-sub">your session</span>
+      </div>
+      <div class="flow-arrow" aria-hidden="true">
+        <svg width="28" height="16" viewBox="0 0 28 16" fill="none" aria-hidden="true">
+          <path d="M0 8h24M18 2l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="flow-node flow-tw">
+        <span class="flow-label">trimwire</span>
+        <span class="flow-sub">prunes context</span>
+      </div>
+      <div class="flow-arrow" aria-hidden="true">
+        <svg width="28" height="16" viewBox="0 0 28 16" fill="none" aria-hidden="true">
+          <path d="M0 8h24M18 2l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="flow-node flow-api">
+        <span class="flow-label">Anthropic</span>
+        <span class="flow-sub">slimmer payload</span>
+      </div>
+    </div>
+
+    <!-- Before / after stat block -->
+    <div class="stats" role="region" aria-label="Before and after trimwire">
+      <div class="stat-col">
+        <p class="stat-head">Before</p>
+        <div class="stat-bar-wrap">
+          <div class="stat-bar stat-bar-before" role="img" aria-label="Full context before trimming"></div>
+        </div>
+        <p class="stat-val">100%</p>
+        <p class="stat-lbl">full context</p>
+      </div>
+      <div class="stat-divider" aria-hidden="true">→</div>
+      <div class="stat-col">
+        <p class="stat-head">After</p>
+        <div class="stat-bar-wrap">
+          <div class="stat-bar stat-bar-after" role="img" aria-label="Reduced context after trimming"></div>
+        </div>
+        <p class="stat-val stat-val-accent">~45%</p>
+        <p class="stat-lbl">typical long session</p>
+      </div>
+    </div>
+
+    <p class="stat-note">Sub-2 ms overhead · cache stays warm · transcript untouched</p>
+  </aside>
+</div>
+
+<style>
+  @layer starlight.core {
+    /* ── Two-column hero grid ────────────────────────────────── */
+    .hero {
+      display: grid;
+      align-items: center;
+      gap: 1rem;
+      padding-bottom: 1rem;
+    }
+
+    @media (min-width: 50rem) {
+      .hero {
+        grid-template-columns: 7fr 4fr;
+        gap: 3%;
+        padding-block: clamp(2.5rem, calc(1rem + 10vmin), 10rem);
+      }
+    }
+
+    /* ── Left column ────────────────────────────────────────── */
+    .stack {
+      flex-direction: column;
+      gap: clamp(1.5rem, calc(1.5rem + 1vw), 2rem);
+      text-align: center;
+    }
+    .copy {
+      flex-direction: column;
+      gap: 1rem;
+      align-items: center;
+    }
+    .copy > * {
+      max-width: 50ch;
+    }
+    h1 {
+      font-size: clamp(var(--sl-text-3xl), calc(0.25rem + 5vw), var(--sl-text-6xl));
+      line-height: var(--sl-line-height-headings);
+      font-weight: 600;
+      color: var(--sl-color-white);
+    }
+    /* Visually-hidden suffix for screen readers: enriches the bare "trimwire" H1
+       with a descriptive phrase without altering the visible hero text. */
+    .sr-suffix {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border-width: 0;
+    }
+    .tagline {
+      font-size: clamp(var(--sl-text-sm), calc(0.0625rem + 1.5vw), var(--sl-text-lg));
+      color: var(--sl-color-gray-2);
+      max-width: 44ch;
+    }
+
+    /* Primary + secondary hero buttons */
+    .actions {
+      gap: 0.75rem 1.25rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* Smaller data-page link strip */
+    .data-links-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--sl-color-gray-5);
+      width: 100%;
+    }
+    .data-links-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--sl-color-gray-3);
+      line-height: 1;
+    }
+    .data-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.9rem;
+      justify-content: center;
+    }
+    .data-link {
+      font-size: 0.82rem;
+      color: var(--sl-color-gray-2);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .data-link:hover,
+    .data-link:focus-visible {
+      color: var(--sl-color-accent-high);
+      border-bottom-color: var(--sl-color-accent);
+    }
+
+    @media (min-width: 50rem) {
+      .stack { text-align: start; }
+      .copy { align-items: flex-start; }
+      .actions { justify-content: flex-start; }
+      .data-links-wrap { align-items: flex-start; }
+      .data-links { justify-content: flex-start; }
+    }
+
+    /* ── Right column: visual panel ─────────────────────────── */
+    .hero-visual {
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+      border: 1px solid var(--sl-color-gray-5);
+      border-top: var(--tw-cap, 3px) solid var(--sl-color-accent);
+      border-radius: var(--tw-radius, 0.55rem);
+      padding: 1.2rem 1.3rem;
+      background: var(--sl-color-gray-7, var(--sl-color-black));
+      order: 1; /* stacks BELOW the value-prop text + CTAs on mobile */
+    }
+
+    @media (min-width: 50rem) {
+      .hero-visual {
+        order: 2; /* right column on desktop */
+      }
+    }
+
+    /* Flow diagram */
+    .flow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+    }
+    .flow-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.15rem;
+      padding: 0.4rem 0.55rem;
+      border-radius: 0.4rem;
+      border: 1px solid var(--sl-color-gray-5);
+      min-width: 0;
+      flex: 1;
+    }
+    .flow-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--sl-color-white);
+      white-space: nowrap;
+    }
+    .flow-sub {
+      font-size: 0.62rem;
+      color: var(--sl-color-gray-3);
+      white-space: nowrap;
+    }
+    .flow-tw {
+      border-color: var(--sl-color-accent);
+      background: color-mix(in srgb, var(--sl-color-accent) 8%, transparent);
+    }
+    .flow-tw .flow-label {
+      color: var(--sl-color-accent-high);
+    }
+    .flow-arrow {
+      color: var(--sl-color-gray-4);
+      flex-shrink: 0;
+    }
+
+    /* Before / after bar chart */
+    .stats {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .stat-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.2rem;
+    }
+    .stat-head {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--sl-color-gray-3);
+      margin: 0;
+    }
+    .stat-bar-wrap {
+      width: 100%;
+      height: 0.55rem;
+      background: var(--sl-color-gray-6);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .stat-bar {
+      height: 100%;
+      border-radius: 999px;
+    }
+    .stat-bar-before {
+      width: 100%;
+      background: var(--sl-color-gray-4);
+    }
+    .stat-bar-after {
+      width: 45%;
+      background: var(--sl-color-accent);
+    }
+    .stat-val {
+      font-size: 1.15rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--sl-color-gray-2);
+      margin: 0;
+      line-height: 1.1;
+    }
+    .stat-val-accent {
+      color: var(--sl-color-accent-high);
+    }
+    .stat-lbl {
+      font-size: 0.62rem;
+      color: var(--sl-color-gray-3);
+      margin: 0;
+      text-align: center;
+    }
+    .stat-divider {
+      font-size: 1.1rem;
+      color: var(--sl-color-gray-4);
+      flex-shrink: 0;
+      align-self: center;
+    }
+    .stat-note {
+      font-size: 0.66rem;
+      color: var(--sl-color-gray-3);
+      margin: 0;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    /* Mobile: visual panel full-width, flow wraps gracefully */
+    @media (max-width: 49.99rem) {
+      .hero-visual {
+        margin-inline: auto;
+        max-width: 22rem;
+        width: 100%;
+      }
+    }
+
+    /* Reduced-motion: skip bar transition */
+    @media (prefers-reduced-motion: reduce) {
+      .stat-bar-after { transition: none; }
+    }
+  }
+</style>
