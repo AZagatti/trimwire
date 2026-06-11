@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>trimwire report</title>
+<!--
+  Self-contained local dashboard for `trimwire dashboard`. The CLI replaces the
+  data token below (in `const DATA = ...`) with a JSON object (content-free ledger
+  metadata only — never message text) and writes this file out; open it via file://, no
+  server, no network, no external assets. Dependency-free: inline CSS + vanilla
+  JS, no libraries/CDNs. Honest framing: trimwire reports context HEADROOM, not
+  dollar savings (net cost is non-monotonic under prompt caching).
+
+  Expected DATA shape:
+  {
+    generated_at: "2026-06-06 16:30 UTC", db_path: "…", window_days: 30,
+    total_requests, total_in_bytes, total_out_bytes, bytes_saved, reduction_pct, est_tokens_removed,
+    per_day:        [{day, requests, in_bytes, out_bytes}],
+    per_strategy:       [[name, count]],
+    per_strategy_bytes: [[name, bytes]],
+    cache_stability:  {ratio, no_strategy_stable, no_strategy_total},
+    response_metrics: {avg_ttft_us, requests_with_ttft, total_input_tokens, total_output_tokens,
+                       total_cache_read_input_tokens, total_cache_creation_input_tokens},
+    sessions: [{session_id, last_day, requests, in_bytes, out_bytes, reduction_pct, cache_hit_pct, model}]
+  }
+-->
+<style>
+  :root {
+    --bg:#0e1116; --panel:#161b22; --border:#2a323d; --fg:#e6edf3; --muted:#9aa7b4;
+    --accent:#4cc6c0; --accent-2:#7aa2f7; --warn:#e0af68; --max:1040px; --radius:12px;
+  }
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  a{color:var(--accent)} code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .wrap{max-width:var(--max);margin:0 auto;padding:24px 20px 60px}
+  header.top{border-bottom:1px solid var(--border);padding-bottom:16px;margin-bottom:24px}
+  .wordmark{font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0}
+  .wordmark .tw{color:var(--accent)}
+  .gen{color:var(--muted);font-size:13px;margin-top:4px}
+  h2{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+    margin:32px 0 12px;font-weight:600}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+  .tiles{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+  .tile{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
+  .tile .k{color:var(--muted);font-size:13px} .tile .v{font-size:26px;font-weight:700;margin-top:2px}
+  .tile .v.accent{color:var(--accent)} .tile .sub{color:var(--muted);font-size:12px;margin-top:2px}
+  .bars{display:flex;flex-direction:column;gap:9px}
+  .bar-row{display:grid;grid-template-columns:160px 1fr auto;gap:12px;align-items:center;font-size:14px}
+  .bar-row .name{color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar-track{background:#0a0d12;border-radius:6px;height:16px;overflow:hidden}
+  .bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));border-radius:6px}
+  .bar-row .amt{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+  .split{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .seg{display:flex;height:18px;border-radius:6px;overflow:hidden;margin-top:10px;background:#0a0d12}
+  .seg span{display:block;height:100%}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12.5px;margin-top:8px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  .day{display:grid;grid-template-columns:90px 1fr auto;gap:10px;align-items:center;font-size:12.5px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .sid{font-family:ui-monospace,monospace;color:var(--accent-2)}
+  .note{color:var(--muted);font-size:12.5px;margin-top:10px}
+  .empty{color:var(--muted);font-style:italic;padding:8px 0}
+  footer{margin-top:40px;color:var(--muted);font-size:12.5px;border-top:1px solid var(--border);padding-top:16px}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <h1 class="wordmark"><span class="tw">trim</span>wire — report</h1>
+    <div class="gen" id="gen"></div>
+  </header>
+
+  <h2>Summary</h2>
+  <div class="tiles" id="summary"></div>
+
+  <h2>Strategies — bytes trimmed</h2>
+  <div class="panel"><div class="bars" id="strategies"></div></div>
+
+  <h2>Cache</h2>
+  <div class="split">
+    <div class="panel" id="cache-stability"></div>
+    <div class="panel" id="cache-tokens"></div>
+  </div>
+
+  <h2>Daily activity</h2>
+  <div class="panel"><div id="perday"></div></div>
+
+  <h2>Recent sessions</h2>
+  <div class="panel"><div id="sessions"></div></div>
+
+  <footer>
+    Generated locally by <code>trimwire dashboard</code> — content-free (byte counts, hashes,
+    timings; never your messages). trimwire reports context <strong>headroom</strong>, not dollar
+    savings: net cost is non-monotonic under prompt caching (short sessions can cost more, long
+    ones win). A snapshot — re-run <code>trimwire dashboard</code> to refresh.
+  </footer>
+</main>
+
+<script>
+const DATA = __TRIMWIRE_DATA__;
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// fmtBytes mirrors stats::human_bytes (src/cli/stats.rs) — same 1024-based units
+// (B..TB) so the local dashboard and `trimwire stats` agree. Keep them in step.
+function fmtBytes(n){ n = Number(n)||0; const neg = n<0; let v = Math.abs(n); const u=["B","KB","MB","GB","TB"]; let i=0; while(v>=1024&&i<u.length-1){v/=1024;i++;} return (neg?"-":"")+(i?v.toFixed(1):v)+" "+u[i]; }
+function fmtCount(n){ n=Number(n)||0; const a=Math.abs(n); if(a>=1e6)return (n/1e6).toFixed(1)+"M"; if(a>=1e3)return (n/1e3).toFixed(1)+"k"; return ""+n; }
+function pct(x){ return (Number(x)||0).toFixed(0)+"%"; }
+
+function tile(parent,k,v,sub,accent){ const t=el("div","tile"); t.appendChild(el("div","k",esc(k))); t.appendChild(el("div","v"+(accent?" accent":""),esc(v))); if(sub) t.appendChild(el("div","sub",esc(sub))); parent.appendChild(t); }
+
+function render(){
+  const d = DATA || {};
+  $("gen").textContent = (d.generated_at ? ("generated "+d.generated_at) : "") + (d.db_path ? "  ·  "+d.db_path : "") + (d.window_days ? "  ·  "+d.window_days+"-day window" : "");
+
+  // Summary tiles — zero-state first: four "0" tiles read as broken, so when no
+  // request has been recorded yet, show one honest banner instead.
+  const s = $("summary");
+  if (!(Number(d.total_requests) > 0)) {
+    s.appendChild(el("div","empty","No requests recorded yet — run a `claude` turn through trimwire, then re-run `trimwire dashboard`."));
+  } else {
+    tile(s, "requests", fmtCount(d.total_requests));
+    tile(s, "request size", fmtBytes(d.total_in_bytes)+" → "+fmtBytes(d.total_out_bytes));
+    // "reduction" is the canonical term for % of request bytes trimmed (matches the
+    // ledger, `trimwire stats`, and the community dashboard); "headroom" stays in prose.
+    tile(s, "context reduction", pct(d.reduction_pct), fmtBytes(d.bytes_saved)+" trimmed", true);
+    tile(s, "≈ tokens removed", fmtCount(d.est_tokens_removed), "context, not bill");
+  }
+
+  // Strategy bars (by bytes trimmed; fall back to count)
+  const sw = $("strategies");
+  const counts = Object.fromEntries((d.per_strategy||[]).map(p => [p[0], p[1]]));
+  const bytesArr = (d.per_strategy_bytes||[]).slice().sort((a,b)=>b[1]-a[1]);
+  const maxB = bytesArr.reduce((m,p)=>Math.max(m, p[1]||0), 0) || 1;
+  if (!bytesArr.length) { sw.appendChild(el("div","empty","No strategies have fired yet.")); }
+  for (const [name, bytes] of bytesArr) {
+    const row = el("div","bar-row");
+    // One combined screen-reader announcement per row (the split name/track/value
+    // spans are decorative) — mirrors the community dashboard's bar() a11y.
+    row.setAttribute("role","group");
+    row.setAttribute("aria-label", name+": "+fmtBytes(bytes)+" trimmed"+(counts[name]!=null?(", "+fmtCount(counts[name])+" times"):""));
+    const nm = el("div","name",esc(name)); nm.setAttribute("aria-hidden","true"); row.appendChild(nm);
+    const track = el("div","bar-track"); track.setAttribute("aria-hidden","true"); const fill = el("div","bar-fill"); fill.style.width = Math.max(2, (bytes/maxB)*100) + "%"; track.appendChild(fill); row.appendChild(track);
+    const amt = el("div","amt", fmtBytes(bytes) + (counts[name]!=null?("  · "+fmtCount(counts[name])+"×"):"")); amt.setAttribute("aria-hidden","true"); row.appendChild(amt);
+    sw.appendChild(row);
+  }
+
+  // Cache stability
+  const cs = d.cache_stability || {};
+  const csEl = $("cache-stability");
+  csEl.appendChild(el("div","k",`<span class="k">prompt-cache stability</span>`));
+  csEl.appendChild(el("div","v accent", cs.no_strategy_total ? pct((cs.ratio||0)*100) : "—"));
+  csEl.appendChild(el("div","note", cs.no_strategy_total
+    ? `${fmtCount(cs.no_strategy_stable)}/${fmtCount(cs.no_strategy_total)} no-op requests kept the prefix byte-identical (higher = cache held).`
+    : "no no-op requests recorded yet."));
+
+  // Cache tokens (read vs creation), TTFT
+  const rm = d.response_metrics || {};
+  const read = Number(rm.total_cache_read_input_tokens)||0, create = Number(rm.total_cache_creation_input_tokens)||0, inp = Number(rm.total_input_tokens)||0;
+  const tot = read+create+inp;
+  const ctEl = $("cache-tokens");
+  ctEl.appendChild(el("div","k",`<span class="k">input tokens by source</span>`));
+  if (tot>0) {
+    const seg = el("div","seg");
+    // Each colored segment carries its own label so meaning isn't color-only (the
+    // amber/teal pair is hard for ~5% of men) and screen readers announce it.
+    const mk=(w,c,label)=>{const x=el("span"); x.style.width=(w/tot*100)+"%"; x.style.background=c; x.setAttribute("role","img"); x.setAttribute("aria-label", label+" "+pct(w/tot*100)); return x;};
+    seg.appendChild(mk(read,"var(--accent)","cache-read")); seg.appendChild(mk(create,"var(--warn)","cache-write")); seg.appendChild(mk(inp,"#3a4654","uncached"));
+    ctEl.appendChild(seg);
+    ctEl.appendChild(el("div","legend",
+      `<span><span class="dot" style="background:var(--accent)"></span>cache-read ${fmtCount(read)}</span>`+
+      `<span><span class="dot" style="background:var(--warn)"></span>cache-write ${fmtCount(create)}</span>`+
+      `<span><span class="dot" style="background:#3a4654"></span>uncached ${fmtCount(inp)}</span>`));
+    ctEl.appendChild(el("div","note","cache-read bills ~0.1×, cache-write ~1.25–2× — read both, not just the hit rate."));
+  } else { ctEl.appendChild(el("div","empty","No token usage recorded (older rows, or usage not captured).")); }
+  if (rm.requests_with_ttft) ctEl.appendChild(el("div","note", "avg first-token latency (TTFT) "+((rm.avg_ttft_us||0)/1000).toFixed(1)+" ms over "+fmtCount(rm.requests_with_ttft)+" requests."));
+
+  // Per-day (last 14, simple in/out bars)
+  const pd = (d.per_day||[]).slice(0,14);
+  const pdEl = $("perday");
+  const maxDay = pd.reduce((m,x)=>Math.max(m, x.in_bytes||0), 0) || 1;
+  if (!pd.length) pdEl.appendChild(el("div","empty","No daily data yet."));
+  for (const day of pd) {
+    const row = el("div","day");
+    row.appendChild(el("div",null,esc(day.day)));
+    const track = el("div","bar-track"); const fill=el("div","bar-fill"); fill.style.width=Math.max(2,((day.in_bytes||0)/maxDay)*100)+"%"; track.appendChild(fill); row.appendChild(track);
+    row.appendChild(el("div",null, fmtCount(day.requests)+" req · "+fmtBytes((day.in_bytes||0)-(day.out_bytes||0))+" saved"));
+    pdEl.appendChild(row);
+  }
+
+  // Sessions table (pre-sorted server-side, newest first)
+  const sess = d.sessions||[];
+  const tEl = $("sessions");
+  if (!sess.length) { tEl.appendChild(el("div","empty","No sessions recorded yet — run a `claude` turn through trimwire.")); return; }
+  const tbl = el("table");
+  tbl.innerHTML = "<caption class='note' style='text-align:left;caption-side:top'>Recent sessions, newest first. \"reduction\" = % of request bytes trimmed; \"in→out\" = bytes before → after pruning.</caption>"+
+    "<thead><tr><th>session</th><th>last</th><th class='num'>req</th><th class='num'>in→out</th><th class='num'>reduction</th><th class='num'>cache-hit</th><th>model</th></tr></thead>";
+  const tb = el("tbody");
+  for (const r of sess) {
+    const tr = el("tr");
+    tr.innerHTML = `<td class="sid" title="${esc(r.session_id||"")}">${esc((r.session_id||"").slice(0,18))}</td><td>${esc(r.last_day)}</td>`+
+      `<td class="num">${fmtCount(r.requests)}</td>`+
+      `<td class="num">${fmtBytes(r.in_bytes)} → ${fmtBytes(r.out_bytes)}</td>`+
+      `<td class="num">${pct(r.reduction_pct)}</td>`+
+      `<td class="num">${pct(r.cache_hit_pct)}</td>`+
+      `<td>${esc((r.model||"?").replace(/^claude-/,""))}</td>`;
+    tb.appendChild(tr);
+  }
+  tbl.appendChild(tb); tEl.appendChild(tbl);
+}
+render();
+</script>
+</body>
+</html>

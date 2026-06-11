@@ -1,0 +1,1376 @@
+//! `trimwire summarizer benchmark` — score a LOCAL ollama model OR a configured
+//! API provider against a bundled, reasoning-dense corpus.
+//!
+//! **Scope:** scores local ollama models (via `call_model`) and configured API
+//! providers (via `api::call_api`).  An API provider is detected when the value
+//! passed to `--model` matches a `[[summarizer.providers]]` `id` in the user's
+//! config.  Otherwise the value is treated as a local ollama tag.
+//!
+//! **Safety (API path):** each corpus slice is a REAL, PAID call on the user's own
+//! provider key (never the Anthropic subscription token). Before any network I/O
+//! the benchmark prints an explicit cost/scope warning.  Without `--yes` (i.e. from
+//! the `trimwire summarizer benchmark` path) this is a **DRY RUN** — it prints what
+//! it would send and exits.  Pass `--yes` via `trimwire share benchmark --yes` to
+//! actually execute the API calls.
+//!
+//! **Non-goal:** benchmarking on the Anthropic subscription/OAuth token is
+//! explicitly NOT supported.  The API path only uses the key from the user's own
+//! `api_key_env` env var.  This is enforced by `api::call_api`.
+//!
+//! **Comparability disclaimer:** API-model scores are NOT directly comparable to
+//! local-model scores.  The corpus is tuned for local summarizers (dense reasoning
+//! excerpts, tight length budget, free-form FACTS-FIRST prompt).  Cloud models with
+//! larger context windows, different temperature defaults, and no `num_ctx` cap may
+//! score differently for structural reasons unrelated to summarisation quality.
+//! Treat API scores as a DIRECTIONAL sanity-check within the same model family, not
+//! a cross-backend ranking.
+//!
+//! It is a **sanity-check + a TRANSPARENT, directional rank** — NOT an
+//! authoritative quality ranking. `APPROVED_MODELS` (the blind real-slice
+//! gut-read in `src/summarizer/mod.rs`) stays the authority; this just lets
+//! a user see how their own model behaves on the same kind of slice the
+//! proxy summarizes, with every component shown so nothing hides behind one number.
+//!
+//! Composite `FCS = retention × reduction × 100` (the council-vetted multiplicative
+//! form already in `benchmark/model_bench.sh`: a verbatim copy OR a fact-dropper
+//! both score ~0), behind a **false-done safety gate** — any unsupported completion
+//! claim, or any slice that produced no usable summary, drops the model to the
+//! bottom tier regardless of FCS (FCS alone can't see the harm-causing failure mode).
+//!
+//! Layering: this is a CLI-layer command. The model I/O is `call_model` (local) or
+//! `api::call_api` (cloud); the scoring (`score_summary` / `aggregate`) is pure and
+//! unit-tested with no live model or network.
+
+use std::io::IsTerminal as _;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+
+use trimwire::config::{Config, SummarizerLocalConfig, SummarizerProviderConfig};
+use trimwire::summarizer::api::call_api;
+use trimwire::summarizer::{
+    APPROVED_MODELS, WARN_MODELS, build_prompt, call_model, fact_retention,
+    harm_check::detect_false_done, is_disqualified,
+};
+
+/// Bump when ANY corpus slice or needle changes — shared results from different
+/// corpus versions are NOT comparable. The collector/dashboard segregates by it.
+/// Pinned to the embedded bytes by `corpus_bytes_match_pinned_sha`.
+pub const CORPUS_VERSION: &str = "1";
+
+/// SHA-256 (hex) of the embedded corpus files concatenated in `CORPUS_FILES`
+/// order. A test pins this so editing a slice without bumping `CORPUS_VERSION`
+/// fails CI (forces an intentional, reviewed version change). Also the runtime
+/// HARD-gate for `--share`: a fork that edits the corpus without re-pinning this
+/// (e.g. skipping the test) can't upload polluted rows under `corpus_version`.
+const CORPUS_SHA: &str = "a19af1adb92b910f550a6617ce9ea89bdd30b38ee299e25394a2e4033ca9bbf8";
+
+/// SHA-256 (hex) of the embedded corpus, in `CORPUS_FILES` order.
+fn corpus_sha() -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for f in CORPUS_FILES {
+        h.update(f.as_bytes());
+    }
+    hex::encode(h.finalize())
+}
+
+/// Verbatim "summary is shorter than this fraction of the slice" floor: a summary
+/// that barely shrinks the input isn't a summary (it's a copy) → not usable.
+const MIN_USABLE_REDUCTION: f64 = 0.10;
+
+/// One reasoning-dense evaluation slice + its end-state load-bearing needles.
+/// (Extra JSON fields like `source` are ignored — serde skips unknown keys.)
+#[derive(Debug, Deserialize)]
+struct CorpusSlice {
+    id: String,
+    /// A faithful summary of this slice must make NO completion claim (the slice
+    /// shows work announced/started but never finished). Documentation only —
+    /// scoring measures `detect_false_done` on the model's output regardless.
+    #[serde(default)]
+    false_done_trap: bool,
+    /// End-state facts a faithful summary MUST keep (matched case- and
+    /// separator-insensitively via `fact_retention`).
+    needles: Vec<String>,
+    /// Pre-serialized excerpt text (the `### role` form `serialize_slice` emits).
+    slice: String,
+}
+
+/// The embedded corpus. A glob can't be embedded, so each file is listed; keep
+/// this order in sync with `CORPUS_SHA`.
+const CORPUS_FILES: &[&str] = &[
+    include_str!("../../benchmark/quality_corpus/s1_build_and_migrate.json"),
+    include_str!("../../benchmark/quality_corpus/s2_false_done_trap.json"),
+    include_str!("../../benchmark/quality_corpus/s3_decision_dense.json"),
+    include_str!("../../benchmark/quality_corpus/s4_partial_progress.json"),
+    include_str!("../../benchmark/quality_corpus/s5_noise_heavy.json"),
+];
+
+fn load_corpus() -> Result<Vec<CorpusSlice>> {
+    CORPUS_FILES
+        .iter()
+        .enumerate()
+        .map(|(i, raw)| {
+            serde_json::from_str(raw).with_context(|| format!("parse embedded corpus slice #{i}"))
+        })
+        .collect()
+}
+
+/// One model's result on one slice. PURE given the summary text.
+#[derive(Debug, Clone, Serialize)]
+struct SliceScore {
+    id: String,
+    /// Whether this slice is a designated false-done trap (from the corpus).
+    is_trap: bool,
+    kept: usize,
+    total: usize,
+    in_chars: usize,
+    out_chars: usize,
+    /// Count of unsupported completion claims (`detect_false_done`).
+    false_done: usize,
+    usable: bool,
+    /// `Some` when the model call failed (skip-compaction error); the slice then
+    /// scores zero retention and is not usable.
+    error: Option<String>,
+}
+
+impl SliceScore {
+    /// Fraction of bytes removed (`1 − out/in`); higher = tighter. 0 if it grew.
+    fn reduction(in_chars: usize, out_chars: usize) -> f64 {
+        if in_chars == 0 {
+            0.0
+        } else {
+            (1.0 - out_chars as f64 / in_chars as f64).max(0.0)
+        }
+    }
+}
+
+/// Score a model's `summary` against one corpus `slice`. Pure — no I/O, no model.
+fn score_summary(slice: &CorpusSlice, summary: &str) -> SliceScore {
+    let needle_refs: Vec<&str> = slice.needles.iter().map(String::as_str).collect();
+    let (kept, total) = fact_retention(summary, &needle_refs);
+    let in_chars = slice.slice.chars().count();
+    let out_chars = summary.chars().count();
+    let false_done = detect_false_done(summary, &slice.slice).len();
+    // Usable = non-empty AND it actually shrank. A verbatim/near-verbatim copy is
+    // not a summary — the safety gate treats "not usable" like a false-done.
+    let usable = !summary.trim().is_empty()
+        && SliceScore::reduction(in_chars, out_chars) > MIN_USABLE_REDUCTION;
+    SliceScore {
+        id: slice.id.clone(),
+        is_trap: slice.false_done_trap,
+        kept,
+        total,
+        in_chars,
+        out_chars,
+        false_done,
+        usable,
+        error: None,
+    }
+}
+
+/// Score for a slice whose model call failed: zero retention, not usable.
+fn errored_score(slice: &CorpusSlice, err: String) -> SliceScore {
+    SliceScore {
+        id: slice.id.clone(),
+        is_trap: slice.false_done_trap,
+        kept: 0,
+        total: slice.needles.len(),
+        in_chars: slice.slice.chars().count(),
+        out_chars: 0,
+        false_done: 0,
+        usable: false,
+        error: Some(err),
+    }
+}
+
+/// A model's aggregate across the whole corpus.
+#[derive(Debug, Clone, Serialize)]
+struct ModelScore {
+    model: String,
+    /// Backend kind: `"local"` (ollama) or `"api"` (cloud provider).
+    backend: String,
+    /// `total_kept / total_needles` across all slices (0..1).
+    retention: f64,
+    /// `1 − Σout/Σin` across all slices (0..1).
+    reduction: f64,
+    false_done_total: usize,
+    /// % of slices that produced a usable summary.
+    usable_pct: f64,
+    /// `retention × reduction × 100`, BEFORE the safety gate.
+    fcs: f64,
+    /// Safety gate: any false-done OR any unusable slice → bottom tier.
+    gated: bool,
+    /// `gated ? 0 : fcs` — the value the rank sorts on.
+    composite: f64,
+    slices: Vec<SliceScore>,
+}
+
+fn aggregate(model: String, backend: &str, slices: Vec<SliceScore>) -> ModelScore {
+    let total_kept: usize = slices.iter().map(|s| s.kept).sum();
+    let total_needles: usize = slices.iter().map(|s| s.total).sum();
+    // Reduction only over slices that produced a summary: an errored slice has
+    // out=0, which would otherwise read as 100% reduction and inflate the number
+    // for a model that's actually failing (it's already gated; this just keeps the
+    // displayed figure honest).
+    let sum_in: usize = slices
+        .iter()
+        .filter(|s| s.error.is_none())
+        .map(|s| s.in_chars)
+        .sum();
+    let sum_out: usize = slices
+        .iter()
+        .filter(|s| s.error.is_none())
+        .map(|s| s.out_chars)
+        .sum();
+    let false_done_total: usize = slices.iter().map(|s| s.false_done).sum();
+    let usable_count = slices.iter().filter(|s| s.usable).count();
+
+    let retention = if total_needles == 0 {
+        1.0
+    } else {
+        total_kept as f64 / total_needles as f64
+    };
+    let reduction = SliceScore::reduction(sum_in, sum_out);
+    let usable_pct = if slices.is_empty() {
+        0.0
+    } else {
+        usable_count as f64 / slices.len() as f64 * 100.0
+    };
+    let fcs = retention * reduction * 100.0;
+    // The gate dominates the rank: FCS can't see a confident false-completion, so a
+    // model that hallucinates "tests passed" must rank below an honest one even if
+    // its FCS is higher.
+    let gated = false_done_total > 0 || usable_count < slices.len();
+    let composite = if gated { 0.0 } else { fcs };
+
+    ModelScore {
+        model,
+        backend: backend.to_owned(),
+        retention,
+        reduction,
+        false_done_total,
+        usable_pct,
+        fcs,
+        gated,
+        composite,
+        slices,
+    }
+}
+
+/// Sanitize a model tag for a filename (`qwen3.5:4b` → `qwen3.5_4b`).
+fn safe_tag(model: &str) -> String {
+    model.replace([':', '/'], "_")
+}
+
+/// Run one model over the whole corpus (live ollama via `call_model`), saving each
+/// summary to `out` when given. Any model error degrades that slice to a zero score.
+async fn run_model(
+    lm: &SummarizerLocalConfig,
+    timeout_secs: u64,
+    corpus: &[CorpusSlice],
+    out: Option<&Path>,
+) -> ModelScore {
+    let mut scores = Vec::with_capacity(corpus.len());
+    for slice in corpus {
+        let score = match call_model(lm, timeout_secs, build_prompt(&slice.slice)).await {
+            Ok(summary) => {
+                if let Some(dir) = out {
+                    let path = dir.join(format!("{}__{}.txt", safe_tag(&lm.model), slice.id));
+                    if let Err(e) = std::fs::write(&path, &summary) {
+                        eprintln!("⚠ could not write {}: {e}", path.display());
+                    }
+                }
+                score_summary(slice, &summary)
+            }
+            Err(e) => errored_score(slice, e.to_string()),
+        };
+        scores.push(score);
+    }
+    aggregate(lm.model.clone(), "local", scores)
+}
+
+/// Run one API provider over up to `max_calls` corpus slices, saving each summary
+/// to `out` when given.  Any call error degrades that slice to a zero score.
+///
+/// The provider key is resolved from `provider.api_key_env` by `call_api` — trimwire
+/// never touches the Anthropic subscription/OAuth token.  This function is called
+/// ONLY after the safety gate in `benchmark()` has confirmed `yes=true`.
+async fn run_api_provider(
+    provider: &SummarizerProviderConfig,
+    corpus: &[CorpusSlice],
+    max_calls: usize,
+    out: Option<&Path>,
+) -> ModelScore {
+    let slices = &corpus[..max_calls.min(corpus.len())];
+    let mut scores = Vec::with_capacity(slices.len());
+    for slice in slices {
+        let score = match call_api(provider, build_prompt(&slice.slice)).await {
+            Ok(summary) => {
+                if let Some(dir) = out {
+                    let path = dir.join(format!("{}__{}.txt", safe_tag(&provider.id), slice.id));
+                    if let Err(e) = std::fs::write(&path, &summary) {
+                        eprintln!("⚠ could not write {}: {e}", path.display());
+                    }
+                }
+                score_summary(slice, &summary)
+            }
+            Err(e) => errored_score(slice, e.to_string()),
+        };
+        scores.push(score);
+    }
+    // Label the ModelScore with the provider id so the table is unambiguous.
+    aggregate(provider.id.clone(), "api", scores)
+}
+
+/// Print the pre-call safety warning for an API provider and return whether
+/// the caller should proceed (i.e. `yes=true`) or treat this as a dry run.
+///
+/// Always returns `false` when `yes` is false — the caller must skip all
+/// network I/O.  When `yes` is true the warning is still printed so the user
+/// can see exactly what is about to be charged.
+fn api_safety_warning(provider: &SummarizerProviderConfig, corpus_len: usize, yes: bool) -> bool {
+    eprintln!(
+        "⚠  API BENCHMARK — REAL MONEY WARNING\n\
+         \x20  This makes {corpus_len} real API call(s) to {} using model {:?}.\n\
+         \x20  Charged to your {} key (NOT your Anthropic subscription).\n\
+         \x20  API scores are NOT directly comparable to local-model scores\n\
+         \x20  (corpus tuned for local summarizers; temperature/context differ).\n\
+         \x20  Treat them as a directional sanity-check within the same model family.",
+        if provider.base_url.is_empty() {
+            "(provider default URL)".to_owned()
+        } else {
+            provider.base_url.clone()
+        },
+        provider.model,
+        provider.api_key_env,
+    );
+    if !yes {
+        eprintln!(
+            "\n  DRY RUN — no API calls made.\n\
+             \x20  To run locally (no upload): trimwire summarizer benchmark --model {} --yes\n\
+             \x20  To run AND share the score: trimwire share benchmark --model {} --yes",
+            provider.id, provider.id,
+        );
+    }
+    yes
+}
+
+/// Top-level JSON shape for `--json`.
+#[derive(Serialize)]
+struct BenchmarkReport<'a> {
+    corpus_version: &'a str,
+    /// Always true — this rank is directional, not an authoritative quality score.
+    directional: bool,
+    models: &'a [ModelScore],
+}
+
+// ─── interactive model picker ────────────────────────────────────────────────
+
+/// The outcome of parsing one line of user input in the benchmark model picker.
+/// Extracted as a pure function so it can be unit-tested without I/O.
+#[derive(Debug, PartialEq)]
+pub enum PickerChoice {
+    /// Benchmark this single model tag.
+    Model(String),
+    /// Benchmark all installed ollama models (same as `--all-installed`).
+    AllInstalled,
+    /// Use the default model (whatever was configured / the recommended default).
+    Default,
+    /// Cancel — do not run the benchmark.
+    Cancel,
+}
+
+/// Pure parse of one line of user input against the installed model list.
+///
+/// Rules (applied in order, case-insensitive trim):
+/// - empty string → `Default`
+/// - `"q"` or `"quit"` → `Cancel`
+/// - `"a"` or `"all"` → `AllInstalled`
+/// - a decimal number in `1..=installed.len()` → `Model(installed[n-1])`
+/// - anything else (out-of-range number, unrecognised text) → `Cancel`
+///
+/// This function is pure (no I/O) so it is cheap to unit-test exhaustively.
+pub fn resolve_picker_choice(input: &str, installed: &[String], _default: &str) -> PickerChoice {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return PickerChoice::Default;
+    }
+    let lower = trimmed.to_lowercase();
+    match lower.as_str() {
+        "q" | "quit" => return PickerChoice::Cancel,
+        "a" | "all" => return PickerChoice::AllInstalled,
+        _ => {}
+    }
+    if let Ok(n) = trimmed.parse::<usize>() {
+        if n >= 1 && n <= installed.len() {
+            return PickerChoice::Model(installed[n - 1].clone());
+        }
+    }
+    PickerChoice::Cancel
+}
+
+/// The default ollama endpoint (mirrors `SummarizerLocalConfig::default()`).
+const OLLAMA_DEFAULT_ENDPOINT: &str = "http://localhost:11434";
+
+/// Annotation suffix for a model tag in the picker list.
+fn model_annotation(tag: &str) -> &'static str {
+    use trimwire::summarizer::APPROVED_MODELS;
+    if tag == APPROVED_MODELS.first().copied().unwrap_or("") {
+        " ← recommended"
+    } else if is_disqualified(tag) {
+        " (DISQUALIFIED)"
+    } else if WARN_MODELS.contains(&tag) {
+        " (warn: failed harm gate)"
+    } else if !APPROVED_MODELS.contains(&tag) {
+        " (unvalidated)"
+    } else {
+        ""
+    }
+}
+
+/// Show the numbered picker and read one line from stdin.
+///
+/// Returns the user's `PickerChoice` after parsing.  On EOF (stdin closed /
+/// Ctrl-D) returns `PickerChoice::Cancel` — no infinite loop.
+///
+/// Caller MUST have already confirmed that stdin is a TTY before calling this.
+fn prompt_model_picker(installed: &[String], default_model: &str) -> PickerChoice {
+    use std::io::Write as _;
+
+    println!("Select a model to benchmark (installed ollama models):");
+    println!();
+    for (i, tag) in installed.iter().enumerate() {
+        let ann = model_annotation(tag);
+        println!("  {:>2})  {tag}{ann}", i + 1);
+    }
+    println!();
+    println!("   a)  all installed");
+    println!("   q)  cancel (no benchmark)");
+    println!();
+    print!("Choice [Enter = {default_model}]: ");
+    let _ = std::io::stdout().flush();
+
+    let mut buf = String::new();
+    match std::io::stdin().read_line(&mut buf) {
+        Ok(0) | Err(_) => {
+            // EOF / error — cancel cleanly.
+            println!(); // newline after the prompt
+            PickerChoice::Cancel
+        }
+        Ok(_) => resolve_picker_choice(&buf, installed, default_model),
+    }
+}
+
+// ─── public entry points ─────────────────────────────────────────────────────
+
+/// `trimwire share benchmark [--yes]` entry point: score models then share.
+///
+/// Backs `trimwire share benchmark [--yes]`.
+/// Dry-run by default; real upload only with `--yes` (and a configured endpoint).
+pub fn benchmark_share(models: Vec<String>, all_installed: bool, yes: bool) -> Result<()> {
+    benchmark(models, all_installed, None, false, false, true, yes, None)
+}
+
+/// `trimwire summarizer benchmark` (feature `local_model`).
+#[allow(clippy::too_many_arguments)]
+pub fn benchmark(
+    models: Vec<String>,
+    all_installed: bool,
+    out: Option<PathBuf>,
+    json: bool,
+    quiet: bool,
+    share: bool,
+    yes: bool,
+    max_calls: Option<usize>,
+) -> Result<()> {
+    let cfg = Config::load().unwrap_or_else(|_| trimwire::config::profile_baseline("default"));
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+
+    // Classify each requested tag as LOCAL or API.
+    // A tag is "API" when it matches a configured [[summarizer.providers]] id.
+    // Everything else is treated as a local ollama tag (may not exist — ollama
+    // will error, which is scored as errored_score per slice; the user gets a
+    // clear error message).
+    let is_provider = |tag: &str| -> bool { cfg.summarizer.providers.iter().any(|p| p.id == tag) };
+
+    // ── Interactive model picker ──────────────────────────────────────────────
+    // Trigger ONLY when: no --model given AND NOT --all-installed AND NOT --json
+    // AND NOT --quiet AND stdin is a TTY. Scripts (piped stdin, --json, --quiet)
+    // keep the existing silent-default behaviour.
+    let (mut models, mut all_installed) = (models, all_installed);
+    if models.is_empty() && !all_installed && !json && !quiet && std::io::stdin().is_terminal() {
+        let endpoint = if cfg.summarizer.local.endpoint.is_empty() {
+            OLLAMA_DEFAULT_ENDPOINT
+        } else {
+            cfg.summarizer.local.endpoint.as_str()
+        };
+        match rt.block_on(super::fetch_ollama_tags(endpoint)) {
+            Err(e) => {
+                eprintln!(
+                    "no ollama models found at {endpoint} ({e})\n\
+                     → pull one: `ollama pull qwen3.5:4b`, or pass --model <tag>"
+                );
+                // Fall through: the default resolution below will pick up the
+                // configured/default model, or produce a clear ollama error per-slice.
+            }
+            Ok(installed) if installed.is_empty() => {
+                eprintln!(
+                    "no ollama models found at {endpoint} — pull one: \
+                     `ollama pull qwen3.5:4b`, or pass --model <tag>"
+                );
+                // Fall through to default behaviour.
+            }
+            Ok(installed) => {
+                // Determine the default (configured model > APPROVED_MODELS[0]).
+                let configured = cfg.summarizer.local.model.trim().to_owned();
+                let default_model = if configured.is_empty() {
+                    APPROVED_MODELS[0].to_owned()
+                } else {
+                    configured
+                };
+                let choice = prompt_model_picker(&installed, &default_model);
+                match choice {
+                    PickerChoice::Model(tag) => models = vec![tag],
+                    PickerChoice::AllInstalled => all_installed = true,
+                    PickerChoice::Default => models = vec![default_model],
+                    PickerChoice::Cancel => {
+                        println!("benchmark cancelled.");
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
+    // Resolve which models to score, in order, deduped:
+    //   --all-installed → every installed LOCAL ollama tag (DISQUALIFIED ones skipped
+    //   with a warn; provider ids never come from this path),
+    //   then any explicit --model (benchmarked even if disqualified — that's the
+    //   point; provider ids are also accepted here),
+    //   else the configured summarizer model, else the default approved tag.
+    let mut resolved: Vec<String> = Vec::new();
+    let push = |tag: String, list: &mut Vec<String>| {
+        if !tag.is_empty() && !list.contains(&tag) {
+            list.push(tag);
+        }
+    };
+    if all_installed {
+        match rt.block_on(super::fetch_ollama_tags(&cfg.summarizer.local.endpoint)) {
+            Ok(installed) => {
+                for tag in installed {
+                    if is_disqualified(&tag) {
+                        eprintln!("⚠ skipping {tag} (DISQUALIFIED for summarization)");
+                        continue;
+                    }
+                    push(tag, &mut resolved);
+                }
+            }
+            Err(e) => eprintln!("⚠ --all-installed: {e}"),
+        }
+    }
+    for m in models {
+        push(m, &mut resolved);
+    }
+    if resolved.is_empty() {
+        let configured = cfg.summarizer.local.model.trim().to_owned();
+        push(
+            if configured.is_empty() {
+                APPROVED_MODELS[0].to_owned()
+            } else {
+                configured
+            },
+            &mut resolved,
+        );
+    }
+    let models = resolved;
+
+    // Warn (never refuse) on a local model the gut-read flagged — benchmarking a
+    // weak or disqualified model is a legitimate reason to run this.
+    // Provider ids are not checked against the local approved/disqualified lists.
+    for m in &models {
+        if !is_provider(m) {
+            if is_disqualified(m) {
+                eprintln!(
+                    "⚠ {m} is DISQUALIFIED for production summarization (hallucinates / overstates completed work) — benchmarking it anyway"
+                );
+            } else if WARN_MODELS.contains(&m.as_str()) {
+                eprintln!(
+                    "⚠ {m} FAILED the harm gate (drops load-bearing facts) — a RAM opt-down, not an equal to qwen3.5:4b"
+                );
+            } else if !APPROVED_MODELS.contains(&m.as_str()) {
+                eprintln!("⚠ {m} is unvalidated — its summary fidelity has not been gut-read");
+            }
+        }
+    }
+
+    if let Some(dir) = &out {
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("create --out dir {}", dir.display()))?;
+    }
+
+    let corpus = load_corpus()?;
+
+    // Score each model/provider in order.  Provider ids are routed through the API
+    // path (behind the safety gate); local tags go through ollama.
+    let mut results: Vec<ModelScore> = models
+        .iter()
+        .map(|model| {
+            if let Some(provider) = cfg.summarizer.providers.iter().find(|p| &p.id == model) {
+                // API path: cap the paid calls at --max-calls (default = full corpus).
+                let cap = max_calls.unwrap_or(corpus.len()).min(corpus.len());
+                // Show the safety warning for the actual call count; proceed only if yes=true.
+                let proceed = api_safety_warning(provider, cap, yes);
+                if !proceed {
+                    // Dry run: return an empty ModelScore placeholder (all zeros,
+                    // backend="api-dry-run") so the table still renders a row.
+                    return aggregate(format!("{} (DRY RUN)", provider.id), "api-dry-run", vec![]);
+                }
+                rt.block_on(run_api_provider(provider, &corpus, cap, out.as_deref()))
+            } else {
+                // Local ollama path (unchanged behaviour).
+                let mut lm = cfg.summarizer.local.clone();
+                lm.model = model.clone();
+                let timeout = cfg.summarizer.timeout_secs;
+                rt.block_on(run_model(&lm, timeout, &corpus, out.as_deref()))
+            }
+        })
+        .collect();
+
+    // Rank: not-gated before gated, then composite descending, then model name for
+    // a deterministic order within the gated block (where every composite is 0).
+    results.sort_by(|a, b| {
+        a.gated
+            .cmp(&b.gated)
+            .then(
+                b.composite
+                    .partial_cmp(&a.composite)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+            .then_with(|| a.model.cmp(&b.model))
+    });
+
+    if share {
+        // Symmetric with `share stats`: an explicit config endpoint wins, else
+        // the built-in const (empty until §8D) — so the const goes live for the
+        // benchmark path too once it's filled, with no further code change.
+        let endpoint =
+            super::share::resolve_benchmark_endpoint(cfg.share.benchmark_endpoint.trim());
+        return run_share(&results, yes, endpoint);
+    }
+
+    if json {
+        let report = BenchmarkReport {
+            corpus_version: CORPUS_VERSION,
+            directional: true,
+            models: &results,
+        };
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    if quiet {
+        for r in &results {
+            let fcs = if r.backend == "api-dry-run" {
+                "DRY-RUN".to_owned()
+            } else if r.gated {
+                "FAIL".to_owned()
+            } else {
+                format!("{:.0}", r.fcs)
+            };
+            println!("{:<22} [{}] FCS {fcs}", r.model, r.backend);
+        }
+        return Ok(());
+    }
+
+    print_table(&results, &corpus, out.as_deref());
+    Ok(())
+}
+
+/// `--share`: build the content-free per-model rows, run each through the same
+/// fail-closed guard the stats telemetry uses, PRINT them, and — only with a
+/// configured `[share] benchmark_endpoint` AND `--yes` — upload them. Inert
+/// otherwise (dry run, no network I/O), mirroring `share stats`.
+fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
+    use super::share::{
+        BenchmarkPayload, BenchmarkShareInput, build_benchmark_payload,
+        guard_benchmark_content_free, post,
+    };
+
+    // HARD gate: never upload rows produced against a corpus that doesn't match the
+    // maintainer-reviewed, pinned hash — shared results across corpus content are
+    // not comparable, and a fork that edits the corpus must not pollute the dataset
+    // under this `corpus_version`.
+    if corpus_sha() != CORPUS_SHA {
+        anyhow::bail!(
+            "refusing to share: the embedded corpus does not match the pinned hash for \
+             corpus v{CORPUS_VERSION} — shared rows must use the unmodified corpus"
+        );
+    }
+
+    println!("trimwire share benchmark — anonymous, content-free per-model rows");
+    println!("  This is the ENTIRE payload (coarse buckets only; one row per model):\n");
+    let mut bodies: Vec<String> = Vec::with_capacity(results.len());
+    for r in results {
+        // Skip placeholder rows from an API dry-run (no real data to share).
+        if r.backend == "api-dry-run" {
+            eprintln!(
+                "⚠ skipping dry-run row for {} (no API calls were made)",
+                r.model
+            );
+            continue;
+        }
+        let input = BenchmarkShareInput {
+            model_tag: &r.model,
+            corpus_version: CORPUS_VERSION,
+            retention: r.retention,
+            reduction: r.reduction,
+            false_done_total: r.false_done_total,
+            // Exact (not a float compare on usable_pct): every slice produced a
+            // usable summary. Robust as the corpus grows.
+            all_usable: r.slices.iter().all(|s| s.usable),
+        };
+        let payload: BenchmarkPayload = build_benchmark_payload(
+            &input,
+            super::share::version_bucket(),
+            super::share::utc_today(),
+        );
+        let value = serde_json::to_value(&payload).context("serialize benchmark payload")?;
+        // Fail closed: never even PRINT a row with an unexpected field/value.
+        guard_benchmark_content_free(&value).context("benchmark payload content-free guard")?;
+        println!("{}\n", serde_json::to_string_pretty(&value)?);
+        bodies.push(serde_json::to_string(&value)?);
+    }
+    println!(
+        "  No model names (only family + size tier), no summaries, no paths, ids, or\n\
+         \x20  raw counts — just the coarse rank-table columns. See docs/TELEMETRY.md."
+    );
+
+    if bodies.is_empty() {
+        println!(
+            "\n  Nothing to share — no real benchmark rows were produced (every requested\n\
+             \x20  model was an API dry-run or unmatched). Re-run with a local model, or an\n\
+             \x20  API provider plus --yes, to generate scores."
+        );
+        return Ok(());
+    }
+
+    if endpoint.is_empty() {
+        println!(
+            "\n  No benchmark collector endpoint configured ([share] benchmark_endpoint = \"\"),\n\
+             \x20  so this was a DRY RUN — nothing was sent. The maintainer publishes the\n\
+             \x20  endpoint once the /v1/benchmark collector route is live."
+        );
+        return Ok(());
+    }
+    if !yes {
+        println!(
+            "\n  DRY RUN — re-run `trimwire share benchmark --yes` to upload the above to:\n  {endpoint}"
+        );
+        return Ok(());
+    }
+    for body in &bodies {
+        post(endpoint, body).context("upload benchmark row")?;
+    }
+    println!(
+        "\n  ✓ Shared {} row(s). Thank you — your anonymous numbers help everyone pick a model.",
+        bodies.len()
+    );
+    Ok(())
+}
+
+fn print_table(results: &[ModelScore], corpus: &[CorpusSlice], out: Option<&Path>) {
+    let has_api = results
+        .iter()
+        .any(|r| r.backend == "api" || r.backend == "api-dry-run");
+    println!(
+        "trimwire summarizer benchmark — corpus v{CORPUS_VERSION}, {} slices\n",
+        corpus.len()
+    );
+    println!(
+        "{:<22} {:>7} {:>10} {:>11} {:>11} {:>8} {:>6}",
+        "model", "backend", "retention", "compression", "false-done", "usable", "FCS"
+    );
+    println!("{}", "─".repeat(77));
+    for r in results {
+        let total_needles: usize = r.slices.iter().map(|s| s.total).sum();
+        let total_kept: usize = r.slices.iter().map(|s| s.kept).sum();
+        let retention = if r.backend == "api-dry-run" {
+            "—".to_owned()
+        } else {
+            format!("{total_kept}/{total_needles} {:.0}%", r.retention * 100.0)
+        };
+        let reduction = if r.backend == "api-dry-run" {
+            "—".to_owned()
+        } else {
+            format!("{:.0}%", r.reduction * 100.0)
+        };
+        let usable = if r.backend == "api-dry-run" {
+            "—".to_owned()
+        } else {
+            format!("{:.0}%", r.usable_pct)
+        };
+        let fcs = if r.backend == "api-dry-run" {
+            "—".to_owned()
+        } else if r.gated {
+            "FAIL".to_owned()
+        } else {
+            format!("{:.0}", r.fcs)
+        };
+        let flag = if r.gated && r.backend != "api-dry-run" {
+            "  ⚠ gated"
+        } else {
+            ""
+        };
+        println!(
+            "{:<22} {:>7} {:>10} {:>11} {:>11} {:>8} {:>6}{flag}",
+            r.model,
+            r.backend,
+            retention,
+            reduction,
+            if r.backend == "api-dry-run" {
+                "—".to_owned()
+            } else {
+                r.false_done_total.to_string()
+            },
+            usable,
+            fcs
+        );
+    }
+
+    // Per-model gate detail: which slice tripped, so the user knows WHY.
+    for r in results {
+        if !r.gated || r.backend == "api-dry-run" {
+            continue;
+        }
+        println!("\n{}: gated —", r.model);
+        for s in &r.slices {
+            if let Some(e) = &s.error {
+                println!("  • {} — model error: {e}", s.id);
+            } else if s.false_done > 0 {
+                let trap = if s.is_trap { " (designated trap)" } else { "" };
+                println!(
+                    "  • {} — {} unsupported completion claim(s){trap}",
+                    s.id, s.false_done
+                );
+            } else if !s.usable {
+                println!("  • {} — no usable summary (empty or near-verbatim)", s.id);
+            }
+        }
+    }
+
+    println!(
+        "\nFCS (faithful-compression score) = retention × compression (0–100), behind a false-done safety gate."
+    );
+    println!("This is a DIRECTIONAL sanity-check, not an authoritative quality ranking —");
+    println!("the APPROVED_MODELS list (a blind human gut-read) stays the authority.");
+    if has_api {
+        println!(
+            "\nNOTE: API-backend scores are NOT directly comparable to local-backend scores.\n\
+             The corpus is tuned for local summarizers (dense reasoning, tight length budget,\n\
+             free-form FACTS-FIRST prompt). Cloud models with larger context windows and\n\
+             different defaults may score differently for structural reasons unrelated to\n\
+             summarisation quality. Use API scores as a directional sanity-check within\n\
+             the same model family, not as a cross-backend ranking."
+        );
+    }
+    match out {
+        Some(dir) => println!(
+            "Summaries saved to {} — skim them; the scores can't judge prose.",
+            dir.display()
+        ),
+        None => println!("Pass --out <DIR> to save the summaries and skim them yourself."),
+    }
+}
+
+#[cfg(test)]
+// set_var/remove_var are unsafe in Rust 2024; test-only, unique env var names per test.
+#[allow(unsafe_code)]
+mod tests {
+    use super::*;
+
+    // ── resolve_picker_choice — pure parsing logic ────────────────────────────
+
+    fn models() -> Vec<String> {
+        vec![
+            "qwen3.5:4b".to_owned(),
+            "qwen3.5:2b".to_owned(),
+            "llama3.1:8b".to_owned(),
+        ]
+    }
+
+    #[test]
+    fn picker_empty_input_returns_default() {
+        assert_eq!(
+            resolve_picker_choice("", &models(), "qwen3.5:4b"),
+            PickerChoice::Default
+        );
+        // Whitespace-only is also empty.
+        assert_eq!(
+            resolve_picker_choice("   ", &models(), "qwen3.5:4b"),
+            PickerChoice::Default
+        );
+    }
+
+    #[test]
+    fn picker_valid_number_returns_model() {
+        let ms = models();
+        assert_eq!(
+            resolve_picker_choice("1", &ms, "qwen3.5:4b"),
+            PickerChoice::Model("qwen3.5:4b".to_owned())
+        );
+        assert_eq!(
+            resolve_picker_choice("2", &ms, "qwen3.5:4b"),
+            PickerChoice::Model("qwen3.5:2b".to_owned())
+        );
+        assert_eq!(
+            resolve_picker_choice("3", &ms, "qwen3.5:4b"),
+            PickerChoice::Model("llama3.1:8b".to_owned())
+        );
+    }
+
+    #[test]
+    fn picker_all_returns_all_installed() {
+        let ms = models();
+        assert_eq!(
+            resolve_picker_choice("a", &ms, "qwen3.5:4b"),
+            PickerChoice::AllInstalled
+        );
+        assert_eq!(
+            resolve_picker_choice("A", &ms, "qwen3.5:4b"),
+            PickerChoice::AllInstalled
+        );
+        assert_eq!(
+            resolve_picker_choice("all", &ms, "qwen3.5:4b"),
+            PickerChoice::AllInstalled
+        );
+        assert_eq!(
+            resolve_picker_choice("ALL", &ms, "qwen3.5:4b"),
+            PickerChoice::AllInstalled
+        );
+    }
+
+    #[test]
+    fn picker_q_returns_cancel() {
+        let ms = models();
+        assert_eq!(
+            resolve_picker_choice("q", &ms, "qwen3.5:4b"),
+            PickerChoice::Cancel
+        );
+        assert_eq!(
+            resolve_picker_choice("Q", &ms, "qwen3.5:4b"),
+            PickerChoice::Cancel
+        );
+        assert_eq!(
+            resolve_picker_choice("quit", &ms, "qwen3.5:4b"),
+            PickerChoice::Cancel
+        );
+    }
+
+    #[test]
+    fn picker_out_of_range_number_returns_cancel() {
+        let ms = models();
+        // 0 is out of range (1-based).
+        assert_eq!(
+            resolve_picker_choice("0", &ms, "qwen3.5:4b"),
+            PickerChoice::Cancel
+        );
+        // len+1 is out of range.
+        assert_eq!(
+            resolve_picker_choice("4", &ms, "qwen3.5:4b"),
+            PickerChoice::Cancel
+        );
+        // Very large number.
+        assert_eq!(
+            resolve_picker_choice("99", &ms, "qwen3.5:4b"),
+            PickerChoice::Cancel
+        );
+    }
+
+    #[test]
+    fn picker_unrecognised_text_returns_cancel() {
+        let ms = models();
+        assert_eq!(
+            resolve_picker_choice("foo", &ms, "qwen3.5:4b"),
+            PickerChoice::Cancel
+        );
+        assert_eq!(
+            resolve_picker_choice("qwen3.5:4b", &ms, "qwen3.5:4b"),
+            PickerChoice::Cancel,
+            "typing the model name directly is not a valid choice — only number/a/q/empty"
+        );
+    }
+
+    #[test]
+    fn picker_eof_equivalent_empty_list_is_cancel_via_range() {
+        // With an empty installed list, every number is out of range.
+        let empty: Vec<String> = vec![];
+        assert_eq!(
+            resolve_picker_choice("1", &empty, "qwen3.5:4b"),
+            PickerChoice::Cancel
+        );
+        // Empty input still maps to Default even with an empty list.
+        assert_eq!(
+            resolve_picker_choice("", &empty, "qwen3.5:4b"),
+            PickerChoice::Default
+        );
+    }
+
+    fn slice(id: &str, trap: bool, needles: &[&str], text: &str) -> CorpusSlice {
+        CorpusSlice {
+            id: id.to_owned(),
+            false_done_trap: trap,
+            needles: needles.iter().map(|s| s.to_string()).collect(),
+            slice: text.to_owned(),
+        }
+    }
+
+    #[test]
+    fn corpus_bytes_match_pinned_sha() {
+        assert_eq!(
+            corpus_sha(),
+            CORPUS_SHA,
+            "corpus changed — bump CORPUS_VERSION and update CORPUS_SHA \
+             (results across corpus versions are not comparable)"
+        );
+    }
+
+    #[test]
+    fn corpus_loads_and_is_well_formed() {
+        let corpus = load_corpus().expect("embedded corpus parses");
+        assert_eq!(corpus.len(), 5, "5 bundled slices");
+        assert!(
+            corpus.iter().any(|s| s.false_done_trap),
+            "at least one false-done trap"
+        );
+        for s in &corpus {
+            assert!(!s.needles.is_empty(), "{} has needles", s.id);
+            assert!(s.slice.len() > 100, "{} has a non-trivial slice", s.id);
+        }
+    }
+
+    #[test]
+    fn score_summary_counts_retention_reduction_and_false_done() {
+        // A long input, a tight faithful summary keeping 2 of 3 needles, no claim.
+        let s = slice(
+            "t",
+            false,
+            &["session_7421.rs", "MAX_RETRIES", "missing_id"],
+            &"### user\n[tool_result] ".to_owned().repeat(40),
+        );
+        let summary = "GOAL: harden writer\nFACTS: cap MAX-RETRIES in session_7421.rs";
+        let sc = score_summary(&s, summary);
+        assert_eq!(
+            (sc.kept, sc.total),
+            (2, 3),
+            "separator-insensitive: keeps 2 of 3"
+        );
+        assert_eq!(sc.false_done, 0);
+        assert!(sc.usable, "a short summary of a long slice is usable");
+        assert!(SliceScore::reduction(sc.in_chars, sc.out_chars) > 0.5);
+    }
+
+    #[test]
+    fn false_done_claim_gates_the_model_to_bottom() {
+        // High retention but an unsupported "tests passed" claim on a slice with no
+        // test-run evidence → gated, composite 0.
+        let s = slice(
+            "trap",
+            true,
+            &["payment_gateway.rs"],
+            "### assistant\nEditing payment_gateway.rs\n[tool_use Bash] {\"command\":\"cargo test\"}\n### user\n[tool_result] Compiling...",
+        );
+        let summary =
+            "GOAL: retry cap in payment_gateway.rs\nFACTS: all 37 tests passed, committed";
+        let sc = score_summary(&s, summary);
+        assert!(
+            sc.false_done >= 1,
+            "must flag the unsupported completion claim"
+        );
+        let m = aggregate("bad".into(), "local", vec![sc]);
+        assert!(m.gated, "a false-done gates the model");
+        assert_eq!(m.composite, 0.0, "gated composite is bottom-tier");
+        assert!(
+            m.fcs > 0.0,
+            "but the raw FCS is still recorded (retention was high)"
+        );
+    }
+
+    #[test]
+    fn verbatim_copy_is_not_usable_and_gates() {
+        // Output ≈ input (no shrink) → not usable → gated, even with full retention.
+        let text = "### user\nkeep token_abc and token_def verbatim here please";
+        let s = slice("verbatim", false, &["token_abc", "token_def"], text);
+        let sc = score_summary(&s, text); // echo the slice back
+        assert_eq!((sc.kept, sc.total), (2, 2), "retention is full");
+        assert!(!sc.usable, "a verbatim copy is not a usable summary");
+        let m = aggregate("copier".into(), "local", vec![sc]);
+        assert!(m.gated, "an unusable slice gates the model");
+        assert_eq!(m.composite, 0.0);
+    }
+
+    #[test]
+    fn clean_summary_scores_fcs_and_is_not_gated() {
+        let s = slice(
+            "clean",
+            false,
+            &["alpha", "beta"],
+            &"### user\n[tool_result] noise ".to_owned().repeat(60),
+        );
+        let summary = "GOAL: x\nFACTS: alpha and beta decided"; // tight, faithful, no claim
+        let sc = score_summary(&s, summary);
+        let m = aggregate("good".into(), "local", vec![sc]);
+        assert!(!m.gated, "a clean tight faithful summary is not gated");
+        assert_eq!(m.retention, 1.0);
+        assert!(m.reduction > 0.5);
+        assert!(
+            (m.composite - m.fcs).abs() < 1e-9,
+            "ungated composite == fcs"
+        );
+        assert!(
+            m.composite > 40.0,
+            "retention 1.0 × big reduction → solid FCS"
+        );
+    }
+
+    #[test]
+    fn errored_slice_is_zero_and_gates() {
+        let s = slice(
+            "e",
+            false,
+            &["a", "b"],
+            "### user\nsome text here for length",
+        );
+        let sc = errored_score(&s, "local model unreachable".into());
+        assert_eq!(sc.kept, 0);
+        assert!(!sc.usable);
+        let m = aggregate("down".into(), "local", vec![sc]);
+        assert!(m.gated, "a model error gates the run");
+        assert_eq!(m.composite, 0.0);
+    }
+
+    // ---- API provider path tests --------------------------------------------
+
+    #[test]
+    fn aggregate_records_backend_kind() {
+        // local backend
+        let m = aggregate("qwen3.5:4b".into(), "local", vec![]);
+        assert_eq!(m.backend, "local");
+        // api backend
+        let m = aggregate("my-provider".into(), "api", vec![]);
+        assert_eq!(m.backend, "api");
+        // api-dry-run placeholder
+        let m = aggregate("my-provider (DRY RUN)".into(), "api-dry-run", vec![]);
+        assert_eq!(m.backend, "api-dry-run");
+    }
+
+    #[test]
+    fn api_safety_warning_returns_false_without_yes() {
+        use trimwire::config::SummarizerProviderConfig;
+        let provider = SummarizerProviderConfig {
+            id: "my-api".to_owned(),
+            style: "anthropic".to_owned(),
+            base_url: "https://api.example.com".to_owned(),
+            full_url: None,
+            model: "fast-model".to_owned(),
+            api_key_env: "MY_API_KEY".to_owned(),
+            timeout_secs: 30,
+        };
+        // Without yes=true the gate must prevent API calls.
+        let proceed = api_safety_warning(&provider, 5, false);
+        assert!(
+            !proceed,
+            "dry-run: safety warning must return false without --yes"
+        );
+    }
+
+    #[test]
+    fn api_safety_warning_returns_true_with_yes() {
+        use trimwire::config::SummarizerProviderConfig;
+        let provider = SummarizerProviderConfig {
+            id: "my-api".to_owned(),
+            style: "anthropic".to_owned(),
+            base_url: "https://api.example.com".to_owned(),
+            full_url: None,
+            model: "fast-model".to_owned(),
+            api_key_env: "MY_API_KEY".to_owned(),
+            timeout_secs: 30,
+        };
+        // With yes=true the warning prints but execution proceeds.
+        let proceed = api_safety_warning(&provider, 5, true);
+        assert!(proceed, "with --yes the safety gate must permit API calls");
+    }
+
+    #[tokio::test]
+    async fn run_api_provider_scores_happy_path() {
+        // Verify the API scoring path end-to-end with a wiremock server:
+        // one slice, the canned summary keeps both needles, no false-done.
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        // Canned tight summary — keeps both needles, no completion claim.
+        let canned = "GOAL: harden retries\nFACTS: MAX_RETRIES=5 in session_7421.rs";
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "content": [{"type": "text", "text": canned}]
+            })))
+            .mount(&server)
+            .await;
+
+        // SAFETY: test-only, unique env var name.
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("BENCH_TEST_API_KEY", "sk-test");
+        }
+
+        let provider = trimwire::config::SummarizerProviderConfig {
+            id: "test-api".to_owned(),
+            style: "anthropic".to_owned(),
+            base_url: server.uri(),
+            full_url: None,
+            model: "test-model".to_owned(),
+            api_key_env: "BENCH_TEST_API_KEY".to_owned(),
+            timeout_secs: 5,
+        };
+        let big_slice = "### user\n".to_owned() + &"[tool_result] noise ".repeat(60);
+        let corpus = vec![CorpusSlice {
+            id: "s1".to_owned(),
+            false_done_trap: false,
+            needles: vec!["MAX_RETRIES".to_owned(), "session_7421.rs".to_owned()],
+            slice: big_slice,
+        }];
+        let score = run_api_provider(&provider, &corpus, 1, None).await;
+        assert_eq!(score.backend, "api");
+        assert_eq!(score.model, "test-api");
+        assert!(!score.gated, "a clean API summary must not be gated");
+        assert_eq!(score.slices.len(), 1);
+        assert_eq!(
+            (score.slices[0].kept, score.slices[0].total),
+            (2, 2),
+            "both needles must be retained"
+        );
+        assert_eq!(score.slices[0].false_done, 0);
+
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("BENCH_TEST_API_KEY");
+        }
+    }
+
+    #[tokio::test]
+    async fn run_api_provider_max_calls_caps_slices() {
+        // max_calls=1 on a 3-slice corpus must only score 1 slice.
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "content": [{"type": "text", "text": "GOAL: ok\nFACTS: alpha beta"}]
+            })))
+            .expect(1) // exactly ONE call (the cap)
+            .mount(&server)
+            .await;
+
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("BENCH_MAX_CALLS_KEY", "sk-test");
+        }
+
+        let provider = trimwire::config::SummarizerProviderConfig {
+            id: "test-api".to_owned(),
+            style: "anthropic".to_owned(),
+            base_url: server.uri(),
+            full_url: None,
+            model: "test-model".to_owned(),
+            api_key_env: "BENCH_MAX_CALLS_KEY".to_owned(),
+            timeout_secs: 5,
+        };
+        let big = "### user\n[tool_result] ".to_owned() + &"x".repeat(400);
+        let corpus = vec![
+            CorpusSlice {
+                id: "s1".to_owned(),
+                false_done_trap: false,
+                needles: vec!["alpha".to_owned()],
+                slice: big.clone(),
+            },
+            CorpusSlice {
+                id: "s2".to_owned(),
+                false_done_trap: false,
+                needles: vec!["beta".to_owned()],
+                slice: big.clone(),
+            },
+            CorpusSlice {
+                id: "s3".to_owned(),
+                false_done_trap: false,
+                needles: vec!["gamma".to_owned()],
+                slice: big,
+            },
+        ];
+        let score = run_api_provider(&provider, &corpus, 1, None).await;
+        assert_eq!(score.slices.len(), 1, "max_calls=1 must cap at 1 slice");
+        server.verify().await; // exactly 1 HTTP call
+
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("BENCH_MAX_CALLS_KEY");
+        }
+    }
+
+    #[tokio::test]
+    async fn run_api_provider_errors_produce_gated_score() {
+        // When the API call fails (e.g. server returns 500), the slice is scored as
+        // errored → gated aggregate.
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("BENCH_ERROR_KEY", "sk-test");
+        }
+
+        let provider = trimwire::config::SummarizerProviderConfig {
+            id: "test-api".to_owned(),
+            style: "anthropic".to_owned(),
+            base_url: server.uri(),
+            full_url: None,
+            model: "test-model".to_owned(),
+            api_key_env: "BENCH_ERROR_KEY".to_owned(),
+            timeout_secs: 5,
+        };
+        let corpus = vec![CorpusSlice {
+            id: "s1".to_owned(),
+            false_done_trap: false,
+            needles: vec!["alpha".to_owned()],
+            slice: "### user\nsome text here".to_owned(),
+        }];
+        let score = run_api_provider(&provider, &corpus, 5, None).await;
+        assert_eq!(score.backend, "api");
+        assert!(score.gated, "an API error must gate the aggregate");
+        assert_eq!(score.composite, 0.0);
+        assert!(
+            score.slices[0].error.is_some(),
+            "the errored slice must carry the error message"
+        );
+
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("BENCH_ERROR_KEY");
+        }
+    }
+}
