@@ -1,0 +1,9 @@
+{"type":"summary","summary":"Earlier work on the parser","leafUuid":"u0","sessionId":"s1"}
+{"type":"file-history-snapshot","messageId":"fh1","snapshot":{},"sessionId":"s1"}
+{"type":"user","uuid":"u1","parentUuid":null,"isSidechain":false,"sessionId":"s1","message":{"role":"user","content":"Run echo hi and read the file"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","isSidechain":false,"sessionId":"s1","message":{"role":"assistant","content":[{"type":"text","text":"Running both."},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"echo hi"}},{"type":"tool_use","id":"toolu_2","name":"Read","input":{"path":"/f"}}]}}
+{"type":"user","uuid":"u2","parentUuid":"a1","isSidechain":false,"sessionId":"s1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"hi"},{"type":"tool_result","tool_use_id":"toolu_2","content":"file body"}]}}
+{"type":"system","uuid":"sys1","content":"<compact boundary marker>","isSidechain":false,"sessionId":"s1"}
+{"type":"user","uuid":"u3","parentUuid":"u2","isSidechain":true,"sessionId":"s1","message":{"role":"user","content":"sub-agent: investigate X"}}
+{"type":"assistant","uuid":"a2","parentUuid":"u3","isSidechain":true,"sessionId":"s1","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_sc","name":"Grep","input":{"pattern":"X"}}]}}
+{"type":"assistant","uuid":"a3","parentUuid":"u2","isSidechain":false,"sessionId":"s1","message":{"role":"assistant","content":[{"type":"text","text":"Done: hi + file body."}]}}

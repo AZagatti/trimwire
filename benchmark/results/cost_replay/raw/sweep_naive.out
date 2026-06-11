@@ -1,0 +1,66 @@
+Wed Jun  3 17:42:34 -03 2026
+================ resummarize_after=48 ================
+# P0a cost-replay
+model=qwen3.5:4b  profile=default  resummarize_after=48msgs  slice_cap=40000chars  $3/Mtok  (cache_read 0.1× / cache_create 1.25×)
+
+## /tmp/trimwire_bench_sessions/big_old_session3_t250.json
+turns=251  messages=501  re-summarizations=11
+baseline   : $4.92357  (11 Mtok-eq: read 11.1M / create 0.4M)
+compaction : $4.79251  (11 Mtok-eq: read 10.1M / create 0.5M)
+ΔC/C_baseline = -2.66%   (SAVES; Δ=$-0.13106)   [council 1.25× cache-create]
+ΔC/C_baseline = -3.49%   (SAVES; Δ=$-0.16045)   [1.0× cache-create sensitivity]
+break-even: turn 38/251 (compaction ≤ baseline from here on)
+
+## /tmp/trimwire_bench_sessions/big_old_session2_t250.json
+turns=251  messages=501  re-summarizations=11
+baseline   : $5.45352  (11 Mtok-eq: read 10.7M / create 0.6M)
+compaction : $5.35837  (10 Mtok-eq: read 9.5M / create 0.7M)
+ΔC/C_baseline = -1.74%   (SAVES; Δ=$-0.09515)   [council 1.25× cache-create]
+ΔC/C_baseline = -2.99%   (SAVES; Δ=$-0.14956)   [1.0× cache-create sensitivity]
+break-even: turn 221/251 (compaction ≤ baseline from here on)
+
+================ resummarize_after=96 ================
+# P0a cost-replay
+model=qwen3.5:4b  profile=default  resummarize_after=96msgs  slice_cap=40000chars  $3/Mtok  (cache_read 0.1× / cache_create 1.25×)
+
+## /tmp/trimwire_bench_sessions/big_old_session3_t250.json
+turns=251  messages=501  re-summarizations=6
+baseline   : $4.92357  (11 Mtok-eq: read 11.1M / create 0.4M)
+compaction : $4.81041  (11 Mtok-eq: read 10.2M / create 0.5M)
+ΔC/C_baseline = -2.30%   (SAVES; Δ=$-0.11316)   [council 1.25× cache-create]
+ΔC/C_baseline = -3.08%   (SAVES; Δ=$-0.14153)   [1.0× cache-create sensitivity]
+break-even: turn 60/251 (compaction ≤ baseline from here on)
+
+## /tmp/trimwire_bench_sessions/big_old_session2_t250.json
+turns=251  messages=501  re-summarizations=6
+baseline   : $5.45352  (11 Mtok-eq: read 10.7M / create 0.6M)
+compaction : $5.44209  (10 Mtok-eq: read 9.7M / create 0.7M)
+ΔC/C_baseline = -0.21%   (SAVES; Δ=$-0.01143)   [council 1.25× cache-create]
+ΔC/C_baseline = -1.44%   (SAVES; Δ=$-0.07198)   [1.0× cache-create sensitivity]
+break-even: turn 221/251 (compaction ≤ baseline from here on)
+
+================ resummarize_after=96 ================
+# P0a cost-replay
+model=qwen3.5:4b  profile=default  resummarize_after=96msgs  slice_cap=40000chars  $3/Mtok  (cache_read 0.1× / cache_create 1.25×)
+
+## /tmp/trimwire_bench_sessions/big_old_session3_t400.json
+turns=401  messages=801  re-summarizations=9
+baseline   : $11.55307  (26 Mtok-eq: read 24.5M / create 1.1M)
+compaction : $10.96812  (24 Mtok-eq: read 22.8M / create 1.1M)
+ΔC/C_baseline = -5.06%   (SAVES; Δ=$-0.58495)   [council 1.25× cache-create]
+ΔC/C_baseline = -5.32%   (SAVES; Δ=$-0.56933)   [1.0× cache-create sensitivity]
+break-even: turn 60/401 (compaction ≤ baseline from here on)
+
+================ resummarize_after=200 ================
+# P0a cost-replay
+model=qwen3.5:4b  profile=default  resummarize_after=200msgs  slice_cap=40000chars  $3/Mtok  (cache_read 0.1× / cache_create 1.25×)
+
+## /tmp/trimwire_bench_sessions/big_old_session3_t400.json
+turns=401  messages=801  re-summarizations=4
+baseline   : $11.55307  (26 Mtok-eq: read 24.5M / create 1.1M)
+compaction : $11.11761  (24 Mtok-eq: read 23.4M / create 1.1M)
+ΔC/C_baseline = -3.77%   (SAVES; Δ=$-0.43546)   [council 1.25× cache-create]
+ΔC/C_baseline = -3.86%   (SAVES; Δ=$-0.41347)   [1.0× cache-create sensitivity]
+break-even: turn 255/401 (compaction ≤ baseline from here on)
+
+ALL DONE Wed Jun  3 17:50:56 -03 2026

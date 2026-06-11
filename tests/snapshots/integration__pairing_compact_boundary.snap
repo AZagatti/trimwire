@@ -1,0 +1,18 @@
+---
+source: tests/integration.rs
+expression: "IndexView::of(&idx)"
+---
+{
+  "uses": {
+    "toolu_post_compact_1": [
+      3,
+      0
+    ]
+  },
+  "results": {
+    "toolu_post_compact_1": [
+      4,
+      0
+    ]
+  }
+}

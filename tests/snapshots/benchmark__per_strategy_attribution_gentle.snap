@@ -1,0 +1,113 @@
+---
+source: tests/benchmark.rs
+expression: attribution_report(&tuned_config())
+---
+{
+  "at_the_boundary": {
+    "attribution": [],
+    "in_bytes": 143571,
+    "reduction_pct": 0.0
+  },
+  "browser_heavy": {
+    "attribution": [],
+    "in_bytes": 423214,
+    "reduction_pct": 0.0
+  },
+  "coding": {
+    "attribution": [
+      {
+        "bytes": 3018,
+        "strategy": "failed_input_purge"
+      },
+      {
+        "bytes": 8800,
+        "strategy": "cross_turn_dedup"
+      }
+    ],
+    "in_bytes": 47964,
+    "reduction_pct": 24.6
+  },
+  "exempt_heavy": {
+    "attribution": [],
+    "in_bytes": 57114,
+    "reduction_pct": 0.0
+  },
+  "giant_paste": {
+    "attribution": [],
+    "in_bytes": 508242,
+    "reduction_pct": 0.0
+  },
+  "long_running": {
+    "attribution": [],
+    "in_bytes": 133649,
+    "reduction_pct": 0.0
+  },
+  "mcp_non_playwright": {
+    "attribution": [],
+    "in_bytes": 129550,
+    "reduction_pct": 0.0
+  },
+  "mixed_realistic": {
+    "attribution": [
+      {
+        "bytes": 2524,
+        "strategy": "failed_input_purge"
+      },
+      {
+        "bytes": 1557,
+        "strategy": "cross_turn_dedup"
+      },
+      {
+        "bytes": 279345,
+        "strategy": "bloat_cap"
+      }
+    ],
+    "in_bytes": 362993,
+    "reduction_pct": 78.1
+  },
+  "pure_chat_floor": {
+    "attribution": [],
+    "in_bytes": 9453,
+    "reduction_pct": 0.0
+  },
+  "repeated_grep": {
+    "attribution": [
+      {
+        "bytes": 17283,
+        "strategy": "cross_turn_dedup"
+      }
+    ],
+    "in_bytes": 29757,
+    "reduction_pct": 58.1
+  },
+  "resumed_session": {
+    "attribution": [
+      {
+        "bytes": 8736,
+        "strategy": "cross_turn_dedup"
+      }
+    ],
+    "in_bytes": 186354,
+    "reduction_pct": 4.7
+  },
+  "stale_input_heavy": {
+    "attribution": [],
+    "in_bytes": 14275,
+    "reduction_pct": 0.0
+  },
+  "thinking_heavy": {
+    "attribution": [
+      {
+        "bytes": 2079,
+        "strategy": "thinking_strip"
+      }
+    ],
+    "in_bytes": 12541,
+    "reduction_pct": 16.6
+  },
+  "unique_bash_spam": {
+    "attribution": [],
+    "in_bytes": 222095,
+    "reduction_pct": 0.0
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "s1_build_and_migrate",
+  "title": "Build error, storage decision, failed connect, applied migration",
+  "false_done_trap": false,
+  "source": "lifted from benchmark/model_bench.sh SLICE. Needles = END-STATE load-bearing facts only. The build error (error[E0277]/Job: Send) is intentionally NOT a needle: the slice ends with '37 tests passed', so by end-of-slice the build compiles — the error is resolved history, not open state, and a resume-focused summary may drop it. (It was also bracket/colon-space match-fragile.)",
+  "needles": [
+    "session_7421.rs",
+    "migrate_v9.sql",
+    "ECONNREFUSED",
+    "SQLite",
+    "MAX_RETRIES",
+    "reconcile_balances",
+    "TRIMWIRE_AUDIT",
+    "8765",
+    "leap-second"
+  ],
+  "slice": "### assistant\nPlanning the change. Read the auth module first.\n[tool_use Bash] {\"command\":\"sed -n 1,200p src/auth/session_7421.rs\"}\n### user\n[tool_result] Opened src/auth/session_7421.rs (210 lines). It defines fn reconcile_balances() and currently uses a blocking call. (then 30 lines of routine import/log noise that should be dropped) imports resolved, no warnings, build cache warm, lints clean, nothing notable, boilerplate, boilerplate, boilerplate, boilerplate.\n### assistant\nRun the build to see the failure.\n[tool_use Bash] {\"command\":\"cargo build\"}\n### user\n[tool_result] Compiling (long progress noise) error[E0277]: the trait bound `Job: Send` is not satisfied — the spawned task captures a non-Send handle. note: required by a bound in tokio::spawn. (then dozens of irrelevant Compiling lines, progress, progress, progress, blah blah).\n### assistant\nDecide on the storage backend for the ledger after weighing options.\n[tool_use Bash] {\"command\":\"echo decision\"}\n### user\n[tool_result] Decision: chose SQLite over Postgres for the ledger (single-file, no server). Set MAX_RETRIES = 5 for the writer. (irrelevant trailing noise: cache stats, timing, gc, noise, noise, noise, noise, noise).\n### assistant\nTry connecting to the dev DB to verify.\n[tool_use Bash] {\"command\":\"psql -h 127.0.0.1\"}\n### user\n[tool_result] Connection failed: ECONNREFUSED on 127.0.0.1. The daemon listens on port 8765; the audit sink is gated behind the TRIMWIRE_AUDIT env var. (then a wall of routine retry/backoff log lines with no decision value, retrying, retrying, retrying, retrying, retrying).\n### assistant\nApply the migration and run the suite.\n[tool_use Bash] {\"command\":\"make migrate && cargo test\"}\n### user\n[tool_result] Applied src/db/migrate_v9.sql; 37 tests passed. TODO: handle the leap-second edge case in reconcile_balances. (trailing noise: test timing breakdown, per-file coverage dump, numbers that do not matter, end)."
+}

@@ -1,0 +1,87 @@
+{
+  "max_tokens": 1024,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Turn 1",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Reply 1",
+          "type": "text"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "text": "[compact_boundary marker would be a system msg in real session]",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_post_compact_1",
+          "input": {
+            "command": "echo post-compact"
+          },
+          "name": "Bash",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "post-compact",
+          "tool_use_id": "toolu_post_compact_1",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-3-5-sonnet-20241022",
+  "system": "You are Claude, a helpful coding assistant.",
+  "tools": [
+    {
+      "description": "Run a shell command",
+      "input_schema": {
+        "type": "object"
+      },
+      "name": "Bash"
+    },
+    {
+      "description": "Read a file",
+      "input_schema": {
+        "type": "object"
+      },
+      "name": "Read"
+    },
+    {
+      "description": "Take a screenshot",
+      "input_schema": {
+        "type": "object"
+      },
+      "name": "mcp__playwright__browser_take_screenshot"
+    },
+    {
+      "description": "Navigate browser",
+      "input_schema": {
+        "type": "object"
+      },
+      "name": "mcp__playwright__browser_navigate"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+── compaction harm gate ──
+model=granite4.1:8b  endpoint=http://localhost:11434
+source=synthetic planted-fact slice  facts=12  slice=7561 chars
+
+── summary (589 chars) ──
+GOAL: Refactor the auth module to use a non-blocking ledger storage backend and address concurrency issues.
+
+FILES: src/auth/session_7421.rs, src/db/migrate_v9.sql
+
+DECIDED: Chose SQLite over Postgres for the ledger (single-file, no server); set MAX_RETRIES = 5 for the writer.
+
+ERRORS: error[E0277]: the trait bound `Job: Send` is not satisfied; Connection failed: ECONNREFUSED on 127.0.0.1
+
+FACTS: The daemon listens on port 8765; the audit sink is gated behind the TRIMWIRE_AUDIT env var; 37 tests passed after migration.
+
+NEXT: Handle the leap-second edge case in `reconcile_balances`.
+
+── fact retention (normalized: case-insensitive, hyphen≡underscore) ──
+  [✓] auth file path: session_7421.rs
+  [✓] migration file path: migrate_v9.sql
+  [✓] compile error code: e0277
+  [✓] trait in error: job: send
+  [✓] network errno: econnrefused
+  [✓] db decision (SQLite): sqlite
+  [✓] retry constant: max_retries
+  [✓] function name: reconcile_balances
+  [✓] env var: trimwire_audit
+  [✓] listen port: 8765
+  [✓] test count: 37 test
+  [✓] todo note: leap-second
+
+retention: 12/12 = 100.0%  (threshold 90%)
+PASS

@@ -1,0 +1,28 @@
+── compaction harm gate ──
+model=qwen3:1.7b  endpoint=http://localhost:11434
+source=synthetic planted-fact slice  facts=12  slice=7561 chars
+
+── summary (353 chars) ──
+GOAL: Plan and implement the reconciliation of balances in the auth module.
+FILES: src/auth/session_7421.rs
+DECIDED: chose SQLite over Postgres for the ledger, set MAX_RETRIES = 5
+ERRORS: error[E0277]: the trait bound `Job: Send` is not satisfied
+FACTS: step 0, step 1, step 2, step 3, step 4
+NEXT: handle the leap-second edge case in reconcile_balances
+
+── fact retention (normalized: case-insensitive, hyphen≡underscore) ──
+  [✓] auth file path: session_7421.rs
+  [·] migration file path: migrate_v9.sql
+  [✓] compile error code: e0277
+  [✓] trait in error: job: send
+  [·] network errno: econnrefused
+  [✓] db decision (SQLite): sqlite
+  [✓] retry constant: max_retries
+  [✓] function name: reconcile_balances
+  [·] env var: trimwire_audit
+  [·] listen port: 8765
+  [·] test count: 37 test
+  [✓] todo note: leap-second
+
+retention: 7/12 = 58.3%  (threshold 90%)
+FAIL: retention below threshold

@@ -1,0 +1,9 @@
+The synthetic Phase 0 fixtures (*.json) in this directory are generated
+by tests/phase0/dump_fixtures.py from tests/phase0/fixtures_synth.py.
+Regenerate with:
+
+    python3 tests/phase0/dump_fixtures.py
+
+The Rust pairing/strategy tests load this corpus (see tests/integration.rs).
+To also capture a real Claude Code session for fidelity against the live
+v1/messages format, see tests/phase0/README.md "Capturing real fixtures".

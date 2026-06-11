@@ -1,0 +1,35 @@
+Wed Jun  3 18:06:37 -03 2026
+### trigger_bytes gate NOW MODELED (production-faithful) ###
+==== short sessions @ R=24 (the loss case — real @1.0× + faithful trigger) ====
+# P0a cost-replay
+model=qwen3.5:4b  profile=default  resummarize_after=24msgs  slice_cap=40000chars  $3/Mtok  (cache_read 0.1× / cache_create 1.25×)
+
+## /tmp/trimwire_bench_sessions/big_old_session3_t120.json
+turns=121  messages=241  re-summarizations=7
+baseline   : $1.80876  (4 Mtok-eq: read 3.3M / create 0.2M)
+compaction : $1.79560  (3 Mtok-eq: read 2.9M / create 0.2M)
+ΔC/C_baseline = -0.73%   (SAVES; Δ=$-0.01317)   [council 1.25× cache-create]
+ΔC/C_baseline = -2.03%   (SAVES; Δ=$-0.03341)   [1.0× cache-create sensitivity]
+break-even: turn 115/121 (compaction ≤ baseline from here on)
+
+## /tmp/trimwire_bench_sessions/big_old_session2_t120.json
+turns=121  messages=241  re-summarizations=9
+baseline   : $1.75119  (3 Mtok-eq: read 2.8M / create 0.2M)
+compaction : $1.66634  (3 Mtok-eq: read 2.3M / create 0.3M)
+ΔC/C_baseline = -4.84%   (SAVES; Δ=$-0.08484)   [council 1.25× cache-create]
+ΔC/C_baseline = -6.10%   (SAVES; Δ=$-0.09572)   [1.0× cache-create sensitivity]
+break-even: turn 73/121 (compaction ≤ baseline from here on)
+
+==== long spot-check: s3 250 @ R=48 (confirm gate didn't change long-session numbers) ====
+# P0a cost-replay
+model=qwen3.5:4b  profile=default  resummarize_after=48msgs  slice_cap=40000chars  $3/Mtok  (cache_read 0.1× / cache_create 1.25×)
+
+## /tmp/trimwire_bench_sessions/big_old_session3_t250.json
+turns=251  messages=501  re-summarizations=9
+baseline   : $4.92357  (11 Mtok-eq: read 11.1M / create 0.4M)
+compaction : $4.79059  (11 Mtok-eq: read 10.1M / create 0.5M)
+ΔC/C_baseline = -2.70%   (SAVES; Δ=$-0.13298)   [council 1.25× cache-create]
+ΔC/C_baseline = -3.51%   (SAVES; Δ=$-0.16134)   [1.0× cache-create sensitivity]
+break-even: turn 45/251 (compaction ≤ baseline from here on)
+
+ALL DONE Wed Jun  3 18:10:53 -03 2026

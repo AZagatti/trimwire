@@ -1,0 +1,377 @@
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Searching for the symbol again.",
+          "type": "text"
+        },
+        {
+          "id": "t_grep_0",
+          "input": {
+            "output_mode": "content",
+            "path": "src",
+            "pattern": "fn apply"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [grephits] line 00000: processed record, advancing cursor, flushing buffer\n  [grephits] line 00001: processed record, advancing cursor, flushing buffer\n  [grephits] line 00002: processed record, advancing cursor, flushing buffer\n  [grephits] line 00003: processed record, advancing cursor, flushing buffer\n  [grephits] line 00004: processed record, advancing cursor, flushing buffer\n  [grephits] line 00005: processed record, advancing cursor, flushing buffer\n  [grephits] line 00006: processed record, advancing cursor, flushing buffer\n  [grephits] line 00007: processed record, advancing cursor, flushing buffer\n  [grephits] line 00008: processed record, advancing cursor, flushing buffer\n  [grephits] line 00009: processed record, advancing cursor, flushing buffer\n  [grephits] line 00010: processed record, advancing cursor, flushing buffer\n  [grephits] line 00011: processed record, advancing cursor, flushing buffer\n  [grephits] line 00012: processed record, advancing cursor, flushing buffer\n  [grephits] line 00013: processed record, advancing cursor, flushing buffer\n  [grephits] line 00014: processed record, advancing cursor, flushing buffer\n  [grephits] line 00015: processed record, advancing cursor, flushing buffer\n  [grephits] line 00016: processed record, advancing cursor, flushing buffer\n  [grephits] line 00017: processed record, advancing cursor, flushing buffer\n  [grephits] line 00018: processed record, advancing cursor, flushing buffer\n  [grephits] line 00019: processed record, advancing cursor, flushing buffer\n  [grephits] line 00020: processed record, advancing cursor, flushing buffer\n  [grephits] line 00021: processed record, advancing cursor, flushing buffer\n  [grephits] line 00022: processed record, advancing cursor, flushing buffer\n  [grephits] line 00023: processed record, advancing cursor, flushing buffer\n  [grephits] line 00024: processed record, advancing cursor, flushing buffer\n  [grephits] line 00025: processed record, advancing cursor, flushing buffer\n  [grephits] line 00026: processed record, advancing cursor, flushing buffer\n  [grephits] line 00027: processed record, advancing cursor, flushing buffer\n  [grephits] line 00028: processed record, advancing cursor, flushing buffer\n  [grephits] line 00029: processed record, advancing cursor, flushing buffer\n  [grephits] line 00030: processed record, advancing cursor, flushing buffer\n  [grephits] line 00031: processed record, advancing cursor, flushing buffer\n  [grephits] line 00032: processed r",
+          "tool_use_id": "t_grep_0",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Searching for the symbol again.",
+          "type": "text"
+        },
+        {
+          "id": "t_grep_1",
+          "input": {
+            "output_mode": "content",
+            "path": "src",
+            "pattern": "fn apply"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [grephits] line 00000: processed record, advancing cursor, flushing buffer\n  [grephits] line 00001: processed record, advancing cursor, flushing buffer\n  [grephits] line 00002: processed record, advancing cursor, flushing buffer\n  [grephits] line 00003: processed record, advancing cursor, flushing buffer\n  [grephits] line 00004: processed record, advancing cursor, flushing buffer\n  [grephits] line 00005: processed record, advancing cursor, flushing buffer\n  [grephits] line 00006: processed record, advancing cursor, flushing buffer\n  [grephits] line 00007: processed record, advancing cursor, flushing buffer\n  [grephits] line 00008: processed record, advancing cursor, flushing buffer\n  [grephits] line 00009: processed record, advancing cursor, flushing buffer\n  [grephits] line 00010: processed record, advancing cursor, flushing buffer\n  [grephits] line 00011: processed record, advancing cursor, flushing buffer\n  [grephits] line 00012: processed record, advancing cursor, flushing buffer\n  [grephits] line 00013: processed record, advancing cursor, flushing buffer\n  [grephits] line 00014: processed record, advancing cursor, flushing buffer\n  [grephits] line 00015: processed record, advancing cursor, flushing buffer\n  [grephits] line 00016: processed record, advancing cursor, flushing buffer\n  [grephits] line 00017: processed record, advancing cursor, flushing buffer\n  [grephits] line 00018: processed record, advancing cursor, flushing buffer\n  [grephits] line 00019: processed record, advancing cursor, flushing buffer\n  [grephits] line 00020: processed record, advancing cursor, flushing buffer\n  [grephits] line 00021: processed record, advancing cursor, flushing buffer\n  [grephits] line 00022: processed record, advancing cursor, flushing buffer\n  [grephits] line 00023: processed record, advancing cursor, flushing buffer\n  [grephits] line 00024: processed record, advancing cursor, flushing buffer\n  [grephits] line 00025: processed record, advancing cursor, flushing buffer\n  [grephits] line 00026: processed record, advancing cursor, flushing buffer\n  [grephits] line 00027: processed record, advancing cursor, flushing buffer\n  [grephits] line 00028: processed record, advancing cursor, flushing buffer\n  [grephits] line 00029: processed record, advancing cursor, flushing buffer\n  [grephits] line 00030: processed record, advancing cursor, flushing buffer\n  [grephits] line 00031: processed record, advancing cursor, flushing buffer\n  [grephits] line 00032: processed r",
+          "tool_use_id": "t_grep_1",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Searching for the symbol again.",
+          "type": "text"
+        },
+        {
+          "id": "t_grep_2",
+          "input": {
+            "output_mode": "content",
+            "path": "src",
+            "pattern": "fn apply"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [grephits] line 00000: processed record, advancing cursor, flushing buffer\n  [grephits] line 00001: processed record, advancing cursor, flushing buffer\n  [grephits] line 00002: processed record, advancing cursor, flushing buffer\n  [grephits] line 00003: processed record, advancing cursor, flushing buffer\n  [grephits] line 00004: processed record, advancing cursor, flushing buffer\n  [grephits] line 00005: processed record, advancing cursor, flushing buffer\n  [grephits] line 00006: processed record, advancing cursor, flushing buffer\n  [grephits] line 00007: processed record, advancing cursor, flushing buffer\n  [grephits] line 00008: processed record, advancing cursor, flushing buffer\n  [grephits] line 00009: processed record, advancing cursor, flushing buffer\n  [grephits] line 00010: processed record, advancing cursor, flushing buffer\n  [grephits] line 00011: processed record, advancing cursor, flushing buffer\n  [grephits] line 00012: processed record, advancing cursor, flushing buffer\n  [grephits] line 00013: processed record, advancing cursor, flushing buffer\n  [grephits] line 00014: processed record, advancing cursor, flushing buffer\n  [grephits] line 00015: processed record, advancing cursor, flushing buffer\n  [grephits] line 00016: processed record, advancing cursor, flushing buffer\n  [grephits] line 00017: processed record, advancing cursor, flushing buffer\n  [grephits] line 00018: processed record, advancing cursor, flushing buffer\n  [grephits] line 00019: processed record, advancing cursor, flushing buffer\n  [grephits] line 00020: processed record, advancing cursor, flushing buffer\n  [grephits] line 00021: processed record, advancing cursor, flushing buffer\n  [grephits] line 00022: processed record, advancing cursor, flushing buffer\n  [grephits] line 00023: processed record, advancing cursor, flushing buffer\n  [grephits] line 00024: processed record, advancing cursor, flushing buffer\n  [grephits] line 00025: processed record, advancing cursor, flushing buffer\n  [grephits] line 00026: processed record, advancing cursor, flushing buffer\n  [grephits] line 00027: processed record, advancing cursor, flushing buffer\n  [grephits] line 00028: processed record, advancing cursor, flushing buffer\n  [grephits] line 00029: processed record, advancing cursor, flushing buffer\n  [grephits] line 00030: processed record, advancing cursor, flushing buffer\n  [grephits] line 00031: processed record, advancing cursor, flushing buffer\n  [grephits] line 00032: processed r",
+          "tool_use_id": "t_grep_2",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Searching for the symbol again.",
+          "type": "text"
+        },
+        {
+          "id": "t_grep_3",
+          "input": {
+            "output_mode": "content",
+            "path": "src",
+            "pattern": "fn apply"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [grephits] line 00000: processed record, advancing cursor, flushing buffer\n  [grephits] line 00001: processed record, advancing cursor, flushing buffer\n  [grephits] line 00002: processed record, advancing cursor, flushing buffer\n  [grephits] line 00003: processed record, advancing cursor, flushing buffer\n  [grephits] line 00004: processed record, advancing cursor, flushing buffer\n  [grephits] line 00005: processed record, advancing cursor, flushing buffer\n  [grephits] line 00006: processed record, advancing cursor, flushing buffer\n  [grephits] line 00007: processed record, advancing cursor, flushing buffer\n  [grephits] line 00008: processed record, advancing cursor, flushing buffer\n  [grephits] line 00009: processed record, advancing cursor, flushing buffer\n  [grephits] line 00010: processed record, advancing cursor, flushing buffer\n  [grephits] line 00011: processed record, advancing cursor, flushing buffer\n  [grephits] line 00012: processed record, advancing cursor, flushing buffer\n  [grephits] line 00013: processed record, advancing cursor, flushing buffer\n  [grephits] line 00014: processed record, advancing cursor, flushing buffer\n  [grephits] line 00015: processed record, advancing cursor, flushing buffer\n  [grephits] line 00016: processed record, advancing cursor, flushing buffer\n  [grephits] line 00017: processed record, advancing cursor, flushing buffer\n  [grephits] line 00018: processed record, advancing cursor, flushing buffer\n  [grephits] line 00019: processed record, advancing cursor, flushing buffer\n  [grephits] line 00020: processed record, advancing cursor, flushing buffer\n  [grephits] line 00021: processed record, advancing cursor, flushing buffer\n  [grephits] line 00022: processed record, advancing cursor, flushing buffer\n  [grephits] line 00023: processed record, advancing cursor, flushing buffer\n  [grephits] line 00024: processed record, advancing cursor, flushing buffer\n  [grephits] line 00025: processed record, advancing cursor, flushing buffer\n  [grephits] line 00026: processed record, advancing cursor, flushing buffer\n  [grephits] line 00027: processed record, advancing cursor, flushing buffer\n  [grephits] line 00028: processed record, advancing cursor, flushing buffer\n  [grephits] line 00029: processed record, advancing cursor, flushing buffer\n  [grephits] line 00030: processed record, advancing cursor, flushing buffer\n  [grephits] line 00031: processed record, advancing cursor, flushing buffer\n  [grephits] line 00032: processed r",
+          "tool_use_id": "t_grep_3",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Searching for the symbol again.",
+          "type": "text"
+        },
+        {
+          "id": "t_grep_4",
+          "input": {
+            "output_mode": "content",
+            "path": "src",
+            "pattern": "fn apply"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [grephits] line 00000: processed record, advancing cursor, flushing buffer\n  [grephits] line 00001: processed record, advancing cursor, flushing buffer\n  [grephits] line 00002: processed record, advancing cursor, flushing buffer\n  [grephits] line 00003: processed record, advancing cursor, flushing buffer\n  [grephits] line 00004: processed record, advancing cursor, flushing buffer\n  [grephits] line 00005: processed record, advancing cursor, flushing buffer\n  [grephits] line 00006: processed record, advancing cursor, flushing buffer\n  [grephits] line 00007: processed record, advancing cursor, flushing buffer\n  [grephits] line 00008: processed record, advancing cursor, flushing buffer\n  [grephits] line 00009: processed record, advancing cursor, flushing buffer\n  [grephits] line 00010: processed record, advancing cursor, flushing buffer\n  [grephits] line 00011: processed record, advancing cursor, flushing buffer\n  [grephits] line 00012: processed record, advancing cursor, flushing buffer\n  [grephits] line 00013: processed record, advancing cursor, flushing buffer\n  [grephits] line 00014: processed record, advancing cursor, flushing buffer\n  [grephits] line 00015: processed record, advancing cursor, flushing buffer\n  [grephits] line 00016: processed record, advancing cursor, flushing buffer\n  [grephits] line 00017: processed record, advancing cursor, flushing buffer\n  [grephits] line 00018: processed record, advancing cursor, flushing buffer\n  [grephits] line 00019: processed record, advancing cursor, flushing buffer\n  [grephits] line 00020: processed record, advancing cursor, flushing buffer\n  [grephits] line 00021: processed record, advancing cursor, flushing buffer\n  [grephits] line 00022: processed record, advancing cursor, flushing buffer\n  [grephits] line 00023: processed record, advancing cursor, flushing buffer\n  [grephits] line 00024: processed record, advancing cursor, flushing buffer\n  [grephits] line 00025: processed record, advancing cursor, flushing buffer\n  [grephits] line 00026: processed record, advancing cursor, flushing buffer\n  [grephits] line 00027: processed record, advancing cursor, flushing buffer\n  [grephits] line 00028: processed record, advancing cursor, flushing buffer\n  [grephits] line 00029: processed record, advancing cursor, flushing buffer\n  [grephits] line 00030: processed record, advancing cursor, flushing buffer\n  [grephits] line 00031: processed record, advancing cursor, flushing buffer\n  [grephits] line 00032: processed r",
+          "tool_use_id": "t_grep_4",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Searching for the symbol again.",
+          "type": "text"
+        },
+        {
+          "id": "t_grep_5",
+          "input": {
+            "output_mode": "content",
+            "path": "src",
+            "pattern": "fn apply"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [grephits] line 00000: processed record, advancing cursor, flushing buffer\n  [grephits] line 00001: processed record, advancing cursor, flushing buffer\n  [grephits] line 00002: processed record, advancing cursor, flushing buffer\n  [grephits] line 00003: processed record, advancing cursor, flushing buffer\n  [grephits] line 00004: processed record, advancing cursor, flushing buffer\n  [grephits] line 00005: processed record, advancing cursor, flushing buffer\n  [grephits] line 00006: processed record, advancing cursor, flushing buffer\n  [grephits] line 00007: processed record, advancing cursor, flushing buffer\n  [grephits] line 00008: processed record, advancing cursor, flushing buffer\n  [grephits] line 00009: processed record, advancing cursor, flushing buffer\n  [grephits] line 00010: processed record, advancing cursor, flushing buffer\n  [grephits] line 00011: processed record, advancing cursor, flushing buffer\n  [grephits] line 00012: processed record, advancing cursor, flushing buffer\n  [grephits] line 00013: processed record, advancing cursor, flushing buffer\n  [grephits] line 00014: processed record, advancing cursor, flushing buffer\n  [grephits] line 00015: processed record, advancing cursor, flushing buffer\n  [grephits] line 00016: processed record, advancing cursor, flushing buffer\n  [grephits] line 00017: processed record, advancing cursor, flushing buffer\n  [grephits] line 00018: processed record, advancing cursor, flushing buffer\n  [grephits] line 00019: processed record, advancing cursor, flushing buffer\n  [grephits] line 00020: processed record, advancing cursor, flushing buffer\n  [grephits] line 00021: processed record, advancing cursor, flushing buffer\n  [grephits] line 00022: processed record, advancing cursor, flushing buffer\n  [grephits] line 00023: processed record, advancing cursor, flushing buffer\n  [grephits] line 00024: processed record, advancing cursor, flushing buffer\n  [grephits] line 00025: processed record, advancing cursor, flushing buffer\n  [grephits] line 00026: processed record, advancing cursor, flushing buffer\n  [grephits] line 00027: processed record, advancing cursor, flushing buffer\n  [grephits] line 00028: processed record, advancing cursor, flushing buffer\n  [grephits] line 00029: processed record, advancing cursor, flushing buffer\n  [grephits] line 00030: processed record, advancing cursor, flushing buffer\n  [grephits] line 00031: processed record, advancing cursor, flushing buffer\n  [grephits] line 00032: processed r",
+          "tool_use_id": "t_grep_5",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Searching for the symbol again.",
+          "type": "text"
+        },
+        {
+          "id": "t_grep_6",
+          "input": {
+            "output_mode": "content",
+            "path": "src",
+            "pattern": "fn apply"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [grephits] line 00000: processed record, advancing cursor, flushing buffer\n  [grephits] line 00001: processed record, advancing cursor, flushing buffer\n  [grephits] line 00002: processed record, advancing cursor, flushing buffer\n  [grephits] line 00003: processed record, advancing cursor, flushing buffer\n  [grephits] line 00004: processed record, advancing cursor, flushing buffer\n  [grephits] line 00005: processed record, advancing cursor, flushing buffer\n  [grephits] line 00006: processed record, advancing cursor, flushing buffer\n  [grephits] line 00007: processed record, advancing cursor, flushing buffer\n  [grephits] line 00008: processed record, advancing cursor, flushing buffer\n  [grephits] line 00009: processed record, advancing cursor, flushing buffer\n  [grephits] line 00010: processed record, advancing cursor, flushing buffer\n  [grephits] line 00011: processed record, advancing cursor, flushing buffer\n  [grephits] line 00012: processed record, advancing cursor, flushing buffer\n  [grephits] line 00013: processed record, advancing cursor, flushing buffer\n  [grephits] line 00014: processed record, advancing cursor, flushing buffer\n  [grephits] line 00015: processed record, advancing cursor, flushing buffer\n  [grephits] line 00016: processed record, advancing cursor, flushing buffer\n  [grephits] line 00017: processed record, advancing cursor, flushing buffer\n  [grephits] line 00018: processed record, advancing cursor, flushing buffer\n  [grephits] line 00019: processed record, advancing cursor, flushing buffer\n  [grephits] line 00020: processed record, advancing cursor, flushing buffer\n  [grephits] line 00021: processed record, advancing cursor, flushing buffer\n  [grephits] line 00022: processed record, advancing cursor, flushing buffer\n  [grephits] line 00023: processed record, advancing cursor, flushing buffer\n  [grephits] line 00024: processed record, advancing cursor, flushing buffer\n  [grephits] line 00025: processed record, advancing cursor, flushing buffer\n  [grephits] line 00026: processed record, advancing cursor, flushing buffer\n  [grephits] line 00027: processed record, advancing cursor, flushing buffer\n  [grephits] line 00028: processed record, advancing cursor, flushing buffer\n  [grephits] line 00029: processed record, advancing cursor, flushing buffer\n  [grephits] line 00030: processed record, advancing cursor, flushing buffer\n  [grephits] line 00031: processed record, advancing cursor, flushing buffer\n  [grephits] line 00032: processed r",
+          "tool_use_id": "t_grep_6",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Searching for the symbol again.",
+          "type": "text"
+        },
+        {
+          "id": "t_grep_7",
+          "input": {
+            "output_mode": "content",
+            "path": "src",
+            "pattern": "fn apply"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [grephits] line 00000: processed record, advancing cursor, flushing buffer\n  [grephits] line 00001: processed record, advancing cursor, flushing buffer\n  [grephits] line 00002: processed record, advancing cursor, flushing buffer\n  [grephits] line 00003: processed record, advancing cursor, flushing buffer\n  [grephits] line 00004: processed record, advancing cursor, flushing buffer\n  [grephits] line 00005: processed record, advancing cursor, flushing buffer\n  [grephits] line 00006: processed record, advancing cursor, flushing buffer\n  [grephits] line 00007: processed record, advancing cursor, flushing buffer\n  [grephits] line 00008: processed record, advancing cursor, flushing buffer\n  [grephits] line 00009: processed record, advancing cursor, flushing buffer\n  [grephits] line 00010: processed record, advancing cursor, flushing buffer\n  [grephits] line 00011: processed record, advancing cursor, flushing buffer\n  [grephits] line 00012: processed record, advancing cursor, flushing buffer\n  [grephits] line 00013: processed record, advancing cursor, flushing buffer\n  [grephits] line 00014: processed record, advancing cursor, flushing buffer\n  [grephits] line 00015: processed record, advancing cursor, flushing buffer\n  [grephits] line 00016: processed record, advancing cursor, flushing buffer\n  [grephits] line 00017: processed record, advancing cursor, flushing buffer\n  [grephits] line 00018: processed record, advancing cursor, flushing buffer\n  [grephits] line 00019: processed record, advancing cursor, flushing buffer\n  [grephits] line 00020: processed record, advancing cursor, flushing buffer\n  [grephits] line 00021: processed record, advancing cursor, flushing buffer\n  [grephits] line 00022: processed record, advancing cursor, flushing buffer\n  [grephits] line 00023: processed record, advancing cursor, flushing buffer\n  [grephits] line 00024: processed record, advancing cursor, flushing buffer\n  [grephits] line 00025: processed record, advancing cursor, flushing buffer\n  [grephits] line 00026: processed record, advancing cursor, flushing buffer\n  [grephits] line 00027: processed record, advancing cursor, flushing buffer\n  [grephits] line 00028: processed record, advancing cursor, flushing buffer\n  [grephits] line 00029: processed record, advancing cursor, flushing buffer\n  [grephits] line 00030: processed record, advancing cursor, flushing buffer\n  [grephits] line 00031: processed record, advancing cursor, flushing buffer\n  [grephits] line 00032: processed r",
+          "tool_use_id": "t_grep_7",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "A different search.",
+          "type": "text"
+        },
+        {
+          "id": "t_grepd_0",
+          "input": {
+            "path": "src",
+            "pattern": "TODO-0"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [todo0] line 00000: processed record, advancing cursor, flushing buffer\n  [todo0] line 00001: processed record, advancing cursor, flushing buffer\n  [todo0] line 00002: processed record, advancing cursor, flushing buffer\n  [todo0] line 00003: processed record, advancing cursor, flushing buffer\n  [todo0] line 00004: processed record, advancing cursor, flushing buffer\n  [todo0] line 00005: processed record, advancing cursor, flushing buffer\n  [todo0] line 00006: processed record, advancing cursor, flushing buffer\n  [todo0] line 00007: processed record, advancing cursor, flushing buffer\n  [todo0] line 00008: processed record, advancing cursor, flushing buffer\n  [todo0] line 00009: processed record, advancing cursor, flushing buffer\n  [todo0] line 00010: processed record, advancing cursor, flushing buffer\n  [todo0] line 00011: processed record, advancing cursor, flushing buffer\n  [todo0] line 00012: processed record, advancing cursor, flushing buffer\n  [todo0] line 00013: processed record, advancing cursor, flushing buffer\n  [todo0] line 00014: processed record, advancing cursor, flushing buffer\n  [todo0] line 00015: processed record, advancing cursor, flushing buffer\n  [todo0] line 00016: processed record, advancing cursor, flushing buffer\n  [todo0] line 00017: processed record, advancing cursor, flushing buffer\n  [todo0] line 00018: processed record, advancing cursor, flushing buffer\n  [todo0] line 00019: processed record, advancing cursor, flushing buffer\n  [todo0] line 00020",
+          "tool_use_id": "t_grepd_0",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "A different search.",
+          "type": "text"
+        },
+        {
+          "id": "t_grepd_1",
+          "input": {
+            "path": "src",
+            "pattern": "TODO-1"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [todo1] line 00000: processed record, advancing cursor, flushing buffer\n  [todo1] line 00001: processed record, advancing cursor, flushing buffer\n  [todo1] line 00002: processed record, advancing cursor, flushing buffer\n  [todo1] line 00003: processed record, advancing cursor, flushing buffer\n  [todo1] line 00004: processed record, advancing cursor, flushing buffer\n  [todo1] line 00005: processed record, advancing cursor, flushing buffer\n  [todo1] line 00006: processed record, advancing cursor, flushing buffer\n  [todo1] line 00007: processed record, advancing cursor, flushing buffer\n  [todo1] line 00008: processed record, advancing cursor, flushing buffer\n  [todo1] line 00009: processed record, advancing cursor, flushing buffer\n  [todo1] line 00010: processed record, advancing cursor, flushing buffer\n  [todo1] line 00011: processed record, advancing cursor, flushing buffer\n  [todo1] line 00012: processed record, advancing cursor, flushing buffer\n  [todo1] line 00013: processed record, advancing cursor, flushing buffer\n  [todo1] line 00014: processed record, advancing cursor, flushing buffer\n  [todo1] line 00015: processed record, advancing cursor, flushing buffer\n  [todo1] line 00016: processed record, advancing cursor, flushing buffer\n  [todo1] line 00017: processed record, advancing cursor, flushing buffer\n  [todo1] line 00018: processed record, advancing cursor, flushing buffer\n  [todo1] line 00019: processed record, advancing cursor, flushing buffer\n  [todo1] line 00020",
+          "tool_use_id": "t_grepd_1",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "A different search.",
+          "type": "text"
+        },
+        {
+          "id": "t_grepd_2",
+          "input": {
+            "path": "src",
+            "pattern": "TODO-2"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [todo2] line 00000: processed record, advancing cursor, flushing buffer\n  [todo2] line 00001: processed record, advancing cursor, flushing buffer\n  [todo2] line 00002: processed record, advancing cursor, flushing buffer\n  [todo2] line 00003: processed record, advancing cursor, flushing buffer\n  [todo2] line 00004: processed record, advancing cursor, flushing buffer\n  [todo2] line 00005: processed record, advancing cursor, flushing buffer\n  [todo2] line 00006: processed record, advancing cursor, flushing buffer\n  [todo2] line 00007: processed record, advancing cursor, flushing buffer\n  [todo2] line 00008: processed record, advancing cursor, flushing buffer\n  [todo2] line 00009: processed record, advancing cursor, flushing buffer\n  [todo2] line 00010: processed record, advancing cursor, flushing buffer\n  [todo2] line 00011: processed record, advancing cursor, flushing buffer\n  [todo2] line 00012: processed record, advancing cursor, flushing buffer\n  [todo2] line 00013: processed record, advancing cursor, flushing buffer\n  [todo2] line 00014: processed record, advancing cursor, flushing buffer\n  [todo2] line 00015: processed record, advancing cursor, flushing buffer\n  [todo2] line 00016: processed record, advancing cursor, flushing buffer\n  [todo2] line 00017: processed record, advancing cursor, flushing buffer\n  [todo2] line 00018: processed record, advancing cursor, flushing buffer\n  [todo2] line 00019: processed record, advancing cursor, flushing buffer\n  [todo2] line 00020",
+          "tool_use_id": "t_grepd_2",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "A different search.",
+          "type": "text"
+        },
+        {
+          "id": "t_grepd_3",
+          "input": {
+            "path": "src",
+            "pattern": "TODO-3"
+          },
+          "name": "Grep",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "  [todo3] line 00000: processed record, advancing cursor, flushing buffer\n  [todo3] line 00001: processed record, advancing cursor, flushing buffer\n  [todo3] line 00002: processed record, advancing cursor, flushing buffer\n  [todo3] line 00003: processed record, advancing cursor, flushing buffer\n  [todo3] line 00004: processed record, advancing cursor, flushing buffer\n  [todo3] line 00005: processed record, advancing cursor, flushing buffer\n  [todo3] line 00006: processed record, advancing cursor, flushing buffer\n  [todo3] line 00007: processed record, advancing cursor, flushing buffer\n  [todo3] line 00008: processed record, advancing cursor, flushing buffer\n  [todo3] line 00009: processed record, advancing cursor, flushing buffer\n  [todo3] line 00010: processed record, advancing cursor, flushing buffer\n  [todo3] line 00011: processed record, advancing cursor, flushing buffer\n  [todo3] line 00012: processed record, advancing cursor, flushing buffer\n  [todo3] line 00013: processed record, advancing cursor, flushing buffer\n  [todo3] line 00014: processed record, advancing cursor, flushing buffer\n  [todo3] line 00015: processed record, advancing cursor, flushing buffer\n  [todo3] line 00016: processed record, advancing cursor, flushing buffer\n  [todo3] line 00017: processed record, advancing cursor, flushing buffer\n  [todo3] line 00018: processed record, advancing cursor, flushing buffer\n  [todo3] line 00019: processed record, advancing cursor, flushing buffer\n  [todo3] line 00020",
+          "tool_use_id": "t_grepd_3",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "system": [
+    {
+      "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+      "type": "text"
+    },
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "  [sysprompt] line 00000: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00001: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00002: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00003: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00004: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00005: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00006: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00007: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00008: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00009: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00010: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00011: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00012: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00013: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00014: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00015: proc",
+      "type": "text"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Bash"
+    },
+    {
+      "name": "Read"
+    },
+    {
+      "name": "Edit"
+    },
+    {
+      "name": "Grep"
+    }
+  ]
+}

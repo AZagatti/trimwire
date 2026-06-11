@@ -1,0 +1,14 @@
+{
+  "id": "s5_noise_heavy",
+  "title": "Noise-heavy log dump — one load-bearing FATAL line + a version mismatch buried in retries",
+  "false_done_trap": false,
+  "source": "synthetic; bulky tool_result the model must compress hard while keeping the buried needles",
+  "needles": [
+    "v2.3.1",
+    "v2.3.0",
+    "ghcr.io/acme/api-gateway",
+    "deploy/values.yaml",
+    "manifest unknown"
+  ],
+  "slice": "### assistant\nChecking why the api-gateway deploy is crash-looping.\n[tool_use Bash] {\"command\":\"kubectl logs deploy/api-gateway --tail=400\"}\n### user\n[tool_result] INFO booting api-gateway\nINFO loading config from /etc/app/config.yaml\nINFO connected to redis at 10.0.2.7:6379\nWARN slow query (412ms) on orders\nINFO cache warm\nINFO ready\nWARN retry 1\nWARN retry 2\nFATAL: image pull failed: ghcr.io/acme/api-gateway:v2.3.1 not found (manifest unknown)\nWARN backoff 2s\nWARN retry 3\nWARN backoff 4s\nWARN retry 4\nWARN backoff 8s\nINFO scheduler requeued pod\nWARN retry 5\nWARN backoff 16s\n(… 200 more identical retry/backoff lines …)\n### assistant\nThe tag v2.3.1 was never pushed to the registry. The CI publish step is gated on a release tag; we tagged v2.3.0 last week but the Helm chart still references v2.3.1.\n### user\nRight — fix it: bump the chart in deploy/values.yaml back to v2.3.0, or cut and push the v2.3.1 release tag so CI publishes the image."
+}

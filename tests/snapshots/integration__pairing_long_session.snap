@@ -1,0 +1,810 @@
+---
+source: tests/integration.rs
+expression: "IndexView::of(&idx)"
+---
+{
+  "uses": {
+    "toolu_long_0000": [
+      1,
+      0
+    ],
+    "toolu_long_0001": [
+      4,
+      0
+    ],
+    "toolu_long_0002": [
+      7,
+      0
+    ],
+    "toolu_long_0003": [
+      10,
+      0
+    ],
+    "toolu_long_0004": [
+      13,
+      0
+    ],
+    "toolu_long_0005": [
+      16,
+      0
+    ],
+    "toolu_long_0006": [
+      19,
+      0
+    ],
+    "toolu_long_0007": [
+      22,
+      0
+    ],
+    "toolu_long_0008": [
+      25,
+      0
+    ],
+    "toolu_long_0009": [
+      28,
+      0
+    ],
+    "toolu_long_0010": [
+      31,
+      0
+    ],
+    "toolu_long_0011": [
+      34,
+      0
+    ],
+    "toolu_long_0012": [
+      37,
+      0
+    ],
+    "toolu_long_0013": [
+      40,
+      0
+    ],
+    "toolu_long_0014": [
+      43,
+      0
+    ],
+    "toolu_long_0015": [
+      46,
+      0
+    ],
+    "toolu_long_0016": [
+      49,
+      0
+    ],
+    "toolu_long_0017": [
+      52,
+      0
+    ],
+    "toolu_long_0018": [
+      55,
+      0
+    ],
+    "toolu_long_0019": [
+      58,
+      0
+    ],
+    "toolu_long_0020": [
+      61,
+      0
+    ],
+    "toolu_long_0021": [
+      64,
+      0
+    ],
+    "toolu_long_0022": [
+      67,
+      0
+    ],
+    "toolu_long_0023": [
+      70,
+      0
+    ],
+    "toolu_long_0024": [
+      73,
+      0
+    ],
+    "toolu_long_0025": [
+      76,
+      0
+    ],
+    "toolu_long_0026": [
+      79,
+      0
+    ],
+    "toolu_long_0027": [
+      82,
+      0
+    ],
+    "toolu_long_0028": [
+      85,
+      0
+    ],
+    "toolu_long_0029": [
+      88,
+      0
+    ],
+    "toolu_long_0030": [
+      91,
+      0
+    ],
+    "toolu_long_0031": [
+      94,
+      0
+    ],
+    "toolu_long_0032": [
+      97,
+      0
+    ],
+    "toolu_long_0033": [
+      100,
+      0
+    ],
+    "toolu_long_0034": [
+      103,
+      0
+    ],
+    "toolu_long_0035": [
+      106,
+      0
+    ],
+    "toolu_long_0036": [
+      109,
+      0
+    ],
+    "toolu_long_0037": [
+      112,
+      0
+    ],
+    "toolu_long_0038": [
+      115,
+      0
+    ],
+    "toolu_long_0039": [
+      118,
+      0
+    ],
+    "toolu_long_0040": [
+      121,
+      0
+    ],
+    "toolu_long_0041": [
+      124,
+      0
+    ],
+    "toolu_long_0042": [
+      127,
+      0
+    ],
+    "toolu_long_0043": [
+      130,
+      0
+    ],
+    "toolu_long_0044": [
+      133,
+      0
+    ],
+    "toolu_long_0045": [
+      136,
+      0
+    ],
+    "toolu_long_0046": [
+      139,
+      0
+    ],
+    "toolu_long_0047": [
+      142,
+      0
+    ],
+    "toolu_long_0048": [
+      145,
+      0
+    ],
+    "toolu_long_0049": [
+      148,
+      0
+    ],
+    "toolu_long_0050": [
+      151,
+      0
+    ],
+    "toolu_long_0051": [
+      154,
+      0
+    ],
+    "toolu_long_0052": [
+      157,
+      0
+    ],
+    "toolu_long_0053": [
+      160,
+      0
+    ],
+    "toolu_long_0054": [
+      163,
+      0
+    ],
+    "toolu_long_0055": [
+      166,
+      0
+    ],
+    "toolu_long_0056": [
+      169,
+      0
+    ],
+    "toolu_long_0057": [
+      172,
+      0
+    ],
+    "toolu_long_0058": [
+      175,
+      0
+    ],
+    "toolu_long_0059": [
+      178,
+      0
+    ],
+    "toolu_long_0060": [
+      181,
+      0
+    ],
+    "toolu_long_0061": [
+      184,
+      0
+    ],
+    "toolu_long_0062": [
+      187,
+      0
+    ],
+    "toolu_long_0063": [
+      190,
+      0
+    ],
+    "toolu_long_0064": [
+      193,
+      0
+    ],
+    "toolu_long_0065": [
+      196,
+      0
+    ],
+    "toolu_long_0066": [
+      199,
+      0
+    ],
+    "toolu_long_0067": [
+      202,
+      0
+    ],
+    "toolu_long_0068": [
+      205,
+      0
+    ],
+    "toolu_long_0069": [
+      208,
+      0
+    ],
+    "toolu_long_0070": [
+      211,
+      0
+    ],
+    "toolu_long_0071": [
+      214,
+      0
+    ],
+    "toolu_long_0072": [
+      217,
+      0
+    ],
+    "toolu_long_0073": [
+      220,
+      0
+    ],
+    "toolu_long_0074": [
+      223,
+      0
+    ],
+    "toolu_long_0075": [
+      226,
+      0
+    ],
+    "toolu_long_0076": [
+      229,
+      0
+    ],
+    "toolu_long_0077": [
+      232,
+      0
+    ],
+    "toolu_long_0078": [
+      235,
+      0
+    ],
+    "toolu_long_0079": [
+      238,
+      0
+    ],
+    "toolu_long_0080": [
+      241,
+      0
+    ],
+    "toolu_long_0081": [
+      244,
+      0
+    ],
+    "toolu_long_0082": [
+      247,
+      0
+    ],
+    "toolu_long_0083": [
+      250,
+      0
+    ],
+    "toolu_long_0084": [
+      253,
+      0
+    ],
+    "toolu_long_0085": [
+      256,
+      0
+    ],
+    "toolu_long_0086": [
+      259,
+      0
+    ],
+    "toolu_long_0087": [
+      262,
+      0
+    ],
+    "toolu_long_0088": [
+      265,
+      0
+    ],
+    "toolu_long_0089": [
+      268,
+      0
+    ],
+    "toolu_long_0090": [
+      271,
+      0
+    ],
+    "toolu_long_0091": [
+      274,
+      0
+    ],
+    "toolu_long_0092": [
+      277,
+      0
+    ],
+    "toolu_long_0093": [
+      280,
+      0
+    ],
+    "toolu_long_0094": [
+      283,
+      0
+    ],
+    "toolu_long_0095": [
+      286,
+      0
+    ],
+    "toolu_long_0096": [
+      289,
+      0
+    ],
+    "toolu_long_0097": [
+      292,
+      0
+    ],
+    "toolu_long_0098": [
+      295,
+      0
+    ],
+    "toolu_long_0099": [
+      298,
+      0
+    ]
+  },
+  "results": {
+    "toolu_long_0000": [
+      2,
+      0
+    ],
+    "toolu_long_0001": [
+      5,
+      0
+    ],
+    "toolu_long_0002": [
+      8,
+      0
+    ],
+    "toolu_long_0003": [
+      11,
+      0
+    ],
+    "toolu_long_0004": [
+      14,
+      0
+    ],
+    "toolu_long_0005": [
+      17,
+      0
+    ],
+    "toolu_long_0006": [
+      20,
+      0
+    ],
+    "toolu_long_0007": [
+      23,
+      0
+    ],
+    "toolu_long_0008": [
+      26,
+      0
+    ],
+    "toolu_long_0009": [
+      29,
+      0
+    ],
+    "toolu_long_0010": [
+      32,
+      0
+    ],
+    "toolu_long_0011": [
+      35,
+      0
+    ],
+    "toolu_long_0012": [
+      38,
+      0
+    ],
+    "toolu_long_0013": [
+      41,
+      0
+    ],
+    "toolu_long_0014": [
+      44,
+      0
+    ],
+    "toolu_long_0015": [
+      47,
+      0
+    ],
+    "toolu_long_0016": [
+      50,
+      0
+    ],
+    "toolu_long_0017": [
+      53,
+      0
+    ],
+    "toolu_long_0018": [
+      56,
+      0
+    ],
+    "toolu_long_0019": [
+      59,
+      0
+    ],
+    "toolu_long_0020": [
+      62,
+      0
+    ],
+    "toolu_long_0021": [
+      65,
+      0
+    ],
+    "toolu_long_0022": [
+      68,
+      0
+    ],
+    "toolu_long_0023": [
+      71,
+      0
+    ],
+    "toolu_long_0024": [
+      74,
+      0
+    ],
+    "toolu_long_0025": [
+      77,
+      0
+    ],
+    "toolu_long_0026": [
+      80,
+      0
+    ],
+    "toolu_long_0027": [
+      83,
+      0
+    ],
+    "toolu_long_0028": [
+      86,
+      0
+    ],
+    "toolu_long_0029": [
+      89,
+      0
+    ],
+    "toolu_long_0030": [
+      92,
+      0
+    ],
+    "toolu_long_0031": [
+      95,
+      0
+    ],
+    "toolu_long_0032": [
+      98,
+      0
+    ],
+    "toolu_long_0033": [
+      101,
+      0
+    ],
+    "toolu_long_0034": [
+      104,
+      0
+    ],
+    "toolu_long_0035": [
+      107,
+      0
+    ],
+    "toolu_long_0036": [
+      110,
+      0
+    ],
+    "toolu_long_0037": [
+      113,
+      0
+    ],
+    "toolu_long_0038": [
+      116,
+      0
+    ],
+    "toolu_long_0039": [
+      119,
+      0
+    ],
+    "toolu_long_0040": [
+      122,
+      0
+    ],
+    "toolu_long_0041": [
+      125,
+      0
+    ],
+    "toolu_long_0042": [
+      128,
+      0
+    ],
+    "toolu_long_0043": [
+      131,
+      0
+    ],
+    "toolu_long_0044": [
+      134,
+      0
+    ],
+    "toolu_long_0045": [
+      137,
+      0
+    ],
+    "toolu_long_0046": [
+      140,
+      0
+    ],
+    "toolu_long_0047": [
+      143,
+      0
+    ],
+    "toolu_long_0048": [
+      146,
+      0
+    ],
+    "toolu_long_0049": [
+      149,
+      0
+    ],
+    "toolu_long_0050": [
+      152,
+      0
+    ],
+    "toolu_long_0051": [
+      155,
+      0
+    ],
+    "toolu_long_0052": [
+      158,
+      0
+    ],
+    "toolu_long_0053": [
+      161,
+      0
+    ],
+    "toolu_long_0054": [
+      164,
+      0
+    ],
+    "toolu_long_0055": [
+      167,
+      0
+    ],
+    "toolu_long_0056": [
+      170,
+      0
+    ],
+    "toolu_long_0057": [
+      173,
+      0
+    ],
+    "toolu_long_0058": [
+      176,
+      0
+    ],
+    "toolu_long_0059": [
+      179,
+      0
+    ],
+    "toolu_long_0060": [
+      182,
+      0
+    ],
+    "toolu_long_0061": [
+      185,
+      0
+    ],
+    "toolu_long_0062": [
+      188,
+      0
+    ],
+    "toolu_long_0063": [
+      191,
+      0
+    ],
+    "toolu_long_0064": [
+      194,
+      0
+    ],
+    "toolu_long_0065": [
+      197,
+      0
+    ],
+    "toolu_long_0066": [
+      200,
+      0
+    ],
+    "toolu_long_0067": [
+      203,
+      0
+    ],
+    "toolu_long_0068": [
+      206,
+      0
+    ],
+    "toolu_long_0069": [
+      209,
+      0
+    ],
+    "toolu_long_0070": [
+      212,
+      0
+    ],
+    "toolu_long_0071": [
+      215,
+      0
+    ],
+    "toolu_long_0072": [
+      218,
+      0
+    ],
+    "toolu_long_0073": [
+      221,
+      0
+    ],
+    "toolu_long_0074": [
+      224,
+      0
+    ],
+    "toolu_long_0075": [
+      227,
+      0
+    ],
+    "toolu_long_0076": [
+      230,
+      0
+    ],
+    "toolu_long_0077": [
+      233,
+      0
+    ],
+    "toolu_long_0078": [
+      236,
+      0
+    ],
+    "toolu_long_0079": [
+      239,
+      0
+    ],
+    "toolu_long_0080": [
+      242,
+      0
+    ],
+    "toolu_long_0081": [
+      245,
+      0
+    ],
+    "toolu_long_0082": [
+      248,
+      0
+    ],
+    "toolu_long_0083": [
+      251,
+      0
+    ],
+    "toolu_long_0084": [
+      254,
+      0
+    ],
+    "toolu_long_0085": [
+      257,
+      0
+    ],
+    "toolu_long_0086": [
+      260,
+      0
+    ],
+    "toolu_long_0087": [
+      263,
+      0
+    ],
+    "toolu_long_0088": [
+      266,
+      0
+    ],
+    "toolu_long_0089": [
+      269,
+      0
+    ],
+    "toolu_long_0090": [
+      272,
+      0
+    ],
+    "toolu_long_0091": [
+      275,
+      0
+    ],
+    "toolu_long_0092": [
+      278,
+      0
+    ],
+    "toolu_long_0093": [
+      281,
+      0
+    ],
+    "toolu_long_0094": [
+      284,
+      0
+    ],
+    "toolu_long_0095": [
+      287,
+      0
+    ],
+    "toolu_long_0096": [
+      290,
+      0
+    ],
+    "toolu_long_0097": [
+      293,
+      0
+    ],
+    "toolu_long_0098": [
+      296,
+      0
+    ],
+    "toolu_long_0099": [
+      299,
+      0
+    ]
+  }
+}

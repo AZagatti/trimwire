@@ -1,0 +1,14 @@
+model	weights_gb	resident	synth_retention	real_retention
+qwen2.5-coder:1.5b	986MB	1.2GB	58.3%	ERR
+qwen3:1.7b	1.4GB	1.7GB	58.3%	ERR
+ministral-3:3b	3.0GB	2.7GB	91.7%	ERR
+llama3.2:3b	2.0GB	2.6GB	83.3%	ERR
+qwen3.5:2b	2.7GB	2.2GB	75.0%	0.0%
+granite4.1:3b	2.1GB	2.5GB	75.0%	0.0%
+qwen2.5-coder:3b	1.9GB	2.2GB	91.7%	16.7%
+phi4-mini:3.8b	2.5GB	3.1GB	100.0%	0.0%
+qwen3:4b	2.5GB	3.2GB	66.7%	16.7%
+gemma3:4b	3.3GB	2.7GB	83.3%	33.3%
+qwen3.5:4b	3.4GB	3.0GB	91.7%	0.0%
+qwen3:8b	5.2GB	5.6GB	83.3%	16.7%
+granite4.1:8b	5.3GB	5.9GB	100.0%	16.7%

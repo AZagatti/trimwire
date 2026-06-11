@@ -1,0 +1,111 @@
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": "Question 0: can you explain how lifetimes works and when I'd use it?",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "  [answer0] line 00000: processed record, advancing cursor, flushing buffer\n  [answer0] line 00001: processed record, advancing cursor, flushing buffer\n  [answer0] line 00002: processed record, advancing cursor, flushing buffer\n  [answer0] line 00003: processed record, advancing cursor, flushing buffer\n  [answer0] line 00004: processed record, advancing cursor, flushing buffer\n  [answer0] line 00005: processed record, advancing cursor, flushing buffer\n  [answer0] line 00006: processed record, advancing cursor, flushing buffer\n  [answer0] line 00007: processed record, advancing cursor, flushing buffer\n  [answer0] line 00008: processed record, advancing cursor, flushing buffer\n  [answer0] line 00009: processed record, advancing cursor, flushing buffer\n  [answer0] line 00010: processed record, advancing cursor, flushing buffer\n  [answer0] line 00011: processed record, advancing cursor, flus",
+          "type": "text"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": "Question 1: can you explain how trait objects works and when I'd use it?",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "  [answer1] line 00000: processed record, advancing cursor, flushing buffer\n  [answer1] line 00001: processed record, advancing cursor, flushing buffer\n  [answer1] line 00002: processed record, advancing cursor, flushing buffer\n  [answer1] line 00003: processed record, advancing cursor, flushing buffer\n  [answer1] line 00004: processed record, advancing cursor, flushing buffer\n  [answer1] line 00005: processed record, advancing cursor, flushing buffer\n  [answer1] line 00006: processed record, advancing cursor, flushing buffer\n  [answer1] line 00007: processed record, advancing cursor, flushing buffer\n  [answer1] line 00008: processed record, advancing cursor, flushing buffer\n  [answer1] line 00009: processed record, advancing cursor, flushing buffer\n  [answer1] line 00010: processed record, advancing cursor, flushing buffer\n  [answer1] line 00011: processed record, advancing cursor, flushing buffer\n  [answer1] line 00012: processed record, advancing cursor, flushing buffer\n  [answer1] line 00013: processed record, advancing cursor, flushing buffer\n  [answer1] line 00014: processed re",
+          "type": "text"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": "Question 2: can you explain how async cancellation works and when I'd use it?",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "  [answer2] line 00000: processed record, advancing cursor, flushing buffer\n  [answer2] line 00001: processed record, advancing cursor, flushing buffer\n  [answer2] line 00002: processed record, advancing cursor, flushing buffer\n  [answer2] line 00003: processed record, advancing cursor, flushing buffer\n  [answer2] line 00004: processed record, advancing cursor, flushing buffer\n  [answer2] line 00005: processed record, advancing cursor, flushing buffer\n  [answer2] line 00006: processed record, advancing cursor, flushing buffer\n  [answer2] line 00007: processed record, advancing cursor, flushing buffer\n  [answer2] line 00008: processed record, advancing cursor, flushing buffer\n  [answer2] line 00009: processed record, advancing cursor, flushing buffer\n  [answer2] line 00010: processed record, advancing cursor, flushing buffer\n  [answer2] line 00011: processed record, advancing cursor, flushing buffer\n  [answer2] line 00012: processed record, advancing cursor, flushing buffer\n  [answer2] line 00013: processed record, advancing cursor, flushing buffer\n  [answer2] line 00014: processed record, advancing cursor, flushing buffer\n  [answer2] line 00015: processed record, advancing cursor, flushing buffer\n  [answer2] line 00016: processed record, advancing cursor, flushing buffer\n  [answe",
+          "type": "text"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": "Question 3: can you explain how Pin works and when I'd use it?",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "  [answer3] line 00000: processed record, advancing cursor, flushing buffer\n  [answer3] line 00001: processed record, advancing cursor, flushing buffer\n  [answer3] line 00002: processed record, advancing cursor, flushing buffer\n  [answer3] line 00003: processed record, advancing cursor, flushing buffer\n  [answer3] line 00004: processed record, advancing cursor, flushing buffer\n  [answer3] line 00005: processed record, advancing cursor, flushing buffer\n  [answer3] line 00006: processed record, advancing cursor, flushing buffer\n  [answer3] line 00007: processed record, advancing cursor, flushing buffer\n  [answer3] line 00008: processed record, advancing cursor, flushing buffer\n  [answer3] line 00009: processed record, advancing cursor, flushing buffer\n  [answer3] line 00010: processed record, advancing cursor, flushing buffer\n  [answer3] line 00011: processed record, advancing cursor, flushing buffer\n  [answer3] line 00012: processed record, advancing cursor, flushing buffer\n  [answer3] line 00013: processed record, advancing cursor, flushing buffer\n  [answer3] line 00014: processed record, advancing cursor, flushing buffer\n  [answer3] line 00015: processed record, advancing cursor, flushing buffer\n  [answer3] line 00016: processed record, advancing cursor, flushing buffer\n  [answer3] line 00017: processed record, advancing cursor, flushing buffer\n  [answer3] line 00018: processed record, advancing cursor, flushing buffer\n  [answer3] line 00019: processed record, advancing curs",
+          "type": "text"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": "Question 4: can you explain how Send+Sync works and when I'd use it?",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "  [answer4] line 00000: processed record, advancing cursor, flushing buffer\n  [answer4] line 00001: processed record, advancing cursor, flushing buffer\n  [answer4] line 00002: processed record, advancing cursor, flushing buffer\n  [answer4] line 00003: processed record, advancing cursor, flushing buffer\n  [answer4] line 00004: processed record, advancing cursor, flushing buffer\n  [answer4] line 00005: processed record, advancing cursor, flushing buffer\n  [answer4] line 00006: processed record, advancing cursor, flushing buffer\n  [answer4] line 00007: processed record, advancing cursor, flushing buffer\n  [answer4] line 00008: processed record, advancing cursor, flushing buffer\n  [answer4] line 00009: processed record, advancing cursor, flushing buffer\n  [answer4] line 00010: processed record, advancing cursor, flushing buffer\n  [answer4] line 00011: processed record, advancing cursor, flushing buffer\n  [answer4] line 00012: processed record, advancing cursor, flushing buffer\n  [answer4] line 00013: processed record, advancing cursor, flushing buffer\n  [answer4] line 00014: processed record, advancing cursor, flushing buffer\n  [answer4] line 00015: processed record, advancing cursor, flushing buffer\n  [answer4] line 00016: processed record, advancing cursor, flushing buffer\n  [answer4] line 00017: processed record, advancing cursor, flushing buffer\n  [answer4] line 00018: processed record, advancing cursor, flushing buffer\n  [answer4] line 00019: processed record, advancing cursor, flushing buffer\n  [answer4] line 00020: processed record, advancing cursor, flushing buffer\n  [answer4] line 00021: processed record, advancing cursor, flushing buffer\n  [answer4] line 00022: proc",
+          "type": "text"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": "Question 5: can you explain how Drop order works and when I'd use it?",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "  [answer5] line 00000: processed record, advancing cursor, flushing buffer\n  [answer5] line 00001: processed record, advancing cursor, flushing buffer\n  [answer5] line 00002: processed record, advancing cursor, flushing buffer\n  [answer5] line 00003: processed record, advancing cursor, flushing buffer\n  [answer5] line 00004: processed record, advancing cursor, flushing buffer\n  [answer5] line 00005: processed record, advancing cursor, flushing buffer\n  [answer5] line 00006: processed record, advancing cursor, flushing buffer\n  [answer5] line 00007: processed record, advancing cursor, flushing buffer\n  [answer5] line 00008: processed record, advancing cursor, flushing buffer\n  [answer5] line 00009: processed record, advancing cursor, flushing buffer\n  [answer5] line 00010: processed record, advancing cursor, flushing buffer\n  [answer5] line 00011: processed record, advancing cursor, flushing buffer\n  [answer5] line 00012: processed record, advancing cursor, flushing buffer\n  [answer5] line 00013: processed record, advancing cursor, flushing buffer\n  [answer5] line 00014: processed record, advancing cursor, flushing buffer\n  [answer5] line 00015: processed record, advancing cursor, flushing buffer\n  [answer5] line 00016: processed record, advancing cursor, flushing buffer\n  [answer5] line 00017: processed record, advancing cursor, flushing buffer\n  [answer5] line 00018: processed record, advancing cursor, flushing buffer\n  [answer5] line 00019: processed record, advancing cursor, flushing buffer\n  [answer5] line 00020: processed record, advancing cursor, flushing buffer\n  [answer5] line 00021: processed record, advancing cursor, flushing buffer\n  [answer5] line 00022: processed record, advancing cursor, flushing buffer\n  [answer5] line 00023: processed record, advancing cursor, flushing buffer\n  [answer5] line 00024: processed record, advancing cursor, flushing buffer\n",
+          "type": "text"
+        }
+      ],
+      "role": "assistant"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "system": [
+    {
+      "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+      "type": "text"
+    },
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "  [sysprompt] line 00000: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00001: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00002: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00003: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00004: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00005: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00006: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00007: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00008: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00009: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00010: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00011: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00012: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00013: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00014: processed record, advancing cursor, flushing buffer\n  [sysprompt] line 00015: proc",
+      "type": "text"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Bash"
+    },
+    {
+      "name": "Read"
+    },
+    {
+      "name": "Edit"
+    },
+    {
+      "name": "Grep"
+    }
+  ]
+}

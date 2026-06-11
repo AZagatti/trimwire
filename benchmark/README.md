@@ -1,0 +1,175 @@
+# Benchmarks
+
+Turns "trimwire saves bytes" into numbers you can reproduce and a cost model you
+can argue with. The harness is **offline replay**: deterministic synthetic
+`/v1/messages` bodies fed straight through the real strategy code
+(`strategies::run` / `apply_to_body`). No API key, no network.
+
+```sh
+cargo run --release --example bench                       # the full report
+cargo run --release --example bench > benchmark/results/RESULTS.md
+cargo run --release --example bench -- --dump benchmark/fixtures   # corpora as JSON
+```
+
+Latest committed run: [`results/RESULTS.md`](results/RESULTS.md). The harness +
+corpora live in [`corpora.rs`](corpora.rs) and [`../examples/bench.rs`](../examples/bench.rs),
+shared with [`../tests/benchmark.rs`](../tests/benchmark.rs) so the numbers and the
+regression guards can't drift.
+
+## Headline results (shipped `default` profile)
+
+| Session shape | Request size | Reduction | Focus: unpruned → pruned |
+|---|--:|--:|--:|
+| Plain chat, no tools | 9.5 KB | **0%** (no-op) | 75% → 75% |
+| Repeated searches | 29.8 KB | **58%** | 33% → 78% |
+| Coding (re-reads + old log) | 48.0 KB | **79%** | 3% → 13% |
+| Long-running tools | 133.6 KB | **60%** | 17% → 43% |
+| Resumed ~50-turn session | 186.4 KB | **65%** | 3% → 7% |
+| Browser / screenshots | 423.2 KB | **57%** | 71% → 99% |
+| Realistic composite | 363.0 KB | **95%** | 0.3% → 7% |
+
+**TL;DR**
+
+| Question | Answer |
+|---|---|
+| Does it shrink the request? | Yes — **0–99%** by shape; **nothing** when there's nothing redundant. |
+| Is the point to save money? | No — it's **context-window headroom / a cleaner session**. |
+| Does it cut my bill? | Non-monotonic: a wash-to-loss on short sessions, **≈ −53% at 256 turns**. |
+| Will it break my session? | No — orphan-free + `system` untouched (asserted; 3,000-body fuzz). |
+| Overhead? | **Sub-2 ms** per request, off the network round-trip. |
+| Which profile? | `default` (aggressive, shipped) · `gentle` (lightest touch). |
+
+Full per-section tables (savings, profiles, per-strategy attribution, cache
+stability, cost model, overhead, reproducibility) live in
+[`results/RESULTS.md`](results/RESULTS.md). The rest of this page is the *why* and
+the methodology behind those numbers.
+
+## The honest bottom line
+
+- **Keeps the session clean — the actual point.** trimwire removes stale,
+  redundant backlog so the recent task isn't drowned in history ("context rot").
+  Across the corpora it lifts the **focus ratio** (share of the request that is
+  the recent working window) — e.g. repeated-search 33%→79%, browser 71%→99%,
+  long-running 17%→43% — though on image-/log-heavy shapes focus stays low even
+  after pruning (mixed 0.3%→6.9%), where the win is the byte/redundancy cut
+  instead. Over a long session it keeps focus 2–3× higher than no pruning (§0,
+  §6). *Focus and redundancy are structural (byte-share) proxies; that they
+  improve actual model behaviour is plausible but unproven here — it would take a
+  model-in-the-loop eval we haven't run (like the deferred E2E test below).*
+- **Request size shrinks 0–99%** depending on shape — and it correctly does
+  *nothing* when there's nothing redundant (the 0% floors).
+- **Cost is a side effect, and non-monotonic.** Prompt-cache hits bill at ~0.1×,
+  so pruning *old* content can bust the cache. "More pruning = more cost" is
+  false (and so is "more pruning = less cost"): on some corpora `default`'s
+  aggressive reduction makes it the *cheapest*, on others the cache churn makes it
+  cost slightly more — it's shape-dependent (§5). On long sessions pruning wins outright (≈ −50% at
+  256 turns, §6). A small increase is acceptable — the project doesn't optimize
+  for the bill — and the `gentle` profile exists for the cost-sensitive who want
+  the lightest touch.
+- **Two profiles** (`profile = "default" | "gentle"` in config). `default` =
+  aggressive (all five strategies, tight knobs, verb-class denylist, reprune on —
+  the shipped default, cleanest context for Max / long sessions); `gentle` =
+  dedup + drop-failed-inputs + a conservative bloat_cap + reprune (lightest touch,
+  for Pro/cost-sensitive). They're cleanliness levels; §2/§5 show each profile's
+  savings and cost so you can choose with eyes open.
+- **Safety: never breaks the session.** Every pruned body is orphan-free and
+  leaves `system` untouched — asserted on all corpora *and* on 3,000 randomized
+  fuzz bodies (`tests/benchmark.rs`).
+
+## Legend (plain English)
+
+| Term | What it means |
+|---|---|
+| `cross_turn_dedup` | drops earlier copies of a tool call you repeated |
+| `failed_input_purge` | clears the bulky input of an old *failed* command |
+| `bloat_cap` | shrinks a huge *old* tool result to its head + tail |
+| `sliding_window` | stubs old browser-automation tool calls |
+| `image_strip` | replaces old screenshots with a marker (keeps recent ones) |
+| cache stability | how much of the previous request the prompt cache can still reuse |
+| orphan-free | never deletes half of a command↔result pair (would confuse the model) |
+| no-op | trimwire forwarded the request byte-for-byte (nothing to prune) |
+
+## What the report measures
+
+0. **Context quality (the point)** — focus ratio (recent window vs backlog) and
+   redundancy ratio, unpruned vs pruned; plus how focus holds up over a long
+   session while the unpruned backlog rots.
+1. **Savings** per corpus under the shipped default config (bytes; ground truth).
+2. **Profiles** — `default` (aggressive) vs `gentle` (lightest touch).
+3. **Per-strategy contribution** — *leave-one-out* attribution (bytes each
+   strategy removes on top of the others), which composes toward the total
+   instead of the double-counting you get from running each alone.
+4. **Prompt-cache stability** — turn-to-turn prefix reuse, default vs tuned vs
+   the unpruned 100% baseline (measured a whole message at a time).
+5. **Cost model** — does the modelled input bill actually go down? (below)
+6. **Savings over time + the cost crossover** — both grow with session length.
+7. **Overhead** — statistical (min / median / mean / p99 / stddev + round
+   spread), including a ~500 KB body.
+
+## The cost model
+
+Each turn re-sends the conversation so far. With prompt caching, the prefix that
+matches the previously-sent request is billed at the cache-read rate (~0.1×) and
+the rest at full rate. We replay each corpus as that growing request sequence,
+prune every snapshot, and sum the input cost **with vs without** pruning
+($3/Mtok input, cache reads at 0.1×; the 1.25× cache-write surcharge is omitted
+as second-order; output tokens are unchanged by pruning so they're excluded).
+
+A negative Δ means trimwire lowered the modelled bill; a positive Δ means cache
+churn outweighed the byte savings. **This is a directional estimate, not an
+invoice** — it inherits the token estimate below, and is least reliable for
+image-heavy corpora.
+
+## Corpora
+
+Twelve deterministic synthetic profiles, ordered low-savings → high so the report
+can't be read as "everything wins". They span genuine floors to big wins:
+
+`pure_chat_floor` (no tools, 0%) · `exempt_heavy` (unique protected reads, 0%) ·
+`unique_bash_spam` · `at_the_boundary` (recent-window rigor) · `repeated_grep`
+(dedup) · `coding` · `mixed_realistic` (the flagship: every strategy a slice) ·
+`mcp_non_playwright` · `long_running` · `resumed_session` (a ~50-turn resumed
+session — the length where pruning becomes a real cost win) · `browser_heavy`
+(biggest bytes, heaviest cache churn) · `giant_paste` (one ~500 KB result).
+
+> **Why synthetic, not captured traffic?** Reproducibility and privacy: no PII,
+> CI-able, and a hostile reader can read the generators. The cost is external
+> validity — these are *designed* to exercise the strategies. The 0% floors and
+> the cost-loss rows are deliberately included so the set isn't rigged to flatter.
+> For numbers from *your* sessions, see below.
+
+## Get your own numbers
+
+The benchmark is synthetic by necessity. For real per-session figures, run the
+gateway and read the live ledger:
+
+```sh
+trimwire stats    # byte savings + cache-prefix stability on your actual traffic
+```
+
+## Caveats
+
+- **Token / cost figures are estimates** at ~4 bytes/token. Least reliable for
+  base64 image bytes — Anthropic bills images by *resolution*, not base64 length,
+  so the token mapping for `browser_heavy` is structurally approximate. **Byte
+  columns are ground truth.**
+- **Cache stability is a proxy.** It measures prefix reuse a whole message at a
+  time (the cache invalidates from the first changed message onward). Anthropic's
+  real cache invalidates at explicit `cache_control` breakpoints, coarser still,
+  so per-message granularity is a careful under-estimate of what's actually kept.
+  The cost model (§5) shares this proxy.
+- **Not in CI: end-to-end acceptance.** A real `claude --resume` against the API
+  confirming a pruned session is accepted *and the task still completes* needs
+  credentials; it's a release-gate checklist item, not a CI job. Offline replay +
+  the fuzz guard structural safety; semantic safety on real traffic is the E2E
+  test's job.
+
+## Layout
+
+```
+benchmark/
+├── README.md            # this file
+├── corpora.rs           # shared generators + metrics (source of truth)
+├── fixtures/            # the corpora dumped as JSON, for inspection
+└── results/RESULTS.md   # latest committed `cargo run --example bench` output
+```

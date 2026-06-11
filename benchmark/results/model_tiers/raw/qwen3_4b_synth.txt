@@ -1,0 +1,92 @@
+── compaction harm gate ──
+model=qwen3:4b  endpoint=http://localhost:11434
+source=synthetic planted-fact slice  facts=12  slice=7561 chars
+
+── summary (4135 chars) ──
+We are given an excerpt of a coding session. We must compact it to <=25% of the original length (aim for shorter) and follow the rules.
+
+ Steps:
+ 1. Copy verbatim, character-for-character: no paraphrasing.
+ 2. Output must be shorter than the excerpt (<=25%).
+ 3. Capture state at the END of the excerpt: what was left open/in-progress (NEXT).
+
+ Let's break down the excerpt:
+
+ The excerpt has multiple turns:
+
+ Turn 1:
+   assistant: "Read the auth module to plan the change."
+   tool_use: step 0 -> [Bash] command: "step 0"
+   user: [tool_result] Opened src/auth/session_7421.rs (210 lines); ... (with many debug lines)
+
+ Turn 2:
+   assistant: "Run the build to see the failure."
+   tool_use: step 1
+   user: [tool_result] error[E0277]: ... (with debug lines)
+
+ Turn 3:
+   assistant: "Decide on the storage backend for the ledger."
+   tool_use: step 2
+   user: [tool_result] Decision: chose SQLite over Postgres ... (with debug lines)
+
+ Turn 4:
+   assistant: "Try connecting to the dev DB."
+   tool_use: step 3
+   user: [tool_result] Connection failed: ECONNREFUSED on 127.0.0.1 ... (with debug lines)
+
+ Turn 5:
+   assistant: "Apply the migration and run the suite."
+   tool_use: step 4
+   user: [tool_result] Applied src/db/migrate_v9.sql; 37 tests passed. TODO: handle the leap-second edge case in reconcile_balances.
+
+ The excerpt ends with the last user response for step 4.
+
+ Important: The last turn (the one that is incomplete) is not present here because the excerpt ends at the user's response for step 4. So the next thing to do would be what the assistant was about to do after step 4? But note rule 3: "NEXT must be what was actually left open/in-progress, not work already completed". Since the last tool_use was step 4 and then the user responded with a result (which was successful for the migration and tests), there is no incomplete turn at the end of the excerpt. However, the problem says: "If the excerpt ends mid-assistant-turn (the last turn is incomplete)".
+
+ But in this case, the excerpt ends with:
+   [user] [tool_result] ... 
+
+ So the last assistant turn was step 4 and then the user responded. Therefore, the next thing to do would be what? The problem says: "NEXT" is what was left open/in-progress at the end of the excerpt.
+
+ Since the excerpt ends with a successful tool result for step 4 (the migration and tests passed), but there's a TODO note: "handle the leap-second edge case in reconcile_balances". So the next thing to do would be to address that TODO? However, note rule 3 says: "NEXT must be what was actually left open/in-progress".
+
+ But wait: the excerpt ends with the user response for step 4. The assistant did not have an incomplete turn at the end of the excerpt because the last tool_use (step 4) was completed by the user.
+
+ However, the problem states: "the last turn" meaning the last assistant turn? Actually, the excerpt is a sequence of turns. The last turn we see in the excerpt is the user response for step 4. So there's no incomplete assistant turn at the end.
+
+ But note: the TODO is part of the result. So the state at the end is that the migration and tests passed, but there's a TODO to fix the leap-second edge case in reconcile_balances.
+
+ Therefore, NEXT should be: "Fix the leap-second edge case in reconcile_balances" (but we must be verbatim? Actually, rule 3 says: "what was actually left open/in-progress". The TODO is what's left. However, the problem says: "NEXT" is what was about to happen / left open.
+
+ Since the excerpt ends with a successful step 4 and then the TODO note, the next thing the assistant would do is address that TODO.
+
+ But rule 1: we must copy verbatim? Actually, for NEXT we are allowed to be concise as long as it's the state at the end. However, the problem says: "Capture the state at the END of the excerpt". So the state includes the TODO.
+
+ How about:
+
+ GOAL: The coding session is trying to fix a blocking call in reconcile_balances by switching storage and handling edge cases.
+
+ But note: rule 2 says: output must be shorter. We have to be very terse.
+
+ Let's extract:
+
+ FILES:
+   - src/auth/session_7421.rs (from step0)
+   - src
+
+── fact retention (normalized: case-insensitive, hyphen≡underscore) ──
+  [✓] auth file path: session_7421.rs
+  [✓] migration file path: migrate_v9.sql
+  [✓] compile error code: e0277
+  [·] trait in error: job: send
+  [✓] network errno: econnrefused
+  [✓] db decision (SQLite): sqlite
+  [·] retry constant: max_retries
+  [✓] function name: reconcile_balances
+  [·] env var: trimwire_audit
+  [·] listen port: 8765
+  [✓] test count: 37 test
+  [✓] todo note: leap-second
+
+retention: 8/12 = 66.7%  (threshold 90%)
+FAIL: retention below threshold

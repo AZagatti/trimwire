@@ -1,0 +1,15 @@
+{
+  "id": "s3_decision_dense",
+  "title": "Reasoning-dense architecture decision (event delivery: outbox vs broker)",
+  "false_done_trap": false,
+  "source": "synthetic; no tool output — pure reasoning the model must keep verbatim identifiers from. NOTE: 'orders.v2' is intentionally NOT a needle — fact_retention normalizes '-'→'_' but NOT '.', so a faithful 'orders_v2' (common code-style) would score zero; the table 'outbox_events' already anchors the design. 'UUID v7'/'Postgres 15' are kept as deliberate verbatim-recall checks (stable standard terms).",
+  "needles": [
+    "outbox_events",
+    "idempotency_key",
+    "UUID v7",
+    "Postgres 15",
+    "250ms",
+    "pager_duty_key"
+  ],
+  "slice": "### assistant\nWeighing the event-delivery design for checkout: at-least-once delivery with idempotency keys vs exactly-once via a transactional outbox. The broker option (Kafka) buys ordering but adds a second stateful system to operate.\n### user\nGo with the outbox. We already run Postgres 15 in prod; a second broker is operational cost we don't want this quarter.\n### assistant\nDecided: transactional OUTBOX pattern on Postgres 15. The writer dedups on idempotency_key (a UUID v7 per checkout). A poller publishes undelivered rows to topic orders.v2 every 250ms and marks them sent in the same transaction. Fallback: if the poller lag exceeds 5s, page on-call via the pager_duty_key secret.\n### user\nGood. One more: the outbox table is named outbox_events and we cap each poll batch at 500 rows so a backlog can't starve the write path."
+}

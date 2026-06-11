@@ -1,0 +1,34 @@
+---
+source: tests/integration.rs
+expression: "IndexView::of(&idx)"
+---
+{
+  "uses": {
+    "toolu_par_a": [
+      1,
+      1
+    ],
+    "toolu_par_b": [
+      1,
+      2
+    ],
+    "toolu_par_c": [
+      1,
+      3
+    ]
+  },
+  "results": {
+    "toolu_par_a": [
+      2,
+      0
+    ],
+    "toolu_par_b": [
+      2,
+      1
+    ],
+    "toolu_par_c": [
+      2,
+      2
+    ]
+  }
+}

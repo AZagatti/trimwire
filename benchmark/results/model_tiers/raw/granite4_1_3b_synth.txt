@@ -1,0 +1,28 @@
+── compaction harm gate ──
+model=granite4.1:3b  endpoint=http://localhost:11434
+source=synthetic planted-fact slice  facts=12  slice=7561 chars
+
+── summary (531 chars) ──
+GOAL: Plan and implement a non-blocking call in reconcile_balances() of src/auth/session_7421.rs.
+FILES: src/auth/session_7421.rs
+DECIDED: Chose SQLite as ledger storage backend; set MAX_RETRIES = 5 for writer operations.
+ERRORS: error[E0277]: the trait bound `Job: Send` is not satisfied (blocking call issue).
+FACTS: Debug trace lines omitted; daemon listens on port 8765; TRIMWIRE_AUDIT env var required for audit sink.
+NEXT: Apply migration and run test suite, pending handling of leap-second edge case in reconcile_balances().
+
+── fact retention (normalized: case-insensitive, hyphen≡underscore) ──
+  [✓] auth file path: session_7421.rs
+  [·] migration file path: migrate_v9.sql
+  [✓] compile error code: e0277
+  [✓] trait in error: job: send
+  [·] network errno: econnrefused
+  [✓] db decision (SQLite): sqlite
+  [✓] retry constant: max_retries
+  [✓] function name: reconcile_balances
+  [✓] env var: trimwire_audit
+  [✓] listen port: 8765
+  [·] test count: 37 test
+  [✓] todo note: leap-second
+
+retention: 9/12 = 75.0%  (threshold 90%)
+FAIL: retention below threshold

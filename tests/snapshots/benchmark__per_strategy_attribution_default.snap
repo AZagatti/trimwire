@@ -1,0 +1,176 @@
+---
+source: tests/benchmark.rs
+expression: attribution_report(&default_install_config())
+---
+{
+  "at_the_boundary": {
+    "attribution": [
+      {
+        "bytes": 64292,
+        "strategy": "bloat_cap"
+      }
+    ],
+    "in_bytes": 143571,
+    "reduction_pct": 44.8
+  },
+  "browser_heavy": {
+    "attribution": [
+      {
+        "bytes": 4,
+        "strategy": "bloat_cap"
+      },
+      {
+        "bytes": 16340,
+        "strategy": "sliding_window"
+      },
+      {
+        "bytes": 59958,
+        "strategy": "image_strip"
+      }
+    ],
+    "in_bytes": 423214,
+    "reduction_pct": 85.0
+  },
+  "coding": {
+    "attribution": [
+      {
+        "bytes": 3018,
+        "strategy": "failed_input_purge"
+      },
+      {
+        "bytes": 40,
+        "strategy": "cross_turn_dedup"
+      },
+      {
+        "bytes": 1752,
+        "strategy": "stale_reads"
+      },
+      {
+        "bytes": 26219,
+        "strategy": "bloat_cap"
+      }
+    ],
+    "in_bytes": 47964,
+    "reduction_pct": 83.0
+  },
+  "exempt_heavy": {
+    "attribution": [],
+    "in_bytes": 57114,
+    "reduction_pct": 0.0
+  },
+  "giant_paste": {
+    "attribution": [
+      {
+        "bytes": 502308,
+        "strategy": "bloat_cap"
+      }
+    ],
+    "in_bytes": 508242,
+    "reduction_pct": 98.8
+  },
+  "long_running": {
+    "attribution": [
+      {
+        "bytes": 80389,
+        "strategy": "bloat_cap"
+      }
+    ],
+    "in_bytes": 133649,
+    "reduction_pct": 60.1
+  },
+  "mcp_non_playwright": {
+    "attribution": [
+      {
+        "bytes": 84608,
+        "strategy": "bloat_cap"
+      }
+    ],
+    "in_bytes": 129550,
+    "reduction_pct": 65.3
+  },
+  "mixed_realistic": {
+    "attribution": [
+      {
+        "bytes": 2524,
+        "strategy": "failed_input_purge"
+      },
+      {
+        "bytes": 8,
+        "strategy": "cross_turn_dedup"
+      },
+      {
+        "bytes": 42311,
+        "strategy": "bloat_cap"
+      },
+      {
+        "bytes": 20440,
+        "strategy": "sliding_window"
+      }
+    ],
+    "in_bytes": 362993,
+    "reduction_pct": 95.4
+  },
+  "pure_chat_floor": {
+    "attribution": [],
+    "in_bytes": 9453,
+    "reduction_pct": 0.0
+  },
+  "repeated_grep": {
+    "attribution": [
+      {
+        "bytes": 14,
+        "strategy": "cross_turn_dedup"
+      },
+      {
+        "bytes": 5945,
+        "strategy": "sliding_window"
+      }
+    ],
+    "in_bytes": 29757,
+    "reduction_pct": 78.1
+  },
+  "resumed_session": {
+    "attribution": [
+      {
+        "bytes": 48,
+        "strategy": "cross_turn_dedup"
+      },
+      {
+        "bytes": 112382,
+        "strategy": "bloat_cap"
+      }
+    ],
+    "in_bytes": 186354,
+    "reduction_pct": 65.0
+  },
+  "stale_input_heavy": {
+    "attribution": [
+      {
+        "bytes": 12040,
+        "strategy": "stale_input_cap"
+      }
+    ],
+    "in_bytes": 14275,
+    "reduction_pct": 84.3
+  },
+  "thinking_heavy": {
+    "attribution": [
+      {
+        "bytes": 10395,
+        "strategy": "thinking_strip"
+      }
+    ],
+    "in_bytes": 12541,
+    "reduction_pct": 82.9
+  },
+  "unique_bash_spam": {
+    "attribution": [
+      {
+        "bytes": 126486,
+        "strategy": "bloat_cap"
+      }
+    ],
+    "in_bytes": 222095,
+    "reduction_pct": 57.0
+  }
+}

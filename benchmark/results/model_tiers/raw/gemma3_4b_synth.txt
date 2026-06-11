@@ -1,0 +1,28 @@
+── compaction harm gate ──
+model=gemma3:4b  endpoint=http://localhost:11434
+source=synthetic planted-fact slice  facts=12  slice=7561 chars
+
+── summary (322 chars) ──
+GOAL: Plan auth module change and implement SQLite ledger storage.
+FILES: src/auth/session_7421.rs, src/db/migrate_v9.sql
+DECIDED: SQLite, MAX_RETRIES = 5
+ERRORS: error[E0277]: the trait bound `Job: Send` is not satisfied
+FACTS: 127.0.0.1:8765, TRIMWIRE_AUDIT
+NEXT: TODO: handle leap-second edge case in reconcile_balances
+
+── fact retention (normalized: case-insensitive, hyphen≡underscore) ──
+  [✓] auth file path: session_7421.rs
+  [✓] migration file path: migrate_v9.sql
+  [✓] compile error code: e0277
+  [✓] trait in error: job: send
+  [·] network errno: econnrefused
+  [✓] db decision (SQLite): sqlite
+  [✓] retry constant: max_retries
+  [✓] function name: reconcile_balances
+  [✓] env var: trimwire_audit
+  [✓] listen port: 8765
+  [·] test count: 37 test
+  [✓] todo note: leap-second
+
+retention: 10/12 = 83.3%  (threshold 90%)
+FAIL: retention below threshold

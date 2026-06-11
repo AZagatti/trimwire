@@ -1,0 +1,42 @@
+---
+source: tests/integration.rs
+expression: "IndexView::of(&idx)"
+---
+{
+  "uses": {
+    "toolu_fail_0": [
+      1,
+      0
+    ],
+    "toolu_fail_1": [
+      4,
+      0
+    ],
+    "toolu_fail_2": [
+      7,
+      0
+    ],
+    "toolu_fail_3": [
+      10,
+      0
+    ]
+  },
+  "results": {
+    "toolu_fail_0": [
+      2,
+      0
+    ],
+    "toolu_fail_1": [
+      5,
+      0
+    ],
+    "toolu_fail_2": [
+      8,
+      0
+    ],
+    "toolu_fail_3": [
+      11,
+      0
+    ]
+  }
+}
