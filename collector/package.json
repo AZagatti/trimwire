@@ -1,0 +1,19 @@
+{
+  "name": "trimwire-collector",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Inert reference collector for trimwire's opt-in, content-free telemetry (Cloudflare Worker + D1). Not deployed by this repo.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "db:init:local": "wrangler d1 execute trimwire-telemetry --local --file=./schema.sql"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240000.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0",
+    "wrangler": "^3.60.0"
+  }
+}

@@ -1,0 +1,46 @@
+# trimwire telemetry collector — Cloudflare Worker config.
+#
+# INERT: this file is a TEMPLATE. The maintainer fills in the real account /
+# database id and deploys. Nothing here points at a live resource.
+
+name = "trimwire-telemetry"
+main = "src/index.ts"
+# Bump to your deploy date before going live (a recent date opts into current
+# Workers runtime semantics). Any past date is valid.
+compatibility_date = "2025-01-01"
+
+# REQUIRED for the /aggregates.json edge cache to work: caches.default is a
+# no-op on *.workers.dev, so without a custom domain every GET rescans D1.
+# Deploy behind a route/custom domain (you want a stable telemetry URL anyway).
+# Flip to true only for a throwaway workers.dev test (cache will be inactive).
+workers_dev = false
+
+# k-anonymity threshold (the Worker floors this at 5). Raise as the user base
+# grows; the dashboard stays intentionally sparse until buckets fill.
+# MAX_PER_DAY caps accepted uploads per IP per UTC day.
+[vars]
+K = "10"
+MAX_PER_DAY = "50"
+# Local dev / tests ONLY: set "true" to run /ingest without the rate-limiter.
+# NEVER set this in production — it disables DoS / poisoning protection.
+# ALLOW_UNTHROTTLED = "false"
+
+# REQUIRED rate-limiter. The RUNTIME gate is authoritative: /ingest refuses to
+# serve (HTTP 503) unless this KV namespace resolves at runtime (or
+# ALLOW_UNTHROTTLED="true" for local dev). NOTE: `wrangler deploy` does NOT
+# validate that the id below points at a real namespace — the placeholder is a
+# reminder, not a deploy-time failure. You MUST create the namespace and paste
+# its real id here, else every upload 503s:
+#   wrangler kv namespace create RATE_LIMIT
+# (add `preview_id` too if you use `wrangler dev --remote`.)
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# D1 binding. Create the DB and paste its id here before deploying:
+#   wrangler d1 create trimwire-telemetry
+#   wrangler d1 execute trimwire-telemetry --file=./schema.sql   # apply schema
+[[d1_databases]]
+binding = "DB"
+database_name = "trimwire-telemetry"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
