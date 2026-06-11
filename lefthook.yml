@@ -1,0 +1,29 @@
+# Pre-commit hooks. Install lefthook (brew install lefthook OR
+# cargo install lefthook), then run `lefthook install` once to wire the
+# hooks into .git/hooks/.
+
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.rs"
+      run: cargo fmt --check
+    clippy:
+      glob: "*.rs"
+      run: cargo clippy --all-targets -- -D warnings
+    test:
+      glob: "*.rs"
+      run: cargo test --lib --no-fail-fast
+
+commit-msg:
+  commands:
+    conventional:
+      # Allow conventional-commits format: type(scope): subject
+      # Types: feat, fix, refactor, docs, test, chore, perf, ci, build, style, revert
+      run: |
+        head -1 {1} | grep -qE '^(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([a-z0-9_-]+\))?!?: .+' || {
+          echo "Commit message must follow conventional-commits format:";
+          echo "  type(scope): subject";
+          echo "  types: feat, fix, refactor, docs, test, chore, perf, ci, build, style, revert";
+          exit 1;
+        }

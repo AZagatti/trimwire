@@ -1,0 +1,3 @@
+too-many-arguments-threshold = 8
+cognitive-complexity-threshold = 25
+type-complexity-threshold = 250

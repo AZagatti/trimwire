@@ -1,0 +1,92 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Build artifacts
+*.bin
+*.exe
+*.so
+*.dylib
+*.dll
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local data the gateway might write at runtime
+/.trimwire/
+.trimwire.local.toml
+# Wire-audit output (TRIMWIRE_AUDIT) — metadata only, but a user's own session data
+/audit*.jsonl
+
+# Test temp
+*.tmp
+.tmp/
+
+# Agent / Claude Code session state — keep config, ignore runtime
+.claude/projects/
+.claude/statsig/
+.claude/todos/
+.claude/cache/
+.claude/worktrees/
+.claude/settings.local.json
+# Per-machine config: these held personal absolute paths + machine-specific hooks
+# that break for other contributors. Untracked (the `.claude/skills/` are kept).
+# A maintainer can add templated `.example` versions if a shared config is wanted.
+.claude/settings.json
+.mcp.json
+
+# Insta snapshot review files (committed snapshots are fine)
+*.pending-snap
+
+# Python (Phase 0 harness)
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+tests/phase0/.venv/
+
+# transient loop/scheduler lock
+.claude/scheduled_tasks.lock
+
+# Generated local dashboards (trimwire dashboard --out)
+trimwire-report*.html
+
+# Node (collector/ Cloudflare Worker dev deps + wrangler local state)
+node_modules/
+.wrangler/
+collector/.dev.vars
+
+# Astro/Starlight site build output + generated content
+site/dist/
+site/.astro/
+# Docs synced from the repo's docs/*.md at build time (single source of truth)
+site/src/content/docs/guides/
+
+# Playwright (site e2e) output
+site/playwright-report/
+site/test-results/
+
+# Playwright MCP screenshot/snapshot artifacts (configured to /tmp; ignore any local fallback)
+.playwright-mcp/
+
+# Astro generated content types
+site/src/.astro/
+
+# General third-party agent skills (dev tooling, not part of trimwire) — keep
+# only the project's own skills; the rest stay local but out of the public repo.
+.claude/skills/*
+!.claude/skills/trimwire
+.agents/skills/*
+!.agents/skills/trimwire
+!.agents/skills/trimwire-gateway
+
+# Internal planning / research docs (kept local, never public)
+internal/

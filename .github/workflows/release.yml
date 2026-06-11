@@ -1,0 +1,103 @@
+name: Release
+
+# Build cross-platform binaries and attach them to the GitHub Release. Asset
+# names are `trimwire-<triple>.tar.gz` (`.zip` on Windows) — exactly what
+# `scripts/install.sh` downloads.
+#
+# Triggers on BOTH a published GitHub release (how release-plz hands off — see
+# release-plz.yml) and a manually pushed `v*` tag (the fallback if you cut a
+# release by hand). A release-plz-created release only fires the
+# `release: published` trigger when release-plz runs with a PAT.
+#
+# Hand-rolled matrix rather than cargo-dist: no extra tooling/version to pin,
+# fully transparent, and it emits the precise asset names the installer expects.
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  guard:
+    name: tag matches Cargo.toml version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse to release if the tag != the crate version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "tag=v$tag  Cargo.toml=$ver"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::tag v$tag does not match Cargo.toml version $ver — bump the version or fix the tag"
+            exit 1
+          fi
+
+  build:
+    needs: guard
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin # cross-compiled on the arm64 runner
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package + checksum (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          asset="trimwire-${{ matrix.target }}.tar.gz"
+          tar -C "target/${{ matrix.target }}/release" -czf "$asset" trimwire
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$asset" > "$asset.sha256"
+          else
+            shasum -a 256 "$asset" > "$asset.sha256"
+          fi
+          echo "ASSET=$asset" >> "$GITHUB_ENV"
+
+      - name: Package + checksum (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $asset = "trimwire-${{ matrix.target }}.zip"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/trimwire.exe" `
+            -DestinationPath $asset
+          $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLower()
+          "$hash  $asset" | Out-File -Encoding ascii "$asset.sha256"
+          "ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ASSET }}
+            ${{ env.ASSET }}.sha256
+          fail_on_unmatched_files: true

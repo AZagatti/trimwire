@@ -1,0 +1,11 @@
+# release-plz configuration. Single-crate repo; most settings are defaults made
+# explicit. The CHANGELOG header/format is intentionally NOT overridden here so
+# release-plz preserves the existing CHANGELOG.md style (Keep a Changelog).
+# Docs: https://release-plz.dev/docs/config
+
+[workspace]
+changelog_update = true     # keep CHANGELOG.md current from conventional commits
+git_release_enable = true   # create the GitHub release (triggers release.yml binaries)
+git_tag_enable = true       # tag as vX.Y.Z
+semver_check = true         # cargo-semver-checks on API changes
+pr_labels = ["release"]     # label the release PR

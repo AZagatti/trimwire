@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --no-fail-fast
+
+      - name: cargo build (release)
+        run: cargo build --release
+
+      - name: longitudinal degradation harness (offline, deterministic)
+        run: cargo run --release --example longitudinal_harm
+
+      - name: cargo doc (deny warnings — guards docs.rs + intra-doc links)
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+      - name: cargo package (verify the crates.io `include` list builds)
+        run: cargo package --locked
+
+      - name: actionlint (workflow lint)
+        run: |
+          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint
+
+      - name: shellcheck install.sh
+        run: |
+          sh -n scripts/install.sh
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck scripts/install.sh
+          else
+            sudo apt-get update -qq && sudo apt-get install -y shellcheck
+            shellcheck scripts/install.sh
+          fi
+
+  msrv:
+    name: MSRV (1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Actually build on the advertised minimum so the rust-version claim
+      # (and edition 2024's floor) can't silently drift on a dep bump.
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked
+      # Compile + run the tests on the floor too: a dep or test-only construct
+      # that needs a newer rustc must fail here, not at a user's `cargo test`.
+      - run: cargo test --locked --no-fail-fast
+
+  audit:
+    name: cargo-deny + cargo-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  parity:
+    name: Python parity oracle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # Run the Python invariant suite, then regenerate the reference fixtures
+      # and fail if the committed copies drifted. The Rust parity tests diff
+      # against these files, so this is what stops the reference and the port
+      # from silently diverging.
+      - name: phase0 pytest invariants
+        run: make phase0
+      - name: parity fixtures are current
+        run: make phase0-verify
+
+  cross-platform:
+    name: cross-platform build
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # Lint the per-OS cfg paths (macOS launchd FFI, windows cmd) that the
+      # ubuntu-only `check` job never compiles.
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo build --release
+      - name: Binary size (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          SIZE=$(stat -c%s target/release/trimwire 2>/dev/null || stat -f%z target/release/trimwire)
+          MAX=$((12 * 1024 * 1024))
+          echo "binary size: ${SIZE} bytes (limit: ${MAX})"
+          [ "$SIZE" -le "$MAX" ]
+
+      - name: Daemon smoke (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          TRIMWIRE_LEDGER__ENABLED=false target/release/trimwire daemon --listen 127.0.0.1:8765 &
+          PID=$!
+          ok=0
+          for _ in $(seq 1 25); do
+            if python3 -c "import socket; socket.create_connection(('127.0.0.1',8765),timeout=1)" 2>/dev/null; then ok=1; break; fi
+            sleep 0.2
+          done
+          kill "$PID" 2>/dev/null || true
+          [ "$ok" = 1 ] || { echo "FAIL: daemon did not listen"; exit 1; }
+          echo "daemon smoke OK"
+
+      - name: Binary size (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $size = (Get-Item target/release/trimwire.exe).Length
+          $max = 12 * 1024 * 1024
+          Write-Output "binary size: $size bytes (limit: $max)"
+          if ($size -gt $max) { Write-Error "binary too large"; exit 1 }
+
+      - name: Daemon smoke (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $env:TRIMWIRE_LEDGER__ENABLED = "false"
+          $p = Start-Process -FilePath "target/release/trimwire.exe" `
+                 -ArgumentList "daemon","--listen","127.0.0.1:8765" -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 25; $i++) {
+            try {
+              $tc = New-Object Net.Sockets.TcpClient
+              $tc.Connect("127.0.0.1", 8765); $tc.Close()
+              $ok = $true; break
+            } catch { Start-Sleep -Milliseconds 200 }
+          }
+          Stop-Process -Id $p.Id -Force
+          if (-not $ok) { Write-Error "FAIL: daemon did not listen"; exit 1 }
+          Write-Output "daemon smoke OK"
