@@ -184,7 +184,8 @@ pub fn stats(
     if cs.ratio < 1.0 {
         println!(
             "    {} a no-op request changed the prefix (cache may be thrashing) — run \
-             `trimwire doctor`, or try the `gentle` profile if it persists.",
+             `trimwire preview --last` to see which strategies fire, or try the `gentle` \
+             profile if it persists.",
             render::warn()
         );
     }
@@ -254,12 +255,17 @@ pub fn stats(
         || rm.requests_with_applied_edits > 0;
     if has_response_metrics && !verbose {
         if rm.total_input_tokens > 0 {
-            let cache_ratio =
-                rm.total_cache_read_input_tokens as f64 / rm.total_input_tokens as f64 * 100.0;
+            // total_input_tokens is the *uncached-billed* bucket only; the true
+            // denominator for a cache-hit % is all three: uncached + cache_read +
+            // cache_creation (= every token the model was asked to process).
+            let all_input = rm.total_input_tokens
+                + rm.total_cache_read_input_tokens
+                + rm.total_cache_creation_input_tokens;
+            let cache_ratio = rm.total_cache_read_input_tokens as f64 / all_input as f64 * 100.0;
             println!(
-                "  cache-hit: {:.0}% of input tokens served from cache  ({} input tokens · --verbose for more)",
+                "  cache-hit: {:.0}% of input tokens served from cache  ({} total input · --verbose for more)",
                 cache_ratio,
-                human_count(rm.total_input_tokens as i64),
+                human_count(all_input as i64),
             );
         } else {
             println!(

@@ -481,10 +481,9 @@ pub fn status(addr: SocketAddr) -> Result<()> {
         // First-time users: `trimwire on` fails (with a soft exit) until `install`
         // has set up the service — point them there first, and at `doctor` to tell
         // which state they're in.
-        println!(
-            "→ not running. First time? run `trimwire install`. Already installed? \
-             `trimwire on` (or `trimwire doctor` to check)."
-        );
+        println!("→ not running.");
+        println!("    First time?       run `trimwire install`.");
+        println!("    Already installed? run `trimwire on`  (or `trimwire doctor` to diagnose).");
     } else if !serving {
         println!(
             "→ something holds the port but isn't answering /healthz — another process is on it. \

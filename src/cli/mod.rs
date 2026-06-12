@@ -248,12 +248,14 @@ pub fn doctor() -> Result<()> {
                     render::ok()
                 );
             } else {
+                // Not running yet is recoverable (user just needs `trimwire on`).
+                // Don't set failed=true so `trimwire doctor && claude` still works
+                // when the gateway hasn't been started yet after install.
                 println!(
                     "{} gateway not responding on {addr} — start it with `trimwire on` (service) \
                      or `trimwire run claude`",
-                    render::bad()
+                    render::warn()
                 );
-                failed = true;
             }
             match std::env::var("ANTHROPIC_BASE_URL") {
                 Ok(v) if base_url_matches(&v, addr) => {
@@ -269,10 +271,14 @@ pub fn doctor() -> Result<()> {
                     );
                 }
                 Err(_) => {
+                    // Not set in the current shell is recoverable (the env var is
+                    // written to the shell rc by `trimwire install`; opening a new
+                    // terminal or sourcing the rc fixes it). Don't set failed=true.
                     println!(
                         "{} ANTHROPIC_BASE_URL not set in THIS shell — Claude Code launched here \
                          won't route through trimwire (install adds it to new shells; an IDE/app \
-                         may need it set separately)",
+                         may need it set separately)\n  → to fix this shell: \
+                         export ANTHROPIC_BASE_URL=http://{addr}",
                         render::warn()
                     );
                 }

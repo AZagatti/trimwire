@@ -370,7 +370,7 @@ fn most_recent_session() -> Result<PathBuf> {
         .map(|(_, p)| p);
     match newest {
         Some(p) => {
-            eprintln!("[trimwire] --last → {}", p.display());
+            eprintln!("{} --last → {}", render::bullet(), p.display());
             Ok(p)
         }
         None => bail!(
@@ -455,7 +455,11 @@ fn resolve_profile(requested: Option<&str>) -> String {
         None => DEFAULT_PROFILE.to_owned(),
         Some(p) if PROFILES.contains(&p) => p.to_owned(),
         Some(p) => {
-            eprintln!("[trimwire] unknown profile {p:?}; using {DEFAULT_PROFILE}");
+            let valid = PROFILES.join(", ");
+            eprintln!(
+                "{} unknown profile {p:?} — using {DEFAULT_PROFILE}. Valid values: {valid}",
+                render::warn()
+            );
             DEFAULT_PROFILE.to_owned()
         }
     }

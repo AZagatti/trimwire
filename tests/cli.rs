@@ -215,11 +215,12 @@ fn doctor_pre_install_exits_zero() {
     );
 }
 
-/// `trimwire doctor` — installed-but-broken: config file EXISTS (so it's not
-/// pre-install), but the gateway is not up. This is a hard failure that warrants
-/// exit 1 so `trimwire doctor && claude` and CI healthchecks gate on it.
+/// `trimwire doctor` — installed-but-gateway-not-running: config file EXISTS (so
+/// it's not pre-install), but the gateway is not up and `ANTHROPIC_BASE_URL` is
+/// not set. Both are ADVISORY/recoverable, so doctor exits 0 (so that
+/// `trimwire doctor && claude` still works) while printing a warning.
 #[test]
-fn doctor_installed_but_gateway_down_exits_nonzero() {
+fn doctor_installed_but_gateway_down_exits_zero_advisory() {
     let dir = tempfile::tempdir().unwrap();
     // Write a minimal valid config so the "pre-install" early-exit path is bypassed.
     let config_dir = dir.path().join(".config");
@@ -237,13 +238,20 @@ fn doctor_installed_but_gateway_down_exits_nonzero() {
         .output()
         .expect("spawn doctor");
     let s = String::from_utf8_lossy(&out.stdout);
+    // Gateway-not-running and ANTHROPIC_BASE_URL-not-set are recoverable, so
+    // doctor exits 0 (advisory warnings only) so `trimwire doctor && claude` works.
     assert!(
-        !out.status.success(),
-        "doctor exits non-zero when installed but gateway is down. got: {s}"
+        out.status.success(),
+        "doctor exits 0 when gateway is not yet running (advisory, not a hard failure). got: {s}"
     );
     assert!(s.contains("trimwire doctor"), "got: {s}");
     assert!(s.contains("config loads"), "got: {s}");
     assert!(s.contains("ANTHROPIC_BASE_URL not set"), "got: {s}");
+    // The warning (not an error marker) should appear.
+    assert!(
+        s.contains("gateway not responding") || s.contains("trimwire on"),
+        "got: {s}"
+    );
 }
 
 /// `summarizer setup` with stdin closed (EOF) must cancel cleanly — never spin

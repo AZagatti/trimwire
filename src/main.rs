@@ -269,8 +269,9 @@ enum Cmd {
         /// Show the full response instrumentation and a longer day history.
         #[arg(long, short = 'v', conflicts_with_all = ["json", "quiet"])]
         verbose: bool,
-        /// Show a per-session, per-model cache/token report. Pass a session id,
-        /// or omit the value (`--session`) for the most recent session.
+        /// Show a per-session, per-model cache/token report. Pass a session id
+        /// (from `trimwire recall`), or use `--session` with no value to
+        /// automatically select the most-recent session.
         #[arg(long, num_args = 0..=1, default_missing_value = "last")]
         session: Option<String>,
         /// Only count requests on/after this UTC date (YYYY-MM-DD).

@@ -93,7 +93,10 @@ pub fn recall(
     if rows.is_empty() {
         match q {
             Some(s) => println!("no sessions match \"{s}\"."),
-            None => println!("no sessions recorded yet."),
+            None => println!(
+                "no sessions recorded yet — run Claude Code through trimwire first \
+                 (`trimwire on`, then `claude`)."
+            ),
         }
         return Ok(());
     }

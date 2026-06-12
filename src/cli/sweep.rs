@@ -13,7 +13,10 @@ pub fn sweep_list() -> Result<()> {
     let files = engine::session_files();
     if files.is_empty() {
         match engine::sessions_root() {
-            Some(root) => println!("no session transcripts found under {}", root.display()),
+            Some(root) => {
+                println!("no session transcripts found under {}", root.display());
+                println!("→ run `trimwire on`, then `claude` to create a session first.");
+            }
             None => println!("could not locate Claude Code's sessions directory ($HOME unset)"),
         }
         return Ok(());
@@ -153,7 +156,9 @@ pub fn sweep_file(path: PathBuf, validate_only: bool, dry_run: bool) -> Result<(
             return Ok(());
         }
         bail!(
-            "{}: validation failed (run with TRIMWIRE_LOG=warn for details)",
+            "{}: validation failed — run `trimwire sweep file {} --dry-run` \
+             to see what would change, or set TRIMWIRE_LOG=warn for trace-level details",
+            path.display(),
             path.display()
         );
     }
