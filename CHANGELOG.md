@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/AZagatti/trimwire/compare/v0.1.1...v0.1.2) - 2026-06-12
+
+### Fixed
+
+- *(dx)* cache-hit% in stats --verbose + doctor exit-contract docstring
+
+### Other
+
+- round-2 CLI guidance audit fixes (advisory exit codes, clearer messages)
+- surface the summarizer in the CLI + fix round-2 doc bugs
+- *(dx)* wizard-first + config-location for the summarizer; trim README
+
 ## [0.1.1](https://github.com/AZagatti/trimwire/compare/v0.1.0...v0.1.1) - 2026-06-12
 
 ### Other
