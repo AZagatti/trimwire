@@ -68,6 +68,18 @@ describe("aggregate k-anonymity", () => {
     expect(res.suppressed_groups).toBe(1);
   });
 
+  it("separates cohorts by harness (a grouping-key field)", () => {
+    const rows = [
+      ...Array.from({ length: 5 }, () => row({ harness: "claude-code" })),
+      ...Array.from({ length: 5 }, () => row({ harness: "aider" })),
+    ];
+    const res = aggregate(rows, 5);
+    expect(res.groups.length).toBe(2);
+    expect(new Set(res.groups.map((g) => g.harness))).toEqual(
+      new Set(["claude-code", "aider"]),
+    );
+  });
+
   it("computes intensive means (not sums) so repeats don't inflate totals", () => {
     const rows = Array.from({ length: 6 }, (_, i) =>
       row({ reduction_pct_bucket: i < 3 ? 40 : 60 }),

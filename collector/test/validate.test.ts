@@ -83,6 +83,15 @@ describe("validatePayload", () => {
     ).toBe(true);
   });
 
+  it("rejects an unknown harness", () => {
+    expect(validatePayload({ ...goodPayload(), harness: "emacs-gptel" }).ok).toBe(false);
+    // every reserved harness value is accepted (so a future client release can
+    // emit one with no collector change).
+    for (const h of ["claude-code", "aider", "opencode", "cline", "codex", "other"]) {
+      expect(validatePayload({ ...goodPayload(), harness: h }).ok).toBe(true);
+    }
+  });
+
   it("rejects a high-cardinality value in a closed enum", () => {
     const p = { ...goodPayload(), model_family: "claude-opus-4-5-20251101" };
     expect(validatePayload(p).ok).toBe(false);

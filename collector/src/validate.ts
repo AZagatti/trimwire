@@ -73,7 +73,7 @@ const PROFILES = ["default", "gentle", "other"];
  *  "claude-code" today; the rest are reserved for the roadmap'd multi-harness
  *  adapters. Deployed with the FULL set so a future client release can emit a new
  *  value with no collector change. MIRRORS `HARNESSES` in src/cli/share.rs. */
-const HARNESSES = ["claude-code", "aider", "opencode", "cline", "codex", "other"];
+export const HARNESSES = ["claude-code", "aider", "opencode", "cline", "codex", "other"];
 /** Closed value set for `summarizer_backend` (§3.4 rename of old `local_model`).
  *  "off" = model-free; "local" = local ollama/llama.cpp; "api" = cloud API. */
 const SUMMARIZER_BACKENDS = ["off", "local", "api"];

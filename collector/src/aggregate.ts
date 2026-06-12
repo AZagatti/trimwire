@@ -2,8 +2,8 @@
 //
 // Pure (no I/O) so it unit-tests without the Workers runtime. Enforces the
 // privacy rules from docs/TELEMETRY.md:
-//   - group by the quasi-identifier key (version, model_family, profile,
-//     summarizer_backend, conversation_length_bucket);
+//   - group by the quasi-identifier key (version, harness, model_family, profile,
+//     summarizer_backend, conversation_length_bucket, summarizer_size_bucket);
 //   - SUPPRESS any group with fewer than K contributing uploads;
 //   - publish ONLY intensive metrics (means / shares / distributions) — never
 //     extensive sums — so repeat uploads can't inflate a headline total;
@@ -107,9 +107,12 @@ function gatedDistribution(
   return Object.keys(filtered).length >= L_DIVERSITY_MIN ? filtered : null;
 }
 
-/** The 6 quasi-identifier fields that form the k-anon grouping key.
+/** The 7 quasi-identifier fields that form the k-anon grouping key.
  *
- *  §3.2: `summarizer_size_bucket` is now part of the key so that the local-model
+ *  `harness` is part of the key (a primary cohort dimension); today every row is
+ *  `"claude-code"` so it's one shared cell with no k-anonymity impact, splitting
+ *  cleanly once multi-harness adapters land.
+ *  §3.2: `summarizer_size_bucket` is part of the key so that the local-model
  *  sub-population is split by model size tier.  For `summarizer_backend=off` rows
  *  the bucket is always `"none"`, so they still share one cell — no k-anonymity impact.
  *

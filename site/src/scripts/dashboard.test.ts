@@ -93,6 +93,24 @@ describe("dashboard renderer", () => {
     expect(labels.some((l) => l.includes("· local"))).toBe(true);
   });
 
+  it("shows harness in the cohort label only when it isn't claude-code", () => {
+    const root = host();
+    mount(root, {
+      k: 10,
+      suppressed_groups: 0,
+      groups: [
+        { trimwire_version: "0.1", harness: "claude-code", model_family: "claude-opus-4-8", profile: "default", summarizer_backend: "off", conversation_length_bucket: "50-200", contributors: 12, avg_reduction_pct: 50, avg_cache_hit_pct: 80, avg_cache_stability: 9 },
+        { trimwire_version: "0.1", harness: "aider", model_family: "claude-sonnet-4-6", profile: "default", summarizer_backend: "off", conversation_length_bucket: "50-200", contributors: 11, avg_reduction_pct: 40, avg_cache_hit_pct: 70, avg_cache_stability: 9 },
+      ],
+    });
+    const labels = [...root.querySelectorAll("tbody tr.twd-row td.twd-cohort")].map(
+      (td) => td.textContent ?? "",
+    );
+    // claude-code is suppressed (no "claude-code ·"); a non-claude-code harness is shown.
+    expect(labels.some((l) => l.includes("claude-code ·"))).toBe(false);
+    expect(labels.some((l) => l.includes("aider ·"))).toBe(true);
+  });
+
   it("re-renders on a filter change — filters rows down", () => {
     const root = host();
     mount(root, EXAMPLE);

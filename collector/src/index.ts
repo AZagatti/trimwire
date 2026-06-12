@@ -14,6 +14,7 @@
 import {
   validatePayload,
   SCHEMA_VERSION,
+  HARNESSES,
   sanitizeStrategyShare,
   sanitizeStrategiesFired,
 } from "./validate";
@@ -269,8 +270,12 @@ function rowFromDb(d: DbRow): TelemetryRow {
     schema_version: SCHEMA_VERSION,
     sent_day: "", // not needed for aggregation
     trimwire_version: d.trimwire_version,
-    // DEFAULT 'claude-code' covers any row written before this column existed.
-    harness: d.harness ?? "claude-code",
+    // DEFAULT 'claude-code' covers any row written before this column existed;
+    // re-validate against the closed set too (read-path sanitization) so an
+    // out-of-band-inserted row can't push an arbitrary value into a cohort label.
+    harness: HARNESSES.includes((d.harness ?? "claude-code") as (typeof HARNESSES)[number])
+      ? (d.harness ?? "claude-code")
+      : "other",
     model_family: d.model_family,
     profile: d.profile,
     summarizer_backend: d.summarizer_backend,
