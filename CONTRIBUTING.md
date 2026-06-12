@@ -1,7 +1,7 @@
 # Contributing to trimwire
 
-Thanks for your interest. trimwire's Phase 1 (v0.1.0) is feature-complete and
-pending its first tag; the design is in [`SPIKE.md`](SPIKE.md) and the phased
+Thanks for your interest. trimwire's first public release is v0.1.0; the design
+is in [`SPIKE.md`](SPIKE.md) and the phased
 build plan + current status are in [`DEVELOPMENT.md`](DEVELOPMENT.md).
 
 ## Quick start

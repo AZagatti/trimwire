@@ -2,12 +2,12 @@
 
 ## Supported versions
 
-trimwire is pre-release; no published versions exist yet. Once v0.1.0
-ships, the most recent minor release will receive security patches.
+trimwire's first public release is v0.1.0. The most recent minor release
+receives security patches.
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | will be supported once released |
+| 0.1.x   | ✅ |
 
 ## Reporting a vulnerability
 

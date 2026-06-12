@@ -14,15 +14,8 @@
 
 ## Quickstart
 
-Requires Rust **1.85+** (edition 2024).
-
-> **Pre-release:** there is no published release / crates.io entry yet, so the
-> prebuilt-binary paths below (`install.sh`, `cargo binstall`, `cargo install
-> trimwire`) won't work until the first release. **For now, build from source:**
-> `git clone … && cd trimwire && cargo install --path .`
-
-**Once the first release is published**, the fastest path is the install script
-(downloads a prebuilt binary, then runs `trimwire install`):
+The fastest path is the install script (downloads a prebuilt binary, then runs
+`trimwire install`):
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh
@@ -31,9 +24,9 @@ curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/inst
 Or install the binary yourself:
 
 ```bash
-cargo install --path .   # build from this checkout — WORKS NOW
-cargo binstall trimwire  # prebuilt binary — after the first release
-cargo install trimwire   # from crates.io — after the first publish
+cargo binstall trimwire  # prebuilt binary (fastest)
+cargo install trimwire   # from crates.io (builds from source; needs Rust 1.85+)
+cargo install --path .   # build from a local checkout
 ```
 
 Then wire it up:

@@ -45,14 +45,18 @@ move on.
 
 trimwire is a Rust HTTP gateway for Claude Code context pruning.
 
-> **⚠️ NOT SHIPPED — NO USERS YET.** trimwire has never been released, tagged, or
-> published — there are **zero installs in the wild** and **no configs to protect**.
-> Do NOT spend effort on backward-compatibility, config migration, deprecation
-> warnings/aliases, "don't surprise existing users," or staged rollouts. Just make the
-> change cleanly and update the docs/tests. (This burned cycles before — e.g. a profile
-> rename got migration-alias machinery it never needed.) When a "what about existing
-> users?" worry comes up: there are none — proceed. The real review bars are correctness,
-> the guardrails below, and the maintainer's product sign-off — not back-compat.
+> **⚠️ v0.1.0 — FIRST public release (tagged 2026-06-11).** The install base is young
+> and the surface is intentionally unstable until v1.0, but real users + on-disk
+> configs/ledgers now exist, so don't *silently* break them:
+> - **Additive changes** (new optional config key, new subcommand): no back-compat work.
+> - **Structural breaks** (rename/remove a required config key or CLI command, change
+>   the ledger schema): add a migration shim OR a clear error pointing to the new form,
+>   and note it in `CHANGELOG.md` under `[Unreleased]`.
+> - Purely internal/agent-facing conventions (commit trailer, working style) have no
+>   user impact — change freely.
+> Still avoid speculative over-engineering (the profile-rename alias machinery was
+> overkill). Real review bars: correctness, the guardrails below, maintainer sign-off,
+> and not silently breaking early adopters.
 
 - **Spec:** [`SPIKE.md`](SPIKE.md) — full design, empirical validation,
   build/document split, two-phase build plan. **Architecture and tier
@@ -224,7 +228,7 @@ These are the maintainer's standing expectations. Follow them by default; they a
 - **Verify subagent claims against the real code/data** — they overclaim; the orchestrator (you) is the check (catch "data not available at call-site", false precision, stale assumptions).
 - **Real sessions:** never operate on the live `~/.claude` transcripts — **copy them to a working dir and work on the copies** (`benchmark/reconstruct_session.py` on copies → bodies).
 - **Result-impacting code changes ship WITH regression/smoke tests**; strategy/prompt changes go through the **harm gate** (`tests/harm.rs` + the false-done detector + blind real-slice gut-read) and need maintainer greenlight before merge.
-- **Never push or tag** — the maintainer releases manually. Commit on `main` (pre-release, no branch needed). Commit trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
+- **Never push or tag** — the maintainer pushes + releases manually (release-plz handles version/tag/crates.io on their push). Commit on `main`. Commit trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 - **Priority order: CODE > docs/DX.** A skill is doc-like (not a code item). API-provider/portability is after the tool is peak. See `internal/BACKLOG-SCORED.md` BUILD SEQUENCE.
 - **Docs source = context7.** Before writing/reviewing code against any library or framework (Astro/Starlight/Vite for the site, Cloudflare Workers/D1 for the collector, clap/hyper/tokio/rusqlite for the binary), consult the `context7` skill rather than training data — and instruct subagents to do the same.
 - **Regression & bench sweep:** before a release, after a meaningful change set, or periodically, run the subagent sweep in [`docs/REGRESSION-WORKFLOW.md`](docs/REGRESSION-WORKFLOW.md) — a 6-agent fan-out (build/gate, invariant harnesses, bench regression, parity oracle, docs/memory drift, coverage gaps) reconciled into one scorecard. Mostly offline/deterministic (only `examples/api_harm` needs a provider key). It catches what CI doesn't: savings drift, doc/memory drift, and untested new surface.

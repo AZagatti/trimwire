@@ -1,6 +1,6 @@
-# Summarizer model compatibility — our pre-release tests
+# Summarizer model compatibility — maintainer directional tests
 
-> ⚠️ **These are trimwire's OWN directional pre-tests, NOT community data.** They were
+> ⚠️ **These are trimwire's OWN directional tests, NOT community data.** They were
 > run by the maintainer on private API keys with a non-deterministic model. The **@128 KB**
 > verdicts below are **N=10** (reliable); the **>128 KB ceilings and the free tier are
 > still N=1** (directional only — see the warnings inline). Treat this as a *starting

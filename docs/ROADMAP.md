@@ -29,9 +29,9 @@ shows it earns its complexity.
   `keep_recent_turns` / `bloat threshold`) to show the frontier rather than three
   fixed profile points.
 
-## Beyond Claude Code (the post-release big bet)
+## Beyond Claude Code
 
-The largest opportunity after release: prune for other agent harnesses too —
+The largest opportunity: prune for other agent harnesses too —
 **aider, opencode, cline, Codex**, and more. The pruning value is universal, but
 no transparent, deterministic proxy exists for them yet.
 
@@ -46,7 +46,7 @@ Two things make this tractable:
   OpenAI-Chat-Completions harnesses (e.g. aider, via a single `OPENAI_API_BASE`
   env var); the goal is a `trimwire install <harness>` flow.
 
-This is discovery-complete but not committed — it lands after release. The full
+This is discovery-complete but not committed. The full
 engineering plan (adapter design, phasing, the aider spike) is tracked internally
 in [`docs/MULTI-HARNESS-PLAN.md`](https://github.com/AZagatti/trimwire/blob/main/docs/MULTI-HARNESS-PLAN.md).
 

@@ -8,9 +8,7 @@
 # adds the gateway env exports to your shell rc).
 #
 # NOTE: the release assets this fetches are produced by
-# .github/workflows/release.yml (a cross-platform matrix build) on a `v*` tag
-# push. Until the first tagged release exists, build from source instead:
-# `cargo install --path .`.
+# .github/workflows/release.yml (a cross-platform matrix build) on each release.
 set -eu
 
 REPO="AZagatti/trimwire"

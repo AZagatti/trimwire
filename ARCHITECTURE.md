@@ -223,8 +223,10 @@ HTTP-code mapping (gateway behaviour, [`SPIKE.md` §6](SPIKE.md)):
 ### `src/ledger.rs` — SQLite savings store
 
 Single `STRICT` table, created once with `CREATE TABLE IF NOT EXISTS` — no
-versioning or migrations (trimwire is unreleased, so there's no older on-disk
-schema to migrate from):
+versioning or migrations yet (v0.1.0 is the first release, so no older on-disk
+schema predates it). Future *additive* columns can use `ALTER TABLE … ADD COLUMN
+… DEFAULT …` (safe in SQLite); removals/renames need a migration since real
+ledgers now exist:
 
 ```sql
 CREATE TABLE IF NOT EXISTS requests (

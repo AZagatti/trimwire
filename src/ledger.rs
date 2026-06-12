@@ -529,9 +529,10 @@ pub fn prefix_hash_and_model(body: &[u8]) -> (String, Option<String>) {
 
 fn init_schema(conn: &Connection) -> Result<()> {
     // Single full schema — `IF NOT EXISTS` so it creates a fresh DB and no-ops on
-    // an existing one. trimwire is unreleased, so there are no older on-disk
-    // schemas to migrate from; the previous v1→v4 ALTER-TABLE migration chain was
-    // dropped. (Columns are referenced by name, so their order here is
+    // an existing one. v0.1.0 is the first release, so no older on-disk schema
+    // predates it; the previous v1→v4 ALTER-TABLE migration chain was dropped.
+    // Real ledgers now exist, so future ADD COLUMN is safe but removals/renames
+    // need a migration. (Columns are referenced by name, so their order here is
     // irrelevant to an already-populated ledger.)
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS requests (

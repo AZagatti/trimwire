@@ -72,7 +72,7 @@ Companion docs:
   - `src/ledger.rs`: `Ledger` over `Arc<Mutex<Connection>>`; `record()` is
     fire-and-forget via `spawn_blocking` (never blocks/fails the request);
     open-failure → degraded no-op ledger. WAL + `synchronous=NORMAL`,
-    single `STRICT` schema (no migrations — unreleased), startup age-prune (`retain_days`,
+    single `STRICT` schema (no migrations — first release), startup age-prune (`retain_days`,
     default 365), `prefix_hash` (body minus `messages`, sorted-compact
     SHA-256 matching the Python contract), and `report()` over a READ-ONLY
     connection with the §9 cache-prefix stability ratio.
@@ -126,10 +126,9 @@ Companion docs:
 - ✅ `clippy --all-targets -- -D warnings` / `fmt --check` / full `cargo test`
   (50 lib + 5 bin + 3 cli + 13 integration) all clean; `make phase0`
   (21 Python tests) clean.
-- ⏳ **Pre-tag manual checks (need creds / a real tag):** `cargo run -- on`
-  against a real Claude Code session (confirm `pruned[...]` + `trimwire stats`),
-  and a real `v*` tag to validate `release.yml` + `scripts/install.sh`
-  end-to-end. Everything automatable is green in CI.
+- ✅ **Pre-tag manual checks** done with the v0.1.0 release (2026-06-11): real
+  Claude Code session confirmed (`pruned[...]` + `trimwire stats`); `v0.1.0` tag
+  validated `release-plz` + crates.io publish + `release.yml`/`scripts/install.sh`.
 - ✅ **Post-capstone "make it actually useful" (2026-05-29):** the shipped
   defaults pruned nothing on a normal coding session. Grounded in the
   inspiration tools (opencode-dcp's two default zero-LLM strategies), added

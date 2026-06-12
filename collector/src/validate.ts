@@ -6,8 +6,9 @@
 // malformed or hostile upload never enters the aggregate. Pure + dependency-free
 // so it unit-tests without the Workers runtime.
 
-// Starts at 1 (trimwire is unreleased — no older client/rows exist in the wild),
-// so the collector validates this exact version only; no dual-version path.
+// Starts at 1 (v0.1.0, the first release). The collector validates this exact
+// version only — no dual-version path yet. A breaking change bumps it in lockstep
+// with the Rust client (share.rs); add a transition window if v1 rows exist.
 export const SCHEMA_VERSION = 1;
 
 // MIRRORS `src/cli/share.rs` ALLOWED_KEYS across the language boundary — the two

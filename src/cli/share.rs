@@ -20,9 +20,9 @@ use trimwire::config::{Config, global_config_path};
 use trimwire::ledger::{self, KNOWN_STRATEGIES, Ledger, Report, SessionRow};
 
 /// schema_version of the wire payload — a wire-format guard, not a migration:
-/// the collector accepts only this exact value. It starts at 1 (trimwire is
-/// unreleased, so there is no older client in the wild to stay compatible with);
-/// the first breaking field/bucket change after release bumps it.
+/// the collector accepts only this exact value. It starts at 1 (v0.1.0, the
+/// first release). A breaking field/bucket change bumps it; the collector must
+/// then accept both old and new for a transition window (or reject old clients).
 const SCHEMA_VERSION: u32 = 1;
 
 /// Built-in community stats collector endpoint for `trimwire share stats`.
