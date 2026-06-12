@@ -57,7 +57,7 @@ export default defineConfig({
             { label: "Performance", link: "/performance/" },
           ],
         },
-        { label: "Guides", autogenerate: { directory: "guides" } },
+        { label: "Guides", items: [{ autogenerate: { directory: "guides" } }] },
       ],
     }),
   ],

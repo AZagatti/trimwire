@@ -55,18 +55,18 @@ serde_json = "1"
 thiserror = "2"
 anyhow = "1"
 figment = { version = "0.10", features = ["toml", "env"] }
-toml = "0.8"
+toml = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 ahash = "0.8"
 hmac = "0.13"
 sha2 = "0.11"
 hex = "0.4"
-getrandom = "0.3"   # OS CSPRNG for the telemetry install-id (BCryptGenRandom on Windows)
-rusqlite = { version = "0.32", features = ["bundled"] }
+getrandom = "0.4"   # OS CSPRNG for the telemetry install-id (BCryptGenRandom on Windows)
+rusqlite = { version = "0.40", features = ["bundled"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
-clap_mangen = "0.2"
+clap_mangen = "0.3"
 listenfd = "1"
 dashmap = "6"
 
@@ -89,10 +89,10 @@ todo = "warn"
 [dev-dependencies]
 # `test` feature adds figment::Jail (sandboxed cwd+env) for Config::load tests.
 figment = { version = "0.10", features = ["toml", "env", "test"] }
-insta = { version = "1.41", features = ["json"] }
+insta = { version = "1.48", features = ["json"] }
 rstest = "0.26"
 wiremock = "0.6"
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "http2"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "http2"] }
 tempfile = "3"
 pretty_assertions = "1"
 
