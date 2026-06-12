@@ -1,0 +1,19 @@
+# trimwire docs site — Cloudflare Workers (static assets) config.
+#
+# The site is a static Astro build. On the unified Workers platform a static
+# site deploys as a Worker that serves an assets directory (no server code), so
+# there is no `main` entrypoint — just the built `dist/` folder.
+#
+# Deploy flow (Workers Builds, Git-connected):
+#   Path (root directory) = site
+#   Build command         = npm run build      (runs sync-docs then astro build)
+#   Deploy command        = npx wrangler deploy
+# `dist` below is relative to this file (i.e. site/dist).
+
+name = "trimwire-site"
+# Bump to your deploy date before going live (a recent date opts into current
+# Workers runtime semantics). Any past date is valid.
+compatibility_date = "2026-06-12"
+
+[assets]
+directory = "./dist"
