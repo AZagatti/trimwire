@@ -17,3 +17,12 @@ compatibility_date = "2026-06-12"
 
 [assets]
 directory = "./dist"
+
+# Custom domain, declared as code. Because trimwire.dev's DNS zone lives in the
+# same Cloudflare account, deploying creates the DNS record and attaches the
+# domain to this Worker automatically — no dashboard step, no manual records.
+# (apex is fine; Workers custom domains support it.) Remove this block to fall
+# back to the *.workers.dev URL.
+[[routes]]
+pattern = "trimwire.dev"
+custom_domain = true
