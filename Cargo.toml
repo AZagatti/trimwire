@@ -46,7 +46,7 @@ hyper-util = { version = "0.1", features = ["tokio", "server", "client-legacy"] 
 http-body-util = "0.1"
 hyper-rustls = { version = "0.27", features = ["webpki-roots", "http2"] }
 rustls = "0.23"
-webpki-roots = "0.26"
+webpki-roots = "1.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "sync"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
