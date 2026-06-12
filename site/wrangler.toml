@@ -10,7 +10,9 @@
 #   Deploy command        = npx wrangler deploy
 # `dist` below is relative to this file (i.e. site/dist).
 
-name = "trimwire-site"
+# Must match the Workers Builds project name (the CI overrides a mismatch and
+# would open a PR to reconcile it).
+name = "trimwire"
 # Bump to your deploy date before going live (a recent date opts into current
 # Workers runtime semantics). Any past date is valid.
 compatibility_date = "2026-06-12"
