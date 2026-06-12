@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/AZagatti/trimwire/compare/v0.1.0...v0.1.1) - 2026-06-12
+
+### Other
+
+- drop stale pre-release language now that v0.1.0 is published
+- *(deps)* upgrade all ecosystems to latest (Rust / collector / site)
+
 ## [0.1.0] - 2026-06-11
 
 First public release. trimwire is a transparent local proxy for Claude Code: point
