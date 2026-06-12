@@ -96,17 +96,23 @@ curl -s localhost:8787/aggregates.json   # (sparse until a group reaches K)
 
 ## Maintainer deploy (NOT done here)
 
-1. `wrangler d1 create trimwire-telemetry` → paste the id into `wrangler.toml`.
-2. `wrangler d1 execute trimwire-telemetry --file=./schema.sql`.
+1. `wrangler d1 create trimwire-telemetry` → paste the printed `database_id` into
+   `wrangler.toml`.
+2. `wrangler d1 execute trimwire-telemetry --remote --file=./schema.sql`
+   (`--remote` applies to the PROD D1 — without it the schema only lands on the
+   local dev DB).
 3. **Create the REQUIRED rate-limiter KV namespace** and paste its id into the
    `[[kv_namespaces]]` block in `wrangler.toml`:
    `wrangler kv namespace create RATE_LIMIT`. The Worker fails closed at
    **runtime** (every `/ingest` returns 503) until a real namespace resolves —
    `wrangler deploy` itself does not validate the id, so don't skip this. Do
    **not** set `ALLOW_UNTHROTTLED` in production.
-4. Set `compatibility_date` in `wrangler.toml` to a recent date, and deploy
-   behind a **custom domain/route** (`workers_dev = false`) — the
-   `/aggregates.json` edge cache is a no-op on `*.workers.dev`.
+4. `compatibility_date` is set to a recent date and the **custom domain**
+   (`api.trimwire.dev`) is declared as a `[[routes]]` block with `workers_dev =
+   false`, so `wrangler deploy` binds the domain and creates DNS automatically
+   (the zone is in the same account). The `/aggregates.json` edge cache and a
+   trustworthy `CF-Connecting-IP` both depend on this (no-op / spoofable on a
+   bare `*.workers.dev`).
 5. `wrangler deploy`.
 6. Set the resulting Worker URL as the Rust client's `[share] endpoint` (and
    publish it in the docs) **only after** writing a privacy policy.

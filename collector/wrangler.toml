@@ -5,15 +5,24 @@
 
 name = "trimwire-telemetry"
 main = "src/index.ts"
-# Bump to your deploy date before going live (a recent date opts into current
-# Workers runtime semantics). Any past date is valid.
-compatibility_date = "2025-01-01"
+# A recent date opts into current Workers runtime semantics. Any past date is valid.
+compatibility_date = "2026-06-12"
 
 # REQUIRED for the /aggregates.json edge cache to work: caches.default is a
 # no-op on *.workers.dev, so without a custom domain every GET rescans D1.
 # Deploy behind a route/custom domain (you want a stable telemetry URL anyway).
 # Flip to true only for a throwaway workers.dev test (cache will be inactive).
 workers_dev = false
+
+# Custom domain, declared as code. Because api.trimwire.dev's DNS zone is in the
+# same Cloudflare account, deploying creates the DNS record and binds the domain
+# automatically — no dashboard step. This also enables the /aggregates.json edge
+# cache and makes CF-Connecting-IP trustworthy for the rate-limiters (both are
+# no-ops / spoofable on a bare *.workers.dev). The client POSTs to
+# https://api.trimwire.dev/ingest; the dashboard reads /aggregates.json.
+[[routes]]
+pattern = "api.trimwire.dev"
+custom_domain = true
 
 # k-anonymity threshold (the Worker floors this at 5). Raise as the user base
 # grows; the dashboard stays intentionally sparse until buckets fill.
@@ -39,7 +48,8 @@ id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
 
 # D1 binding. Create the DB and paste its id here before deploying:
 #   wrangler d1 create trimwire-telemetry
-#   wrangler d1 execute trimwire-telemetry --file=./schema.sql   # apply schema
+#   wrangler d1 execute trimwire-telemetry --remote --file=./schema.sql  # apply to PROD
+# (use --remote: without it the schema only lands on the LOCAL dev D1.)
 [[d1_databases]]
 binding = "DB"
 database_name = "trimwire-telemetry"
