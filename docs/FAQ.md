@@ -4,6 +4,19 @@ Short, honest answers to the questions people ask before pointing their Claude
 Code at a local proxy. Every claim here is backed by the code and the docs linked
 inline. Nothing aspirational.
 
+## How do I install it?
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh
+# or: cargo binstall trimwire   (prebuilt binary)
+# or: cargo install trimwire    (from crates.io)
+```
+
+Then `trimwire install` wires it into Claude Code (config + `ANTHROPIC_BASE_URL` +
+the background service). To **update**, re-run the install script or
+`cargo binstall trimwire` — it replaces the binary in place. Full walkthrough: the
+[README](https://github.com/AZagatti/trimwire#quickstart).
+
 ## Is trimwire safe to use with my Claude subscription? (Terms of Service)
 
 **With an API key: unambiguously yes. With a Pro/Max subscription: a greyer,

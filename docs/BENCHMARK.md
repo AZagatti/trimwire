@@ -80,4 +80,4 @@ trimwire share benchmark --model qwen3.5:4b --yes  # uploads it (if an endpoint 
 the raw tag), bucketed retention/reduction, a capped false-done count, and whether
 it produced usable summaries — nothing else. It is **off by default**: with no
 collector endpoint configured (or without `--yes`) it only prints what it *would*
-send. See [Telemetry](/guides/telemetry/) for the exact payload.
+send. See [Telemetry](TELEMETRY.md) for the exact payload.

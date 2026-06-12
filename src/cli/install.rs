@@ -104,6 +104,10 @@ pub fn install(boot: bool) -> Result<()> {
     println!("Optional next steps:");
     println!("  see savings anytime:         trimwire stats");
     println!(
+        "  model summarizer (long runs): trimwire summarizer setup  \
+         (optional — local or API model compresses old context)"
+    );
+    println!(
         "  live savings bar:            trimwire statusline add  \
          (or `trimwire statusline wrap` if you already have a statusline)"
     );

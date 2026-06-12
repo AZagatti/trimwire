@@ -427,6 +427,13 @@ pub fn doctor() -> Result<()> {
                     }
                 }
             }
+        } else {
+            // Discoverability: surface the opt-in summarizer for model-free users.
+            println!(
+                "{} summarizer is off (engine = model-free) — optional: \
+                 `trimwire summarizer setup` compresses old context on long sessions",
+                render::bullet()
+            );
         }
     }
 

@@ -196,7 +196,7 @@ fallback = ["anthropic"]    # fall back to the "anthropic" provider if ollama is
 | `trimwire summarizer setup` | Interactive wizard: configures engine, model, and API key |
 | `trimwire summarizer status` | Show the current summarizer config and whether it is reachable |
 | `trimwire summarizer benchmark [--model <tag\|provider-id>]` | Score a local ollama model or a configured API provider for fact retention and compression. API providers require `--yes` to make real (paid) calls; without it, prints a dry-run cost warning. See [`BENCHMARK.md`](BENCHMARK.md). |
-| `trimwire summarizer probe [--model <tag\|provider-id>] [--bytes N] [--runs N] [--yes]` | Slice-ceiling fact gate: plant distinctive facts across a synthetic OLD slice at your `slice_char_budget` (or `--bytes`), summarize it with your configured model (or `--model`), and report fact retention by position. **Model summaries are non-deterministic — use `--runs 5` to see the distribution (pass-rate / p50 / min); PASS requires ALL runs ≥90%.** A single run near the gate is a coin flip. API providers need `--yes` (cost scales with `--runs`); `local`/an ollama tag runs locally. |
+| `trimwire summarizer probe [--model <tag\|provider-id>] [--bytes N] [--runs N] [--yes]` | Slice-ceiling fact gate: plant distinctive facts across a synthetic OLD slice at your `slice_char_budget` (or `--bytes`), summarize it with your configured model (or `--model`), and report fact retention by position. **Model summaries are non-deterministic — use `--runs 10` to see the distribution (pass-rate / p50 / min); PASS requires ALL runs ≥90%.** A single run near the gate is a coin flip. API providers need `--yes` (cost scales with `--runs`); `local`/an ollama tag runs locally. |
 
 `trimwire doctor` also reports the summarizer configuration when `engine` is not
 `model-free`.
@@ -262,13 +262,13 @@ off or fails) — they simply own less of the old region once the summary covers
 >
 > | Model class | Safe `slice_char_budget` | Notes |
 > |---|---|---|
-> | GLM-4.5-Air / GLM-4.5 / GLM-4.6 (and unknown low-tier) | **~128 KB** | 100% at 128 KB; degrades to 58–83% by 192 KB. 156 KB is a knife-edge (83–92% across runs) — not worth it. |
-> | **GLM-5 / GLM-5-Turbo** | **~700 KB** (6× more) | 100% through 512 KB, ~92% at 768 KB, empty summary at 1 MB. Big coverage win — point the summarizer at a GLM-5-class model and set e.g. `slice_char_budget = 720896`. |
+> | Unknown / low-tier models | **128 KB** (the default) | The conservative floor — don't raise it without gating the model below. Note the **GLM-4.x family (incl. 4.5-Air) FAILS 128 KB at N=10** ([MODEL-COMPATIBILITY.md](MODEL-COMPATIBILITY.md)); prefer GLM-5.x. |
+> | **GLM-5 / GLM-5-Turbo / GLM-5.1** | **~700 KB** (much more) | Reliable through ~512 KB, ~92% at 768 KB. Big coverage win — point the summarizer at a GLM-5-class model and set e.g. `slice_char_budget = 720896`. |
 >
 > There's a clear capability cliff between the GLM-4.x and GLM-5 generations. **Default
 > stays 128 KB (protects weak models); raise it only on a model you've gated.** To find a
 > configured provider's ceiling: `trimwire summarizer probe --model <provider-id> --bytes 720896
-> --runs 5 --yes` — keep the pass rate high (retention ≥ 90%, no false-done) before raising it.
+> --runs 10 --yes` — keep the pass rate high (retention ≥ 90%, no false-done) before raising it.
 >
 > **Summarizing more often does NOT add coverage.** Lowering `resummarize_after_bytes`
 > just splits the same old-content delta into more (smaller) segments — total bytes

@@ -191,7 +191,7 @@ No raw model tag, no summary text, no per-slice detail, no paths/ids/raw counts.
 Sharing is blocked unless the bundled corpus matches a pinned, verified hash, so
 modified builds can't inject results into the shared dataset. Off by default:
 with no `[share] benchmark_endpoint` configured (or without `--yes`), `trimwire share benchmark`
-only prints the row. See [the benchmark guide](/guides/benchmark/).
+only prints the row. See [the benchmark guide](BENCHMARK.md).
 
 ## k-anonymity & how the dashboard is computed
 

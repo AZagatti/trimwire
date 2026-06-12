@@ -235,6 +235,13 @@ pub fn stats(
             render::warn(),
             report.summarizer_collapses,
         );
+    } else if config.summarizer.engine == "model-free" {
+        // Discoverability: hint the opt-in summarizer to model-free users.
+        println!(
+            "  {} summarizer is off — `trimwire summarizer setup` adds model-based \
+             compression on top of these savings (optional)",
+            render::bullet()
+        );
     }
 
     // Response-side metrics (v3 columns). The DEFAULT view shows just the one

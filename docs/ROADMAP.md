@@ -1,6 +1,6 @@
 # Roadmap
 
-trimwire is feature-complete for v1. This is not a release schedule. The items
+trimwire is released and feature-complete. This is not a release schedule. The items
 below are evidence-gated ideas; each ships only if real telemetry or a benchmark
 shows it earns its complexity.
 
