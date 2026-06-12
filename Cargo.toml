@@ -57,7 +57,7 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 ahash = "0.8"
-hmac = "0.12"
+hmac = "0.13"
 sha2 = "0.10"
 hex = "0.4"
 getrandom = "0.3"   # OS CSPRNG for the telemetry install-id (BCryptGenRandom on Windows)
