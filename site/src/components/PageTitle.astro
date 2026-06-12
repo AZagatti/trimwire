@@ -111,10 +111,19 @@ const rawMarkdown = entry.body ?? "";
     /* ── Page-actions row ─────────────────────────────────────────────── */
     .page-actions {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      /* Hide scrollbar on webkit but keep scroll affordance */
+      scrollbar-width: none; /* Firefox */
       gap: 0.35rem;
       margin-top: 0.65rem;
       margin-bottom: -0.25rem; /* optically closes gap before content panel border */
+      /* Prevent scroll from being blocked by page layout overflow */
+      padding-bottom: 0.1rem;
+    }
+    .page-actions::-webkit-scrollbar {
+      display: none; /* Chrome/Safari */
     }
 
     .pa-btn {

@@ -125,6 +125,14 @@ are on the [FAQ & Trust page](/guides/faq/).
 
 ## Quickstart
 
+import { Aside } from "@astrojs/starlight/components";
+
+<Aside type="tip" title="Long or reasoning-heavy sessions?">
+  Run <code>trimwire summarizer setup</code> to compress old context with a
+  local (ollama) or cloud API model — any failure falls back to model-free
+  pruning automatically. [Learn more →](/guides/summarizer/)
+</Aside>
+
 Requires Rust 1.85+ (edition 2024).
 
 ```sh

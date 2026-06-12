@@ -57,7 +57,27 @@ export default defineConfig({
             { label: "Performance", link: "/performance/" },
           ],
         },
-        { label: "Guides", items: [{ autogenerate: { directory: "guides" } }] },
+        {
+          label: "Guides",
+          items: [
+            { label: "FAQ & Trust", link: "/guides/faq/" },
+            { label: "Summarizer (optional)", link: "/guides/summarizer/" },
+            { label: "Telemetry (share stats)", link: "/guides/telemetry/" },
+            { label: "Benchmark a local model", link: "/guides/benchmark/" },
+            { label: "Troubleshooting", link: "/guides/troubleshooting/" },
+            { label: "Alternatives", link: "/guides/alternatives/" },
+            { label: "vs. Anthropic native", link: "/guides/vs-anthropic-native/" },
+            { label: "Roadmap", link: "/guides/roadmap/" },
+          ],
+        },
+        {
+          label: "Reference",
+          items: [
+            { label: "CLI Reference", link: "/guides/cli/" },
+            { label: "Model compatibility", link: "/guides/model-compatibility/" },
+            { label: "Privacy policy", link: "/guides/privacy/" },
+          ],
+        },
       ],
     }),
   ],

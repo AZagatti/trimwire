@@ -348,7 +348,11 @@ export function renderEmptyState(root: HTMLElement): void {
   const link = document.createElement("a");
   link.href = "/guides/benchmark/";
   link.textContent = "How the benchmark works →";
-  box.append(title, body, code, link);
+  const demoLink = document.createElement("a");
+  demoLink.href = "?demo";
+  demoLink.textContent = "Preview with demo data →";
+  demoLink.style.cssText = "font-size:0.85rem;color:var(--sl-color-accent);";
+  box.append(title, body, code, link, demoLink);
   tableHost.append(box);
 
   status.classList.remove("tw-banner");
