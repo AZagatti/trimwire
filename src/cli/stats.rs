@@ -285,8 +285,13 @@ pub fn stats(
         if rm.total_input_tokens > 0 || rm.total_output_tokens > 0 {
             let total_billed = rm.total_input_tokens + rm.total_output_tokens;
             let cache_served = rm.total_cache_read_input_tokens;
-            let cache_ratio = if rm.total_input_tokens > 0 {
-                cache_served as f64 / rm.total_input_tokens as f64 * 100.0
+            // cache-hit % of ALL input the model processed (uncached + cache read +
+            // cache creation) — NOT uncached-only, which can exceed 100%.
+            let all_input = rm.total_input_tokens
+                + rm.total_cache_read_input_tokens
+                + rm.total_cache_creation_input_tokens;
+            let cache_ratio = if all_input > 0 {
+                cache_served as f64 / all_input as f64 * 100.0
             } else {
                 0.0
             };

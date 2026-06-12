@@ -153,15 +153,13 @@ pub fn status() -> Result<()> {
 /// is the ledger present. Read-only (only a local `/healthz` probe).
 ///
 /// **Exit contract:**
-/// - exit 0 with `[info]` lines when trimwire has not been installed yet
-///   (no config file + gateway not up + `ANTHROPIC_BASE_URL` unset). This is
-///   the expected state right after downloading the binary; it's not a failure.
-///   The output explains the next step (`trimwire install`).
-/// - exit 1 (✗ lines) when trimwire appears to have been installed but
-///   something is broken (gateway down, config corrupt, env mismatch, etc.).
-///
-/// This lets `trimwire doctor && claude` / CI healthchecks work correctly in
-/// both situations.
+/// - exit 0 in the normal/recoverable cases — not installed yet, or installed but
+///   the gateway just isn't up / `ANTHROPIC_BASE_URL` isn't set in this shell.
+///   These are advisory (`warn`): they print what to run next (`trimwire install`
+///   / `trimwire on` / the `export` line) but don't fail, so `trimwire doctor &&
+///   claude` works even right after install while the service is warming up.
+/// - exit 1 (✗ lines) only on a genuine hard failure: a config file that won't
+///   load/parse, an unparseable listen address, or a disqualified summarizer model.
 pub fn doctor() -> Result<()> {
     use trimwire::config::Config;
 
