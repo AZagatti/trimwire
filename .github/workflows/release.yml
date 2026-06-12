@@ -30,7 +30,7 @@ jobs:
     name: tag matches Cargo.toml version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Refuse to release if the tag != the crate version
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -60,7 +60,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
