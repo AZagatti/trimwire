@@ -88,7 +88,7 @@ todo = "warn"
 # `test` feature adds figment::Jail (sandboxed cwd+env) for Config::load tests.
 figment = { version = "0.10", features = ["toml", "env", "test"] }
 insta = { version = "1.41", features = ["json"] }
-rstest = "0.23"
+rstest = "0.26"
 wiremock = "0.6"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "http2"] }
 tempfile = "3"
