@@ -2,10 +2,10 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import starlightLlmsTxt from "starlight-llms-txt";
 
-// The real domain is the maintainer's call; this placeholder only affects
-// absolute-URL generation (sitemap/canonical) and is harmless if changed later.
+// Production domain. Feeds absolute-URL generation (sitemap/canonical) and the
+// page-action button prompts (Open in ChatGPT/Claude) in PageTitle.astro.
 export default defineConfig({
-  site: "https://trimwire.example",
+  site: "https://trimwire.dev",
   integrations: [
     starlight({
       title: "trimwire",

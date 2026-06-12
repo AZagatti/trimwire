@@ -31,7 +31,7 @@ const { entry, id } = Astro.locals.starlightRoute;
 const isGuidePage = id.startsWith("guides/");
 
 // Absolute page URL used in the chat prompt and displayed to the user.
-// Astro.site is the `site:` key in astro.config.mjs (trimwire.example placeholder).
+// Astro.site is the `site:` key in astro.config.mjs (https://trimwire.dev).
 // Astro.url.pathname gives us the path (/guides/faq/).
 const siteBase = (Astro.site?.toString() ?? "").replace(/\/$/, "");
 const pageUrl = siteBase + Astro.url.pathname;
