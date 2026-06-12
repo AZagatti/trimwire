@@ -7,6 +7,7 @@ function row(over: Partial<TelemetryRow> = {}): TelemetryRow {
     schema_version: 1,
     sent_day: "2026-06-06",
     trimwire_version: "0.1",
+    harness: "claude-code",
     model_family: "claude-opus",
     profile: "default",
     summarizer_backend: "off",

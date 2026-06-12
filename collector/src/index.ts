@@ -172,7 +172,7 @@ async function handleIngest(request: Request, env: Env): Promise<Response> {
   await env.DB.prepare(
     `INSERT OR REPLACE INTO telemetry (
        dedup_token,
-       received_day, schema_version, sent_day, trimwire_version, model_family,
+       received_day, schema_version, sent_day, trimwire_version, harness, model_family,
        profile, summarizer_backend, summarizer_family, conversation_length_bucket,
        reduction_pct_bucket, cache_hit_pct_bucket, cache_stability_bucket,
        bytes_saved_bucket, strategy_share,
@@ -181,7 +181,7 @@ async function handleIngest(request: Request, env: Env): Promise<Response> {
        summarizer_size_bucket, strategy_any_fired_pct_bucket,
        summarizer_accept_rate_bucket, summarizer_trigger_rate_bucket,
        max_session_length_bucket, summarizer_backend_won
-     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
     .bind(
       r.dedup_token,
@@ -189,6 +189,7 @@ async function handleIngest(request: Request, env: Env): Promise<Response> {
       r.schema_version,
       r.sent_day,
       r.trimwire_version,
+      r.harness,
       r.model_family,
       r.profile,
       r.summarizer_backend,
@@ -220,6 +221,7 @@ async function handleIngest(request: Request, env: Env): Promise<Response> {
 interface DbRow {
   id: number;
   trimwire_version: string;
+  harness: string;
   model_family: string;
   profile: string;
   summarizer_backend: string;
@@ -267,6 +269,8 @@ function rowFromDb(d: DbRow): TelemetryRow {
     schema_version: SCHEMA_VERSION,
     sent_day: "", // not needed for aggregation
     trimwire_version: d.trimwire_version,
+    // DEFAULT 'claude-code' covers any row written before this column existed.
+    harness: d.harness ?? "claude-code",
     model_family: d.model_family,
     profile: d.profile,
     summarizer_backend: d.summarizer_backend,
@@ -323,7 +327,7 @@ async function handleAggregates(
   let cursor = 0;
   for (;;) {
     const { results } = await env.DB.prepare(
-      `SELECT id, trimwire_version, model_family, profile, summarizer_backend,
+      `SELECT id, trimwire_version, harness, model_family, profile, summarizer_backend,
               summarizer_family, conversation_length_bucket, reduction_pct_bucket,
               cache_hit_pct_bucket, cache_stability_bucket, bytes_saved_bucket,
               strategy_share, reprune_enabled, simhash_enabled, accumulator_enabled,

@@ -14,6 +14,8 @@ import { KNOWN_STRATEGIES, SCHEMA_VERSION, type TelemetryRow } from "./validate"
 
 export interface GroupAggregate {
   trimwire_version: string;
+  /** Agent harness (grouping key). Always "claude-code" until multi-harness lands. */
+  harness: string;
   model_family: string;
   profile: string;
   summarizer_backend: string;
@@ -116,6 +118,7 @@ function gatedDistribution(
 type GroupKey = Pick<
   TelemetryRow,
   | "trimwire_version"
+  | "harness"
   | "model_family"
   | "profile"
   | "summarizer_backend"
@@ -128,6 +131,7 @@ function keyOf(r: GroupKey): string {
   // different field split (a bucket value never contains a control char).
   return [
     r.trimwire_version,
+    r.harness,
     r.model_family,
     r.profile,
     r.summarizer_backend,
@@ -241,6 +245,7 @@ export function aggregate(rows: TelemetryRow[], k: number): AggregateResult {
 
     groups.push({
       trimwire_version: first.trimwire_version,
+      harness: first.harness,
       model_family: first.model_family,
       profile: first.profile,
       summarizer_backend: first.summarizer_backend,

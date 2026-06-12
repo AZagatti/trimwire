@@ -18,6 +18,7 @@ export const ALLOWED_KEYS = [
   "schema_version",
   "sent_day",
   "trimwire_version",
+  "harness",
   "model_family",
   "profile",
   "summarizer_backend",
@@ -68,6 +69,11 @@ export type KnownStrategy = (typeof KNOWN_STRATEGIES)[number];
 // don't need a code change. Accepts `claude-(opus|sonnet|haiku)-<major>-<minor>` or `other`.
 const MODEL_FAMILY_RE = /^claude-(opus|sonnet|haiku)-\d{1,2}-\d{1,2}$/;
 const PROFILES = ["default", "gentle", "other"];
+/** Closed value set for `harness` — the agent harness trimwire proxied. Always
+ *  "claude-code" today; the rest are reserved for the roadmap'd multi-harness
+ *  adapters. Deployed with the FULL set so a future client release can emit a new
+ *  value with no collector change. MIRRORS `HARNESSES` in src/cli/share.rs. */
+const HARNESSES = ["claude-code", "aider", "opencode", "cline", "codex", "other"];
 /** Closed value set for `summarizer_backend` (§3.4 rename of old `local_model`).
  *  "off" = model-free; "local" = local ollama/llama.cpp; "api" = cloud API. */
 const SUMMARIZER_BACKENDS = ["off", "local", "api"];
@@ -100,6 +106,9 @@ export interface TelemetryRow {
   schema_version: number;
   sent_day: string;
   trimwire_version: string;
+  /** Agent harness this row came from. Always "claude-code" today; part of the
+   *  k-anon grouping key. See HARNESSES. */
+  harness: string;
   model_family: string;
   profile: string;
   /** "off" | "local" | "api" — which summarizer engine is active (§3.4 rename
@@ -222,6 +231,7 @@ export function validatePayload(body: unknown): ValidateResult {
     return { ok: false, error: "bad model_family" };
   }
   const enums: [string, string[]][] = [
+    ["harness", HARNESSES],
     ["profile", PROFILES],
     ["summarizer_backend", SUMMARIZER_BACKENDS],
     ["conversation_length_bucket", LENGTH_BUCKETS],

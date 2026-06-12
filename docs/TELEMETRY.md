@@ -17,6 +17,7 @@
   "schema_version": 1,
   "sent_day": "2026-06-09",
   "trimwire_version": "0.1",
+  "harness": "claude-code",
   "model_family": "claude-sonnet-4-6",
   "profile": "default",
   "summarizer_backend": "off",
@@ -98,6 +99,7 @@ and k-anonymity is not weakened.
 | `schema_version` | int | Literal `1`. |
 | `sent_day` | string | UTC calendar date `YYYY-MM-DD`. **No** sub-day time. |
 | `trimwire_version` | string | **`MAJOR.MINOR`** of the build's semver (the patch component is dropped to lower cardinality); **debug builds report `"dev"`** (a one-off from-source build would be near-unique). |
+| `harness` | enum | The agent harness whose traffic trimwire proxied: `claude-code` \| `aider` \| `opencode` \| `cline` \| `codex` \| `other`. **Always `claude-code` today** (trimwire is a Claude Code gateway); the rest are reserved for the roadmap'd multi-harness adapters. **In the grouping key** — a primary cohort dimension. |
 | `model_family` | string | The session's Claude model coarsened to **family + major.minor**: e.g. `claude-opus-4-5`, `claude-sonnet-4-6`, `claude-haiku-3-5`. Only the trailing dated build suffix (e.g. `-20251101`) is dropped (we keep the version granularity needed to distinguish `opus-4-5` from `opus-4-8`). Anything not matching `claude-(opus\|sonnet\|haiku)-<major>-<minor>` → `other`. |
 | `profile` | enum | `default` \| `gentle` \| `other`. |
 | `summarizer_backend` | enum | `off` \| `local` \| `api`. `"off"` = model-free (no summarizer); `"local"` = local ollama/llama.cpp; `"api"` = cloud API backend. |
@@ -196,7 +198,10 @@ only prints the row. See [the benchmark guide](BENCHMARK.md).
 ## k-anonymity & how the dashboard is computed
 
 - **Grouping key (quasi-identifier):**
-  `(trimwire_version, model_family, profile, summarizer_backend, conversation_length_bucket, summarizer_size_bucket)`.
+  `(trimwire_version, harness, model_family, profile, summarizer_backend, conversation_length_bucket, summarizer_size_bucket)`.
+  `harness` is in the key as a primary cohort dimension; today every row is
+  `claude-code` so it's one shared cell with no k-anonymity impact, splitting cleanly
+  once multi-harness adapters land.
   `summarizer_size_bucket` was added so the local-model sub-population is split by
   model size tier.  For `summarizer_backend=off` rows the bucket is always `"none"`, so
   those rows still share one cell and k-anonymity is unchanged for the majority case.

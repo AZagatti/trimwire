@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS telemetry (
   schema_version              INTEGER NOT NULL,
   sent_day                    TEXT    NOT NULL,
   trimwire_version            TEXT    NOT NULL,
+  -- Agent harness this row came from. Always 'claude-code' today; reserved
+  -- values cover the roadmap'd multi-harness adapters. Part of the grouping key.
+  harness                     TEXT    NOT NULL DEFAULT 'claude-code',
   model_family                TEXT    NOT NULL,
   profile                     TEXT    NOT NULL,
   -- "off" (model-free) | "local" (ollama) | "api" (cloud provider)
@@ -54,11 +57,13 @@ CREATE TABLE IF NOT EXISTS telemetry (
 );
 
 -- The k-anonymity grouping key (quasi-identifier). §3.2: summarizer_size_bucket is
--- now part of the key so the local-model sub-population splits by model size tier.
--- For summarizer_backend=off rows the bucket is always "none" — one shared cell.
+-- part of the key so the local-model sub-population splits by model size tier.
+-- `harness` is part of the key too (a primary cohort dimension); today every row
+-- is 'claude-code' so it's one shared cell with no k-anonymity impact, splitting
+-- cleanly once multi-harness adapters land.
 CREATE INDEX IF NOT EXISTS idx_group ON telemetry
-  (trimwire_version, model_family, profile, summarizer_backend, conversation_length_bucket,
-   summarizer_size_bucket);
+  (trimwire_version, harness, model_family, profile, summarizer_backend,
+   conversation_length_bucket, summarizer_size_bucket);
 
 -- §3.1: INSERT OR REPLACE conflict target — at most one row per dedup_token per day.
 -- A same-day re-upload overrides the prior row (the client sees 204 either way).

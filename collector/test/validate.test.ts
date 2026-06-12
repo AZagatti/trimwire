@@ -10,6 +10,7 @@ function goodPayload() {
     schema_version: 1,
     sent_day: "2026-06-06",
     trimwire_version: "0.1",
+    harness: "claude-code",
     // §3.3: model_family is now tier + major.minor (no closed enum, shape check)
     model_family: "claude-opus-4-5",
     profile: "default",

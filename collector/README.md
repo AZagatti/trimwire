@@ -63,6 +63,7 @@ curl -s -X POST localhost:8787/ingest -H 'content-type: application/json' \
     "schema_version": 1,
     "sent_day": "2026-06-09",
     "trimwire_version": "0.1",
+    "harness": "claude-code",
     "model_family": "claude-sonnet-4-6",
     "profile": "default",
     "summarizer_backend": "off",

@@ -20,9 +20,11 @@ use trimwire::config::{Config, global_config_path};
 use trimwire::ledger::{self, KNOWN_STRATEGIES, Ledger, Report, SessionRow};
 
 /// schema_version of the wire payload — a wire-format guard, not a migration:
-/// the collector accepts only this exact value. It starts at 1 (v0.1.0, the
-/// first release). A breaking field/bucket change bumps it; the collector must
-/// then accept both old and new for a transition window (or reject old clients).
+/// the collector accepts only this exact value. Stays at 1: v0.1.0–0.1.2 shipped
+/// with an empty endpoint (dry-run only), so NO v1 rows were ever collected and
+/// the `harness` field could be added to the v1 shape without a transition. A
+/// future breaking field/bucket change bumps it; the collector must then accept
+/// both old and new for a window (or reject old clients).
 const SCHEMA_VERSION: u32 = 1;
 
 /// Built-in community stats collector endpoint for `trimwire share stats`.
@@ -55,6 +57,7 @@ const ALLOWED_KEYS: &[&str] = &[
     "schema_version",
     "sent_day",
     "trimwire_version",
+    "harness",
     "model_family",
     "profile",
     "summarizer_backend",
@@ -108,6 +111,20 @@ const SUMMARIZER_FAMILIES: &[&str] = &[
 // `claude-(opus|sonnet|haiku)-<major>-<minor>` or `other` — instead of a closed list,
 // because future model versions are valid but cannot all be enumerated at compile time.
 const PROFILES: &[&str] = &["default", "gentle", "other"];
+/// Closed value set for `harness` — the agent harness whose traffic trimwire is
+/// proxying. Today trimwire only proxies Claude Code, so the client always emits
+/// `"claude-code"`; the rest are reserved for the roadmap'd multi-harness adapters
+/// (see docs/ROADMAP.md). The collector is deployed with the FULL set so a future
+/// client release can emit a new value with no collector change or D1 migration.
+/// Part of the k-anonymity grouping key (a primary cohort dimension).
+const HARNESSES: &[&str] = &[
+    "claude-code",
+    "aider",
+    "opencode",
+    "cline",
+    "codex",
+    "other",
+];
 /// Closed value set for `summarizer_backend` (§3.4 rename of old `local_model`).
 /// `"off"` = model-free (no summarizer); `"local"` = local ollama/llama.cpp;
 /// `"api"` = cloud API backend.
@@ -140,6 +157,10 @@ pub struct SharePayload {
     sent_day: String,
     /// `MAJOR.MINOR` of the released semver; debug builds report `"dev"`.
     trimwire_version: String,
+    /// The agent harness this traffic came from. Always `"claude-code"` today
+    /// (trimwire only proxies Claude Code); reserved values cover the roadmap'd
+    /// multi-harness adapters. Part of the k-anon grouping key. See [`HARNESSES`].
+    harness: String,
     /// Claude model coarsened to family (claude-opus/sonnet/haiku/other).
     model_family: String,
     /// default | gentle | other.
@@ -279,6 +300,15 @@ fn is_valid_model_family(s: &str) -> bool {
         }
     }
     false
+}
+
+/// The harness whose traffic this build proxies. Constant `"claude-code"` for now
+/// — trimwire is a Claude Code gateway. When multi-harness adapters land (see
+/// docs/ROADMAP.md), this becomes a detection point (e.g. from the request shape
+/// or a configured adapter), emitting one of [`HARNESSES`]; the wire field and the
+/// collector already accept the full set, so that change needs no schema bump.
+fn harness() -> String {
+    "claude-code".to_owned()
 }
 
 fn profile_bucket(raw: Option<&str>) -> String {
@@ -674,6 +704,7 @@ fn build_payload(
         schema_version: SCHEMA_VERSION,
         sent_day,
         trimwire_version: version,
+        harness: harness(),
         // Most-recent session's model (sessions are newest-first) — the single
         // best representative of "what this user currently runs"; coarsened to
         // family so it can't fingerprint.
@@ -772,6 +803,7 @@ fn guard_content_free(value: &serde_json::Value) -> Result<()> {
     if !is_valid_model_family(mf) {
         anyhow::bail!("refusing to share: field \"model_family\" has unexpected value {mf:?}");
     }
+    check_enum("harness", HARNESSES)?;
     check_enum("profile", PROFILES)?;
     check_enum("summarizer_backend", SUMMARIZER_BACKENDS)?;
     check_enum("conversation_length_bucket", LENGTH_BUCKETS)?;
@@ -1654,6 +1686,7 @@ mod tests {
         assert_eq!(payload.reduction_pct_bucket, 60); // 600/1000
         assert_eq!(payload.bytes_saved_bucket, "<100kb");
         assert_eq!(payload.summarizer_backend, "off");
+        assert_eq!(payload.harness, "claude-code");
         // marginals: defaults are off; accumulator false when summarizer_backend=off
         assert_eq!(payload.schema_version, 1);
         assert!(!payload.accumulator_enabled);
@@ -1839,6 +1872,14 @@ api_key_env = "ANTHROPIC_API_KEY"
             .unwrap()
             .insert("os_family".to_owned(), Value::String("plan9".to_owned()));
         assert!(guard_content_free(&bad_os).is_err());
+
+        // a harness value outside the closed set
+        let mut bad_harness = serde_json::to_value(&payload).unwrap();
+        bad_harness.as_object_mut().unwrap().insert(
+            "harness".to_owned(),
+            Value::String("emacs-gptel".to_owned()),
+        );
+        assert!(guard_content_free(&bad_harness).is_err());
 
         // an out-of-range native compaction rate (not a multiple of 10)
         let mut bad_ncr = serde_json::to_value(&payload).unwrap();

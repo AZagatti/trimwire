@@ -8,6 +8,10 @@
 
 export interface AggregateGroup {
   trimwire_version: string;
+  /** Agent harness (grouping key). Optional for forward-compat with older feeds;
+   *  defaults to "claude-code" when absent. Shown in the cohort label only when
+   *  it isn't claude-code (today: always claude-code → hidden). */
+  harness?: string;
   model_family: string;
   profile: string;
   summarizer_backend: string;
@@ -114,7 +118,7 @@ const COLS: Col[] = [
   {
     key: "cohort",
     label: "Cohort",
-    get: (g) => `${g.model_family} · ${g.profile}${g.summarizer_backend && g.summarizer_backend !== "off" ? " · " + g.summarizer_backend : ""}`,
+    get: (g) => `${g.harness && g.harness !== "claude-code" ? g.harness + " · " : ""}${g.model_family} · ${g.profile}${g.summarizer_backend && g.summarizer_backend !== "off" ? " · " + g.summarizer_backend : ""}`,
     defaultDir: "asc",
     cell: "cohort",
   },
