@@ -429,7 +429,8 @@ elvish  — source inline from rc.elv:\n\
 
     // ---- HIDDEN (internal / advanced) --------------------------------------
     /// Start the gateway in the foreground (internal — use `trimwire on` instead).
-    #[command(hide = true)]
+    /// `daemon` is a hidden alias (historical name; also used by the CI smoke test).
+    #[command(hide = true, alias = "daemon")]
     Serve {
         /// Address:port to listen on. Overrides `[server] listen` in config.
         #[arg(long)]
