@@ -608,7 +608,7 @@ fn generate_random_bytes() -> [u8; 16] {
 /// The result is the full 64-hex digest.  Different days → different tokens;
 /// same install id + same day → same token (idempotent re-upload).
 fn compute_dedup_token(install_id: &str, sent_day: &str) -> Result<String> {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     type HmacSha256 = Hmac<Sha256>;
