@@ -68,7 +68,9 @@ See the **Privacy** section below before enabling this engine.
 
 ## Manual config
 
-Add a `[summarizer]` block to `~/.config/trimwire.toml`. The default is
+**Prefer the wizard:** `trimwire summarizer setup` writes this block for you
+interactively. To hand-edit, add a `[summarizer]` block to
+`~/.config/trimwire.toml` (or run `trimwire config` to open it). The default is
 `engine = "model-free"` (no summarizer).
 
 ### Local engine
@@ -264,9 +266,9 @@ off or fails) — they simply own less of the old region once the summary covers
 > | **GLM-5 / GLM-5-Turbo** | **~700 KB** (6× more) | 100% through 512 KB, ~92% at 768 KB, empty summary at 1 MB. Big coverage win — point the summarizer at a GLM-5-class model and set e.g. `slice_char_budget = 720896`. |
 >
 > There's a clear capability cliff between the GLM-4.x and GLM-5 generations. **Default
-> stays 128 KB (protects weak models); raise it only on a model you've gated.** To find any
-> model's ceiling: `ZAI_API_KEY=… TRIMWIRE_API_HARM_MODEL=glm-5-turbo TRIMWIRE_API_HARM_BYTES=720896 \
-> cargo run --release --example api_harm` — keep retention ≥ 90% with no false-done.
+> stays 128 KB (protects weak models); raise it only on a model you've gated.** To find a
+> configured provider's ceiling: `trimwire summarizer probe --model <provider-id> --bytes 720896
+> --runs 5 --yes` — keep the pass rate high (retention ≥ 90%, no false-done) before raising it.
 >
 > **Summarizing more often does NOT add coverage.** Lowering `resummarize_after_bytes`
 > just splits the same old-content delta into more (smaller) segments — total bytes

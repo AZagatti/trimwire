@@ -273,6 +273,9 @@ identical to the stateless path (worst case is a cache miss). State is bounded b
 
 ## `[summarizer]` — optional model summary of OLD content (off by default)
 
+**Start with the wizard:** `trimwire summarizer setup` writes this block for you.
+The knobs below are for hand-tuning `~/.config/trimwire.toml` afterward.
+
 Opt-in. When `engine` is not `"model-free"` (and `[reprune]` is on), trimwire sends
 the OLD prunable slice to a **local ollama** model or your **own API key** and replays
 the resulting summary in place of that slice — a clean summary the model can read

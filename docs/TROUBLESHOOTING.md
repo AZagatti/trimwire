@@ -62,11 +62,12 @@ the gateway's actual savings.
 1. `trimwire summarizer status` — shows the configured engine and whether the
    endpoint is reachable.
 2. `trimwire doctor` — shows overall config health including the summarizer section.
-3. Check that the engine is not `model-free` (the default): open `~/.config/trimwire.toml`
-   and confirm `[summarizer] engine` is set to `"local"` or a provider id.
+3. Check the engine isn't `model-free` (the default): `trimwire config show | grep engine`,
+   or re-run `trimwire summarizer setup` to (re)configure it.
 4. The summarizer **only fires on sessions over `trigger_bytes`** (default 200 KB) —
    short or text-only sessions won't trigger it. Check `trimwire stats` for trigger
-   counts.
+   counts; lower it by setting `trigger_bytes` under `[summarizer]` in
+   `~/.config/trimwire.toml` (`trimwire config` opens it).
 5. Any failure silently falls back to model-free pruning by design — the
    summarizer is never load-bearing. If it fails silently, `TRIMWIRE_LOG=info trimwire serve`
    will show the reason in stderr.

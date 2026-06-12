@@ -5,7 +5,7 @@
 > MITM, no restart.
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
-[![Status: v0.1.0](https://img.shields.io/badge/status-v0.1.0-brightgreen)](https://github.com/AZagatti/trimwire/blob/main/CHANGELOG.md)
+[![Crates.io](https://img.shields.io/crates/v/trimwire)](https://crates.io/crates/trimwire)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange)](#contributing--development)
 
 ![trimwire demo](https://raw.githubusercontent.com/AZagatti/trimwire/main/docs/demo.gif)
@@ -37,9 +37,13 @@ exec $SHELL              # pick up the new env, then just use claude as normal
 claude
 ```
 
-> **Day one:** zero rows in `trimwire stats` is normal. It means no traffic has
-> flowed through the gateway yet (or the session was short and text-only, with no
-> prunable redundancy). Run a session, then check again.
+> **Day one:** zero rows in `trimwire stats` is normal — no traffic has flowed
+> through the gateway yet (or the session was short and text-only). Run a session,
+> then check again.
+>
+> **Long, reasoning-heavy sessions?** Turn on the optional summarizer to compress
+> old context with a model you choose — local (ollama) or a cloud API. One command:
+> `trimwire summarizer setup`.
 
 Optional shell completions: `trimwire completions zsh > ~/.zfunc/_trimwire`
 (also `bash`, `fish`, `elvish`, `powershell`). `trimwire --version` reports the
@@ -124,8 +128,11 @@ Configure with `trimwire summarizer setup` (interactive wizard). Three engines:
   the provider you configure using your own API key. Your key, your provider, your choice.
 - **`model-free`** — the default; no summarizer, no model calls.
 
+The wizard writes the block for you. To edit by hand, add it to
+`~/.config/trimwire.toml` (global) or `./.trimwire.toml` (per-project):
+
 ```toml
-# local engine
+# ~/.config/trimwire.toml — local (ollama) engine
 [summarizer]
 engine = "local"
 
@@ -134,29 +141,25 @@ model = "qwen3.5:4b"
 ```
 
 ```toml
-# cloud API engine: set engine to a provider id, not the literal string "api"
+# ~/.config/trimwire.toml — cloud API engine: set engine to a provider id
 [summarizer]
 engine = "anthropic"                 # a provider id below (or "local" / "model-free")
 
 [[summarizer.providers]]
-id          = "anthropic"            # engine/fallback reference a provider by id
+id          = "anthropic"
 style       = "anthropic"            # or "openai" (OpenAI-compatible)
 base_url    = "https://api.anthropic.com"
 model       = "claude-haiku-4-5"
 api_key_env = "ANTHROPIC_API_KEY"    # env var name; key never stored in the config
 ```
 
-Best for long (50+ turn), reasoning-dense sessions. The **accumulator** (default on)
-appends frozen delta segments rather than replacing the whole summary each re-summarization,
-validated on a real 981-turn session at **-64.6% cost vs baseline**. The summarizer only
-fires on sessions over `trigger_bytes` (default 200 KB) so short sessions are unaffected.
-
-**Pick a model that holds the slice budget** — model fidelity varies a lot and is
-non-deterministic. See [`docs/MODEL-COMPATIBILITY.md`](docs/MODEL-COMPATIBILITY.md) for a
-verified ranking + a "choosing a backend" guide, and **validate your own** with
-`trimwire summarizer probe --model <id> --runs 10`.
-
-Full details: [`docs/SUMMARIZER.md`](docs/SUMMARIZER.md).
+Best for long, reasoning-dense sessions; it only fires once a request exceeds
+`trigger_bytes` (200 KB default), so short sessions are untouched. Model fidelity
+varies — validate your pick with `trimwire summarizer probe --model <id> --runs 10`
+(add `--yes` for an API provider; local models need no flag).
+See [`docs/SUMMARIZER.md`](docs/SUMMARIZER.md) and
+[`docs/MODEL-COMPATIBILITY.md`](docs/MODEL-COMPATIBILITY.md) for the full guide + a
+verified model ranking.
 
 ## Commands
 

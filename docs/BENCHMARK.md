@@ -27,7 +27,10 @@ trimwire summarizer benchmark --json                # machine-readable
 
 ## API providers
 
-Pass a `[[summarizer.providers]]` `id` to `--model`. Without `--yes`, this is a
+Configure the provider first — `trimwire summarizer setup`, or add a
+`[[summarizer.providers]]` block to `~/.config/trimwire.toml` (see
+[Summarizer](SUMMARIZER.md)). Then pass that provider's `id` to `--model`. Without
+`--yes`, this is a
 **dry run** (prints the cost/scope warning and exits; no API calls, no charges).
 With `--yes`, each corpus slice is a **real, paid call** on your provider's key
 (not your Anthropic subscription token).
