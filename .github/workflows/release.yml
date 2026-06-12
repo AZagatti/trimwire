@@ -18,6 +18,15 @@ name: Release
 on:
   release:
     types: [published]
+  # Manual fallback: (re)build + attach binaries for an existing tag/release.
+  # Use when a release was created with GITHUB_TOKEN (no PAT), which doesn't fire
+  # the `release: published` trigger — e.g. release-plz without RELEASE_PLZ_TOKEN.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build + attach binaries for (e.g. v0.1.0)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -31,9 +40,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - name: Refuse to release if the tag != the crate version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          tag="${tag#v}"
           ver=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
           echo "tag=v$tag  Cargo.toml=$ver"
           if [ "$tag" != "$ver" ]; then
@@ -61,6 +73,8 @@ jobs:
             target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -97,6 +111,7 @@ jobs:
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name || inputs.tag }}
           files: |
             ${{ env.ASSET }}
             ${{ env.ASSET }}.sha256
