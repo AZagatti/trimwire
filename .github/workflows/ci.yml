@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       # Run the Python invariant suite, then regenerate the reference fixtures
       # and fail if the committed copies drifted. The Rust parity tests diff
       # against these files, so this is what stops the reference and the port
