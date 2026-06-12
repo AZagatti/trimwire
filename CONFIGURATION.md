@@ -457,7 +457,7 @@ These tune the running daemon, separate from the config layers above:
   block-type sequence (`first_msg_blocks`) — used to investigate prompt-cache
   behaviour. Off by default (no cost when unset). Useful to see exactly what
   Claude Code sends on the wire and what trimwire forwards. Also available as
-  `--audit <file>` on `trimwire on` / `trimwire run`.
+  `--audit <file>` on `trimwire serve` / `trimwire run`.
 - `TRIMWIRE_LOG=info|debug|warn`: gateway log verbosity (`tracing` filter).
 
 ## Tuning notes

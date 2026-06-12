@@ -701,8 +701,9 @@ mod tests {
         // `--share`/`--yes`/`--force` were lifted off `stats` onto `share stats`.
         assert!(Cli::try_parse_from(["trimwire", "stats", "--share"]).is_err());
         assert!(Cli::try_parse_from(["trimwire", "stats", "--yes"]).is_err());
-        // `daemon` was renamed to the hidden `serve`.
-        assert!(Cli::try_parse_from(["trimwire", "daemon"]).is_err());
+        // `daemon` is retained as a hidden alias for `serve` (historical name +
+        // the CI smoke test uses it).
+        assert!(Cli::try_parse_from(["trimwire", "daemon", "--listen", "127.0.0.1:1"]).is_ok());
         // `stats` still keeps its non-share flags.
         assert!(Cli::try_parse_from(["trimwire", "stats", "--json"]).is_ok());
         assert!(Cli::try_parse_from(["trimwire", "stats", "--since", "2026-01-01"]).is_ok());

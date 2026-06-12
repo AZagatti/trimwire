@@ -267,7 +267,7 @@ These are the maintainer's standing expectations. Follow them by default; they a
 
 - `src/main.rs` — CLI entry only (clap parse + dispatch). No business logic.
 - `src/cli/*.rs` — binary-private command bodies (mostly one file per
-  subcommand: `daemon`, `run`, `install`, `config_edit` (`config` / `config show`),
+  subcommand: `serve` (alias `daemon`), `run`, `install`, `config_edit` (`config` / `config show`),
   `stats` (`--json`), `statusline`, `hook`, `sweep`, plus `service` which backs
   `on`/`off`/`status`/`uninstall`, and `doctor` (in `cli/mod.rs`) for diagnostics).
   Wiring + process/FS orchestration only.

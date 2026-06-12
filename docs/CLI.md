@@ -390,7 +390,7 @@ trimwire man --out ./man/      # write all pages for packaging
 | Variable | Description |
 |---|---|
 | `ANTHROPIC_BASE_URL` | Points Claude Code at the trimwire gateway. Set automatically by `trimwire install`; unset it (or run `trimwire off`) to bypass the proxy |
-| `TRIMWIRE_LOG` | Log verbosity for the gateway: `warn` (default), `info`, `debug`. Logs go to stderr. Example: `TRIMWIRE_LOG=info trimwire on` |
+| `TRIMWIRE_LOG` | Log verbosity for the gateway: `warn` (default), `info`, `debug`. Logs go to stderr. Example: `TRIMWIRE_LOG=info trimwire serve` |
 | `TRIMWIRE_AUDIT` | Opt-in metadata-only wire audit: append one JSONL line per request describing its *shape* (counts/flags + cache-prefix structure, never content) to `<file>`. Same as `--audit <file>`. See [CONFIGURATION.md](../CONFIGURATION.md). Off when unset |
 
 ---

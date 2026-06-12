@@ -36,7 +36,7 @@ What actually happened.
 
 ## Gateway logs
 
-Run with `TRIMWIRE_LOG=info trimwire on` and paste the relevant lines.
+Run with `TRIMWIRE_LOG=info trimwire serve` and paste the relevant lines.
 
 ```
 …

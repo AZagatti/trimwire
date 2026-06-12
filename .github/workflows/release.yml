@@ -4,10 +4,13 @@ name: Release
 # names are `trimwire-<triple>.tar.gz` (`.zip` on Windows) — exactly what
 # `scripts/install.sh` downloads.
 #
-# Triggers on BOTH a published GitHub release (how release-plz hands off — see
-# release-plz.yml) and a manually pushed `v*` tag (the fallback if you cut a
-# release by hand). A release-plz-created release only fires the
-# `release: published` trigger when release-plz runs with a PAT.
+# Triggers on a published GitHub release (how release-plz hands off — see
+# release-plz.yml). Single trigger by design: release-plz both tags and publishes
+# the release, so listening on `push: tags` too would fire a second, racing build
+# that collides on asset upload. For a manual release use `gh release create
+# vX.Y.Z` (which fires this). NOTE: the release must be created with a PAT
+# (release-plz's RELEASE_PLZ_TOKEN) — a release made with the default GITHUB_TOKEN
+# does not trigger this workflow, so no binaries would be attached.
 #
 # Hand-rolled matrix rather than cargo-dist: no extra tooling/version to pin,
 # fully transparent, and it emits the precise asset names the installer expects.
@@ -15,9 +18,6 @@ name: Release
 on:
   release:
     types: [published]
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: write

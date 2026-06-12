@@ -7,7 +7,7 @@
 the gateway is serving, whether `ANTHROPIC_BASE_URL` points at it, and whether the
 ledger exists, in one shot. `trimwire config show` prints the resolved effective
 config (after the profile + global/project/env merge). For deeper digging, run the
-gateway with `TRIMWIRE_LOG=info trimwire on` (or `=debug`) and watch its stderr.
+gateway with `TRIMWIRE_LOG=info trimwire serve` (or `=debug`) and watch its stderr.
 
 ### Claude Code returns connection / TCP errors
 The gateway isn't running, or `ANTHROPIC_BASE_URL` points somewhere nothing is
@@ -25,7 +25,7 @@ actually set in the shell/app you launched `claude` from? Run a `claude` turn,
 then re-check. (Savings can still be 0 on a short text-only session — the
 workhorse strategies need repetition: re-reads, a failed command, old
 screenshots — but rows should appear once requests flow.) Watch the daemon's
-`pruned[...]` stderr line (`TRIMWIRE_LOG=info trimwire on`) to confirm it's
+`pruned[...]` stderr line (`TRIMWIRE_LOG=info trimwire serve`) to confirm it's
 on the wire. Once rows exist, `trimwire recall` lists recorded sessions (newest
 first, content-free) so you can find a session id to pass to `stats --session`.
 
@@ -68,7 +68,7 @@ the gateway's actual savings.
    short or text-only sessions won't trigger it. Check `trimwire stats` for trigger
    counts.
 5. Any failure silently falls back to model-free pruning by design — the
-   summarizer is never load-bearing. If it fails silently, `TRIMWIRE_LOG=info trimwire on`
+   summarizer is never load-bearing. If it fails silently, `TRIMWIRE_LOG=info trimwire serve`
    will show the reason in stderr.
 
 ## FAQ

@@ -13,15 +13,17 @@ keywords = ["claude", "claude-code", "anthropic", "context", "proxy"]
 categories = ["command-line-utilities", "web-programming::http-server", "development-tools"]
 # Only ship what a `cargo install` consumer needs — keeps the published .crate
 # small (excludes pocs/, benchmark/, tests/fixtures/, dev docs, .github/, etc.).
-# The quality_corpus JSONs are `include_str!`'d by src/cli/benchmark.rs, so they
-# must ship or the packaged crate won't compile (~20 KB total).
-include = ["/src/**/*", "/build.rs", "/README.md", "/CHANGELOG.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/benchmark/quality_corpus/*.json"]
+# Files `include_str!`'d from src/ must ship or the packaged crate won't compile:
+# the quality_corpus JSONs (src/cli/benchmark.rs), and — used only in #[cfg(test)]
+# — benchmark/model_bench.sh and tests/fixtures/transcript_basic.jsonl (so
+# `cargo test` works on the published crate).
+include = ["/src/**/*", "/build.rs", "/README.md", "/CHANGELOG.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/benchmark/quality_corpus/*.json", "/benchmark/model_bench.sh", "/tests/fixtures/transcript_basic.jsonl"]
 
 # Fast path for `cargo binstall trimwire` — fetch the prebuilt release asset
 # instead of compiling from source. Matches the asset names release.yml emits.
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/trimwire-{ target }.tar.gz"
-bin-dir = "trimwire"
+bin-dir = "{ bin }{ binary-ext }"   # resolves to `trimwire` (Unix) / `trimwire.exe` (Windows)
 pkg-fmt = "tgz"
 
 [package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
