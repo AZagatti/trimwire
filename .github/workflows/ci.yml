@@ -15,6 +15,11 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Harden against flaky crates.io downloads on GitHub runners: retry, and disable
+  # HTTP/2 multiplexing (root cause of intermittent "[16] HTTP2 framing layer" curl
+  # errors during cargo package/fetch).
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_MULTIPLEXING: "false"
 
 jobs:
   check:
