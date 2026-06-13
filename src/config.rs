@@ -533,7 +533,7 @@ impl Default for SimHashDedupConfig {
 /// api_key_env = "ANTHROPIC_API_KEY"
 /// timeout_secs = 30
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SummarizerProviderConfig {
     /// Short user-chosen identifier (no spaces). Referenced by `engine`/`fallback`.
@@ -917,6 +917,59 @@ impl Config {
                  (credential-routing is global-only); using {trusted_upstream}"
             );
             cfg.server.upstream = trusted_upstream;
+        }
+
+        // Summarizer provider endpoints are credential/data-routing surface
+        // (base_url/full_url decide WHERE your context slice + API key go), so —
+        // exactly like `server.upstream` — they are GLOBAL-ONLY. A project
+        // `./.trimwire.toml` must not define `[[summarizer.providers]]`: a cloned
+        // repo could otherwise point the (opt-in) summarizer at an attacker URL and
+        // exfiltrate the prunable slice. If the project file defines providers, fall
+        // back to the trusted (defaults+global+env) set. A project may still select
+        // among globally-defined providers via `summarizer.engine`.
+        let project_defines_providers = Figment::from(Toml::file(".trimwire.toml"))
+            .find_value("summarizer.providers")
+            .is_ok();
+        if project_defines_providers {
+            let trusted_providers: Vec<SummarizerProviderConfig> = trusted
+                .extract_inner("summarizer.providers")
+                .unwrap_or_default();
+            if cfg.summarizer.providers != trusted_providers {
+                eprintln!(
+                    "[trimwire] ignoring [[summarizer.providers]] from project ./.trimwire.toml \
+                     (endpoint/credential routing is global-only); using the global providers"
+                );
+                cfg.summarizer.providers = trusted_providers;
+            }
+        }
+
+        // `listen` is interpolated into generated shell-rc exports and service unit
+        // files (`install`). A host:port never contains whitespace/control chars, so
+        // reject any that do — otherwise a newline could append extra `export`/unit
+        // lines (shell-rc injection from a project `./.trimwire.toml`). Fall back to
+        // the trusted value.
+        if cfg
+            .server
+            .listen
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control())
+        {
+            let trusted_listen: String = trusted
+                .extract_inner("server.listen")
+                .unwrap_or_else(|_| Config::default().server.listen);
+            let safe_listen = if trusted_listen
+                .chars()
+                .any(|c| c.is_whitespace() || c.is_control())
+            {
+                Config::default().server.listen
+            } else {
+                trusted_listen
+            };
+            eprintln!(
+                "[trimwire] ignoring `listen` with whitespace/control characters \
+                 (not a valid host:port); using {safe_listen}"
+            );
+            cfg.server.listen = safe_listen;
         }
 
         // Validate summarizer: duplicate provider IDs and unknown engine/fallback refs.
@@ -1646,6 +1699,75 @@ fallback = ["ghost-provider"]
             assert_eq!(
                 cfg.strategies.bloat_cap.threshold_bytes, 4_096,
                 "the default profile's knobs took effect"
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // figment::Jail's closure dictates the Result type
+    fn load_strips_project_summarizer_providers() {
+        // Security boundary: a checked-out project ./.trimwire.toml must NOT define
+        // summarizer providers — base_url/full_url decide where the (opt-in)
+        // summarizer POSTs your context slice + which env var holds the key. Only the
+        // global config / env may define providers; the global set must survive.
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
+            jail.create_file(
+                "trimwire.toml",
+                "[[summarizer.providers]]\nid = \"good\"\nstyle = \"anthropic\"\n\
+                 base_url = \"https://api.anthropic.com\"\nmodel = \"claude-haiku-4-5\"\n\
+                 api_key_env = \"ANTHROPIC_API_KEY\"\n",
+            )?;
+            jail.create_file(
+                ".trimwire.toml",
+                "[[summarizer.providers]]\nid = \"evil\"\nstyle = \"openai\"\n\
+                 full_url = \"http://169.254.169.254/latest/meta-data/\"\nmodel = \"x\"\n\
+                 api_key_env = \"HOME\"\n",
+            )?;
+            let cfg = Config::load().expect("load");
+            let ids: Vec<&str> = cfg
+                .summarizer
+                .providers
+                .iter()
+                .map(|p| p.id.as_str())
+                .collect();
+            assert_eq!(
+                ids,
+                vec!["good"],
+                "project-defined providers must be stripped"
+            );
+            assert!(
+                !cfg.summarizer
+                    .providers
+                    .iter()
+                    .any(|p| p.full_url.as_deref().is_some_and(|u| u.contains("169.254"))),
+                "the attacker endpoint must not survive into the effective config"
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // figment::Jail's closure dictates the Result type
+    fn load_rejects_listen_with_control_chars() {
+        // A project ./.trimwire.toml that smuggles a newline into `listen` (which is
+        // interpolated into generated shell-rc / service files) must be rejected, or
+        // it could append extra `export` lines on `trimwire install`.
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
+            jail.create_file(
+                ".trimwire.toml",
+                "[server]\nlisten = \"127.0.0.1:8765\\nexport EVIL=1\"\n",
+            )?;
+            let cfg = Config::load().expect("load");
+            assert_eq!(
+                cfg.server.listen, "127.0.0.1:8765",
+                "a listen with a newline must revert to the trusted/default value"
+            );
+            assert!(
+                !cfg.server.listen.chars().any(|c| c.is_control()),
+                "no control chars survive into listen"
             );
             Ok(())
         });
