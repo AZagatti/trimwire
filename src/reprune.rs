@@ -222,8 +222,8 @@ impl PruneState {
     }
 
     /// Mark a summarization task as started (claim the in-flight slot) and return
-    /// its epoch. The caller passes the epoch back to [`end_summary_if`] /
-    /// [`summary_active`] so a stale task can't act on a recycled entry.
+    /// its epoch. The caller passes the epoch back to [`Self::end_summary_if`] /
+    /// [`Self::summary_active`] so a stale task can't act on a recycled entry.
     ///
     /// The epoch is drawn from a PROCESS-GLOBAL counter (not a per-entry one), so
     /// it stays unique even after this key is evicted and a fresh `PruneState`
