@@ -17,22 +17,37 @@
 
 ## Quickstart
 
-The fastest path is the install script (downloads a prebuilt binary, then runs
-`trimwire install`):
+### 1. Install
+
+**Download a prebuilt binary** — no toolchain, nothing piped to a shell. Grab the
+asset for your OS/arch from the
+[latest release](https://github.com/AZagatti/trimwire/releases/latest), then
+(Linux/macOS example — pick the asset matching your platform):
+
+```bash
+tar xzf trimwire-x86_64-unknown-linux-gnu.tar.gz   # Windows: unzip the .zip
+chmod +x trimwire
+sudo mv trimwire /usr/local/bin/                   # or any dir on your PATH
+trimwire --version                                 # prints version + git SHA
+```
+
+**Have Rust?**
+
+```bash
+cargo binstall trimwire  # fetches the same prebuilt binary, no compile
+cargo install trimwire   # from crates.io (builds from source; needs Rust 1.85+)
+cargo install --path .   # build from a local checkout
+```
+
+**Quick install (convenience)** — downloads the right prebuilt binary *and* runs
+`trimwire install` for you. Read [the script](scripts/install.sh) first if you
+pipe to a shell:
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh
 ```
 
-Or install the binary yourself:
-
-```bash
-cargo binstall trimwire  # prebuilt binary (fastest)
-cargo install trimwire   # from crates.io (builds from source; needs Rust 1.85+)
-cargo install --path .   # build from a local checkout
-```
-
-Then wire it up:
+### 2. Wire it up
 
 ```bash
 trimwire install         # config + shell-rc ANTHROPIC_BASE_URL + the always-up service (auto-started)
