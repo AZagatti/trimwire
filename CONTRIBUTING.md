@@ -28,6 +28,29 @@ cargo clippy --all-targets -- -D warnings
 
 Requirements: **Rust 1.85+** (edition 2024).
 
+## Optional: Cloudflare agent tooling
+
+The collector (`collector/`, a Cloudflare Worker) and docs site (`site/`,
+Astro on Workers) go faster with Cloudflare's agent skills + MCP servers.
+These are personal, opt-in dev tooling — third-party and separately
+licensed, so they're not vendored into this repo. If you use Claude Code:
+
+```bash
+# Skills (wrangler, workers-best-practices, cloudflare platform):
+npx skills add https://github.com/cloudflare/skills
+
+# Cloudflare MCP servers (read-only set; skip the write-capable `bindings`):
+claude mcp add --transport http cf-docs         https://docs.mcp.cloudflare.com/mcp
+claude mcp add --transport http cf-builds        https://builds.mcp.cloudflare.com/mcp
+claude mcp add --transport http cf-observability https://observability.mcp.cloudflare.com/mcp
+```
+
+Then run `/mcp` to authenticate (OAuth to your own Cloudflare account;
+`cf-docs` needs none). `/plugin install cloudflare@cloudflare` installs the
+skills *and* the MCP servers in one step — use that or the commands above,
+not both. Other agents (Cursor, Codex) work too; see the
+[cloudflare/skills](https://github.com/cloudflare/skills) README.
+
 ## Workflow
 
 1. **Read [`AGENTS.md`](AGENTS.md) first.** It's the single source of truth
