@@ -7,6 +7,8 @@
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 [![Crates.io](https://img.shields.io/crates/v/trimwire)](https://crates.io/crates/trimwire)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange)](#contributing--development)
+[![Sponsor](https://img.shields.io/badge/sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/AZagatti)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-ff5e5b?logo=kofi&logoColor=white)](https://ko-fi.com/azagatti)
 
 ![trimwire demo](https://raw.githubusercontent.com/AZagatti/trimwire/main/docs/demo.gif)
 
