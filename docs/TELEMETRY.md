@@ -5,10 +5,11 @@
 > stats` uploads without `--yes` each run. `--yes` works as a per-run override.
 > `--force` bypasses the once-per-day throttle only; it never bypasses consent.
 >
-> The built-in community collector URL ships in the binary but is currently an
-> **empty placeholder** (pending maintainer deploy). Until the maintainer fills
-> it in, `trimwire share stats` always dry-runs: it prints the exact payload
-> below and sends nothing.
+> The built-in community stats collector URL ships in the binary at
+> `https://api.trimwire.dev/ingest`. `trimwire share stats` uploads when
+> consent is given (`share enable` or `--yes`); without consent it dry-runs.
+> The benchmark collector endpoint is not yet deployed — `trimwire share
+> benchmark` always dry-runs.
 
 **Sample payload** (the complete set of fields — nothing else is ever sent):
 
@@ -66,11 +67,13 @@ contains at least K distinct contributors, so no individual's data is surfaced).
 
 1. **Opt-in, off by default.** Requires explicit consent (`trimwire share enable`
    or `--yes`). Never runs as a side effect of any other command.
-2. **Dry-run until the collector is deployed.** The built-in community endpoint
-   constant is empty until the maintainer deploys the collector. Until then,
-   `trimwire share stats` always dry-runs regardless of consent: it prints the
-   payload and exits without network I/O. `[share] endpoint` exists as an override
-   for self-hosting or testing (not the normal path).
+2. **Dry-run without consent.** Without explicit consent (`trimwire share enable`
+   or `--yes`), `trimwire share stats` always dry-runs: it prints the payload and
+   exits without network I/O. The stats collector is deployed at
+   `https://api.trimwire.dev/ingest`. The benchmark endpoint is not yet deployed
+   — `trimwire share benchmark` always dry-runs regardless of consent.
+   `[share] endpoint` / `[share] benchmark_endpoint` exist as overrides for
+   self-hosting or testing.
 3. **Content-free.** Only ledger-derived metadata; never message content/paths.
 4. **No cross-day identity.** A random install id lives only on your machine and
    is **never transmitted**. The `dedup_token` sent with each upload is

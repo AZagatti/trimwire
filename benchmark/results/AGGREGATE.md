@@ -5,8 +5,10 @@ Evidence that the benchmark is reproducible. Two independent agents each ran
 launches total** — on the same host.
 
 > The 6-run min/max ranges below were captured on the original 11 corpora;
-> `resumed_session` (added later) is shown with a single representative median.
-> Its determinism and sub-2 ms behaviour match the other mid-size bodies.
+> `resumed_session` (added later, making 12 at capture time) is shown with a
+> single representative median. The current benchmark has 14 corpora
+> (`stale_input_heavy` and `thinking_heavy` added since). Its determinism and
+> sub-2 ms behaviour match the other mid-size bodies.
 
 ## Deterministic sections are bit-for-bit stable
 
@@ -47,6 +49,8 @@ behind.
 
 The numbers that matter (savings, attribution, cache, cost) are exact and
 reproducible; overhead is stable and sub-millisecond-to-low-millisecond. The
-cost model honestly reports **7 of 12 corpora as cost losses** under warm caching
-(3 wins — including the long `resumed_session` — and 2 washes); it is not tuned
-to flatter. Regenerate any time with `cargo run --release --example bench`.
+cost model honestly reports **5 of 14 corpora as cost losses** under warm caching
+(stateless `default` profile: 7 wins, 5 losses, 2 zeros — see §5 of RESULTS.md);
+it is not tuned to flatter. With reprune on (the shipped default), cache-stability
+recovers substantially on the churny cases (§5b).
+Regenerate any time with `cargo run --release --example bench`.

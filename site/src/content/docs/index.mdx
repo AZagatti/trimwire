@@ -52,8 +52,8 @@ and Cloudflare AI Gateway use.
   </Card>
   <Card title="02 · Prune">
     trimwire rewrites only the `messages[]` array: dedup, bloat trimming,
-    stale-read removal, and more. It never touches `system`, `tools[]`, your auth
-    header, or sampling.
+    stale-read removal, and more. It never touches `system` (on the default path),
+    `tools[]`, your auth header, or sampling.
   </Card>
   <Card title="03 · Forward">
     The slimmer payload goes to Anthropic; the response streams back

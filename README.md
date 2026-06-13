@@ -89,11 +89,12 @@ instead of being refused. Set it and forget it.
 
 ## Tuning & safety
 
-> **New here / worried about ToS or privacy?** Short answers: yes it's
-> ToS-safe (`ANTHROPIC_BASE_URL` is Anthropic's documented gateway mechanism),
-> no it never stores your code (the ledger is content-free), and you can try it
-> with zero risk via `trimwire preview`. See
-> [**`docs/FAQ.md`**](https://github.com/AZagatti/trimwire/blob/main/docs/FAQ.md).
+> **New here / worried about ToS or privacy?** Short answers: with an **API key**
+> you're clearly fine — `ANTHROPIC_BASE_URL` is Anthropic's documented gateway
+> mechanism. With a **Pro/Max OAuth** subscription the rules tightened in 2026 and
+> it's a greyer area — [`docs/FAQ.md`](https://github.com/AZagatti/trimwire/blob/main/docs/FAQ.md)
+> has the honest detail. On privacy: it never stores your code (the ledger is
+> content-free), and you can try it with zero risk via `trimwire preview`.
 
 - **One knob: the profile.** Run `trimwire config` and set
   `profile = "default" | "gentle"` (default `default`). These are
@@ -214,10 +215,9 @@ version, model family, profile, cache health, conversation length bucket. Nothin
 else. Never prompts, code, file paths, session ids, machine ids, IPs, or raw
 counts. Everything is bucketed on your machine before it leaves.
 
-The built-in community collector endpoint ships in the binary but is an **empty
-placeholder** until the maintainer deploys it, so `trimwire share stats` always
-dry-runs for now (prints the exact payload, sends nothing). The public community
-dashboard shows only k-anonymous aggregates. Full contract:
+The built-in community collector endpoint ships in the binary and points at
+`https://api.trimwire.dev/ingest`. The public community dashboard at
+<https://trimwire.dev> shows only k-anonymous aggregates. Full contract:
 [`docs/TELEMETRY.md`](https://github.com/AZagatti/trimwire/blob/main/docs/TELEMETRY.md).
 
 ## How much does it save?
@@ -246,7 +246,7 @@ output is plausible, not proven.)
 
 **Cost is a side effect, and non-monotonic.** Cache hits bill at ~0.1×, so
 pruning *old* content can bust the cache: short sessions are a wash-to-loss, long
-ones win (≈ **−52%** at 256 turns). Overhead is **sub-2 ms** per request, off the
+ones win (≈ **−55%** at 256 turns). Overhead is **sub-2 ms** per request, off the
 network path.
 
 Numbers are reproducible (`cargo run --release --example bench`) and least

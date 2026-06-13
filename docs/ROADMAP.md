@@ -10,7 +10,7 @@ shows it earns its complexity.
 - Stable-prefix re-pruning (`[reprune]`) for cache stability
 - Opt-in summarizer: local ollama engine + cloud API engine (multi-provider, fallback cascade)
 - Opt-in anonymous telemetry (`trimwire share stats` / `share benchmark`)
-- Community collector + dashboard (collector pending deploy)
+- Community collector + dashboard (stats collector live at api.trimwire.dev; benchmark collector pending deploy)
 - Offline benchmark harness with quality corpus (5 slices, harm gate, FCS metric)
 - `trimwire sweep` for on-disk transcript maintenance
 - `trimwire preview` / `trimwire recall` / `trimwire dashboard`

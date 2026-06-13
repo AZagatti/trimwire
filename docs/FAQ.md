@@ -78,8 +78,11 @@ Code. See [`SPIKE.md` §1](https://github.com/AZagatti/trimwire/blob/main/SPIKE.
 Only the conversation `messages[]` array, via cache-safe pruning strategies
 (dedup of repeated tool results, trimming oversized old outputs, paging stale
 file reads, stripping old reasoning blocks, etc.; see
-[README](https://github.com/AZagatti/trimwire/blob/main/README.md#how-it-works)). It **never** touches `system`, `tools[]`,
-your auth header, or the model/params. Removed content is replaced by a small,
+[README](https://github.com/AZagatti/trimwire/blob/main/README.md#how-it-works)). It **never** touches `system` (on the default path), `tools[]`,
+your auth header, or the model/params. (The opt-in `system_shape_normalize`
+strategy, if explicitly enabled, will lift a malformed stray
+`messages[0].role:"system"` into the top-level `system` field — but it is off by
+default and never fires on a well-formed body.) Removed content is replaced by a small,
 content-free marker (e.g. `[trimwire: …]`) so the model knows something was
 elided. It never reintroduces dropped bytes.
 
@@ -99,10 +102,13 @@ block (or run `trimwire uninstall`) to undo both.
   prunes it (microseconds-to-low-milliseconds of JSON work), and **streams the
   response back byte-for-byte**. It does not buffer or alter the SSE response.
   It makes **no extra network round-trips** on the request path.
-- **Responses: unchanged.** trimwire only removes redundant/stale *context*; it
-  doesn't touch your prompt, the system prompt, or sampling. And by keeping the
-  pruned prefix **byte-identical** turn-to-turn (stable-prefix re-pruning), it
-  *protects* Anthropic's prompt cache rather than busting it.
+- **System prompt & sampling: untouched; the response stream is forwarded
+  byte-for-byte.** trimwire doesn't change your prompt, the system prompt, or any
+  sampling parameter. What it *does* change is the conversation context — that's
+  the whole point — so **the model's output can differ because stale/redundant
+  context was removed.** That's the intended effect, not a side channel. By keeping
+  the pruned prefix **byte-identical** turn-to-turn (stable-prefix re-pruning), it
+  also *protects* Anthropic's prompt cache rather than busting it.
 
 ## What does the opt-in summarizer send, and where?
 

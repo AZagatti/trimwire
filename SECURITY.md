@@ -55,8 +55,9 @@ What trimwire **does NOT** do:
   telemetry (`trimwire share enable`, then `trimwire share stats`) is the only
   exception: it sends a bucketed, content-free aggregate to a collector endpoint
   you have consented to — never prompt/file/command content. Off until you
-  explicitly enable it (and the default endpoint is empty until the maintainer
-  deploys one). See `docs/TELEMETRY.md` for the exact payload.
+  explicitly enable it. The stats collector is deployed at
+  `https://api.trimwire.dev/ingest`; the benchmark endpoint is not yet deployed.
+  See `docs/TELEMETRY.md` for the exact payload.
 - It does not modify the system prompt or any header that would change
   client identity from Anthropic's perspective.
 - It does not persist API request/response bodies anywhere (the SQLite

@@ -289,6 +289,16 @@ The summarizer extends how far a session runs before the context fills and slows
 drift of facts out of the window — but it is **not infinite**, and it's not a substitute
 for Claude's own memory of the conversation.
 
+> **No runtime fidelity gate — your model choice is the safeguard.** At request time a
+> summary is accepted only on a **size** check (it must be smaller than model-free
+> pruning, within `accept_ratio`); trimwire does **not** re-verify the summary's facts
+> on the live path (a second model pass per request would be too costly). The fact-retention
+> harm gate (`examples/api_harm`, `trimwire summarizer probe`) is an **offline model-vetting
+> tool**, not a runtime guard. So a weak or mis-configured model can produce a lossy summary
+> that still gets used. This is why the summarizer is **off by default**, why **recent turns
+> are always kept verbatim**, and why you should **vet a model with `summarizer probe --runs 10`
+> before trusting it** (and keep weak local models at `accept_ratio = 1.0`).
+
 **What it preserves well:** verbatim tokens it's prompted to copy (file paths, error
 codes, identifiers, decisions) and the GOAL/DECIDED/NEXT thread.
 

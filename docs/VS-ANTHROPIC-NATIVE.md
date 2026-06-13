@@ -42,7 +42,7 @@ fails open to the original body.
 | **Where it runs** | Server-side (context editing) / inside Claude Code (`/compact`) | A local proxy on your machine, before the request leaves |
 | **Determinism** | Heuristic / model-driven; output can vary | Deterministic, byte-for-byte; same input → same output |
 | **Transparency** | Trims happen upstream; limited local visibility | You see exactly what changed + the spend impact (`trimwire stats`) |
-| **Trigger** | At/near the context limit, or on `/compact` | Every request, proactively — bytes are trimmed before they accumulate |
+| **Trigger** | On `/compact`, or context-editing on a configured threshold (can run before the hard limit) | Every request, proactively — bytes are trimmed before they accumulate |
 | **Loss profile** | `/compact` is lossy summarization; context-editing drops old tool output | Default path keeps recent turns verbatim; trims stale/duplicated/oversized tool output with markers; summarizer is opt-in |
 | **Control** | A beta flag / a slash command; little per-strategy tuning | Per-strategy config, protected file globs, thresholds, off-by-default levers |
 | **Cache awareness** | Caching is the native mechanism | Pruning is designed to preserve the cache prefix; its stateful re-pruning is cache-stable on purpose |
@@ -54,8 +54,8 @@ fails open to the original body.
 - **Caching:** trimwire's whole design is built around *not* breaking the cache —
   it preserves the byte-exact prefix and its stateful re-pruning exists precisely
   to keep the cache stable across turns. It complements caching rather than competing.
-- **Context editing / `/compact`:** these fire late (near the limit). trimwire
-  works *early and every turn*, so there's less bloat for the native path to clear in
+- **Context editing / `/compact`:** these fire at compaction or a configured
+  threshold. trimwire works *early and every turn*, so there's less bloat for the native path to clear in
   the first place — and when the native path does fire, trimwire forwards it
   untouched (it already accounts for the "tool result cleared" markers on the wire).
 - **Memory tool:** orthogonal. trimwire prunes wire bytes; the memory tool manages

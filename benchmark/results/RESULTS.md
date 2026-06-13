@@ -85,6 +85,15 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 > a session with nothing redundant it correctly does nothing. Every pruned
 > body is orphan-free, never larger than the input, and leaves `system`
 > untouched (asserted; the harness panics otherwise).
+>
+> **In/Out/Reduction measure `messages[]` bytes only** — the real request also
+> carries a `system` prompt + tool schemas (~12 KB ≈ 3000 tokens in production)
+> that trimwire never touches, so they're excluded from the denominator here. On
+> a **small** body this overstates the full-request reduction: e.g.
+> `stale_input_heavy`/`thinking_heavy` (12–14 KB) read ~84%/83% of `messages[]`
+> but only ~46%/42% of a full production request. These small "coverage corpora"
+> exist to exercise one strategy each, not to represent typical session sizes.
+> (The cost model in §5 adds the prefix back, so it isn't affected.)
 
 ## 2. Profiles — `default` / `gentle` (reduction %)
 

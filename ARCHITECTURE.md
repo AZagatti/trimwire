@@ -30,13 +30,11 @@ Claude Code  ── /v1/messages POST (full body) ──▶  gateway::handle()
                                                             (on fail / no-op → forward original bytes)
                                                       │
                                                       ▼
-                                              ledger::record(...)   (every request)
-                                                      │
-                                                      ▼
                                               client.request(...)   (upstream over TLS)
                                                       │
                                                       ▼
-                                              proxy_stream::passthrough()
+                                              MeteredBody wraps response stream
+                                                 (ledger::record fires at stream-end)
                                                       │
                                                       ▼
 Claude Code  ◀── streamed SSE response (bytes-for-bytes from Anthropic)
@@ -44,7 +42,7 @@ Claude Code  ◀── streamed SSE response (bytes-for-bytes from Anthropic)
 
 ## Modules
 
-### `src/main.rs` — CLI entry (~50 LOC max)
+### `src/main.rs` — CLI entry (dispatch only)
 
 Parses `clap` args, sets up tracing, dispatches to the subcommands
 (`serve`, `run`, `stats`, `recall`, `install`/`uninstall`, `on`/`off`/`status`,
@@ -70,8 +68,9 @@ Hyper 1.x server via `hyper_util::server::conn::auto::Builder` on a
    `messages`/`pairing` directly. Any non-JSON / no-op / error forwards the
    original bytes verbatim.
 3. Build the upstream request via `upstream` (`hyper_util::client::legacy::Client`).
-4. Pipe the upstream response back via `proxy_stream`.
-5. Log one line (ledger entry lands in Step 5).
+4. Pipe the upstream response back via `MeteredBody` (which writes the ledger
+   row at stream-end) or `proxy_stream` for non-messages paths.
+5. Log one line to stderr: `[gateway] METHOD PATH in=NB sent=MB status=SSS Tms [pruned[...]]`.
 
 **Must NOT contain mutation logic** — that lives in `strategies/`.
 
@@ -222,11 +221,12 @@ HTTP-code mapping (gateway behaviour, [`SPIKE.md` §6](SPIKE.md)):
 
 ### `src/ledger.rs` — SQLite savings store
 
-Single `STRICT` table, created once with `CREATE TABLE IF NOT EXISTS` — no
-versioning or migrations yet (v0.1.0 is the first release, so no older on-disk
-schema predates it). Future *additive* columns can use `ALTER TABLE … ADD COLUMN
-… DEFAULT …` (safe in SQLite); removals/renames need a migration since real
-ledgers now exist:
+Three `STRICT` tables created once with `CREATE TABLE IF NOT EXISTS`. Additive
+migrations (new columns added via `ALTER TABLE … ADD COLUMN … DEFAULT …`) run at
+startup, guarded by `column_exists()` checks so they apply exactly once to
+pre-existing ledger files. The `requests` table is the primary savings store;
+`summarizer_events` and `upstream_errors` track auxiliary events. Removals or
+renames need a full migration since real ledgers now exist:
 
 ```sql
 CREATE TABLE IF NOT EXISTS requests (

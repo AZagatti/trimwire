@@ -27,9 +27,8 @@ API key**.
 ## Opt-in telemetry (`trimwire share`)
 
 Nothing is uploaded unless you run `trimwire share enable` (or pass `--yes`). You
-can opt out any time with `trimwire share disable`. Until you opt in — and until
-the project's community collector is deployed — `trimwire share stats` only prints
-the payload and sends nothing.
+can opt out any time with `trimwire share disable`. Without consent,
+`trimwire share stats` only prints the payload and sends nothing.
 
 When you do opt in, each upload is a **single small JSON of coarse, bucketed,
 aggregate numbers** derived from your local ledger. By design it contains **no**
