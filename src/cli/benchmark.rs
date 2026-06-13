@@ -350,7 +350,7 @@ fn api_safety_warning(provider: &SummarizerProviderConfig, corpus_len: usize, ye
         eprintln!(
             "\n  DRY RUN — no API calls made.\n\
              \x20  To run locally (no upload): trimwire summarizer benchmark --model {} --yes\n\
-             \x20  To run AND share the score: trimwire share benchmark --model {} --yes",
+             \x20  To run and print the shareable row: trimwire share benchmark --model {} --yes",
             provider.id, provider.id,
         );
     }
@@ -764,7 +764,7 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
         println!(
             "\n  No benchmark collector endpoint configured ([share] benchmark_endpoint = \"\"),\n\
              \x20  so this was a DRY RUN — nothing was sent. The maintainer publishes the\n\
-             \x20  endpoint once the /v1/benchmark collector route is live."
+             \x20  endpoint once a community benchmark collector is deployed."
         );
         return Ok(());
     }

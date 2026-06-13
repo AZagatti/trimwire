@@ -1,6 +1,6 @@
 ---
 title: Model benchmark
-description: A transparent, directional ranking of local summarizer models, from benchmark rows shared by trimwire users who opted in via `trimwire share benchmark`.
+description: A transparent, directional ranking of local summarizer models, designed to be built from anonymous benchmark rows opted in via `trimwire share benchmark` (community sharing not live yet).
 template: splash
 head:
   # Widen the whole content column (prose + data) for this data-heavy page.
@@ -10,12 +10,16 @@ head:
 
 import BenchmarkTable from '../../components/BenchmarkTable.astro';
 
-How well do local models summarize a coding session? Rows below come from users
-who ran `trimwire summarizer benchmark` and **opted in** via `trimwire share benchmark`. Each is
-**anonymous and content-free** — only coarse buckets (model family + size tier,
-not the raw tag), with small groups suppressed (k-anonymity). No summaries,
-prompts, paths, or identifiers are collected. See
+How well do local models summarize a coding session? This page is built to rank
+rows from users who run `trimwire summarizer benchmark` and **opt in** via
+`trimwire share benchmark` — each **anonymous and content-free**: only coarse
+buckets (model family + size tier, not the raw tag), with small groups suppressed
+(k-anonymity). No summaries, prompts, paths, or identifiers are collected. See
 [how the data is collected & protected](/guides/telemetry/).
+
+**Community sharing isn't live yet** — no benchmark collector is deployed, so the
+table below shows the format (try the `?demo` view), not real submissions. The
+curated approved-model list below stays the authority meanwhile.
 
 This is a **directional sanity-check, not an authoritative quality ranking.**
 **FCS** (*faithful-compression score*) `= retention × compression` rewards keeping

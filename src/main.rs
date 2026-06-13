@@ -169,9 +169,9 @@ enum ShareAction {
         #[arg(long)]
         force: bool,
     },
-    /// OPT-IN: score your summarizer model and upload the anonymous,
-    /// content-free per-model row to the community benchmark endpoint.
-    /// Dry-run unless `--yes`.
+    /// OPT-IN: score your summarizer model and print the anonymous,
+    /// content-free per-model row. Sharing is not live yet — no community
+    /// benchmark collector is deployed, so this always dry-runs (prints only).
     Benchmark {
         /// Model tag to score (repeatable). Omit to use your configured summarizer model.
         #[arg(long)]
@@ -179,7 +179,7 @@ enum ShareAction {
         /// Score every model installed in ollama (disqualified ones are skipped).
         #[arg(long)]
         all_installed: bool,
-        /// Confirm the upload (without it, this is a dry run).
+        /// Reserved for upload once a benchmark collector is deployed; currently a no-op (always dry-runs).
         #[arg(long)]
         yes: bool,
     },

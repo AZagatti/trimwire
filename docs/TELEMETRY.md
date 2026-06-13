@@ -169,8 +169,9 @@ from production telemetry indefinitely. (Consistent with the project's standing
 
 ## Benchmark sharing (`trimwire share benchmark`)
 
-A **separate**, opt-in payload to a **separate** route (`/v1/benchmark`) and
-dataset (the [model-benchmark page](/benchmark/), not the stats dashboard). It is
+A **separate**, opt-in payload to a **separate** (not-yet-deployed) benchmark
+collector and dataset (the [model-benchmark page](/benchmark/), not the stats
+dashboard). It is
 the one place a *directional* quality signal is shared, and it stays content-free
 because the model summarizes a **bundled synthetic corpus**, never your session.
 Measuring fact-retention and false-done there reads no user content (invariant
