@@ -29,14 +29,14 @@ const SCHEMA_VERSION: u32 = 1;
 
 /// Built-in community stats collector endpoint for `trimwire share stats`.
 ///
-/// **EMPTY PLACEHOLDER (§8D):** the maintainer fills this in once the collector
-/// is deployed and the privacy policy is live. Until then it is intentionally
-/// empty so the command always dry-runs — there is no destination to send to.
+/// Live: the Cloudflare Worker collector deployed at `api.trimwire.dev` (see
+/// `collector/`). `share stats` still only uploads with explicit `--yes`; without
+/// it the command dry-runs (prints what it would send).
 ///
 /// Resolution order: an explicit `[share] endpoint` in the user's config
 /// overrides this constant (for self-hosting or testing). If both are empty →
 /// dry run, no network I/O.
-const COMMUNITY_STATS_ENDPOINT: &str = "";
+const COMMUNITY_STATS_ENDPOINT: &str = "https://api.trimwire.dev/ingest";
 
 /// Built-in community benchmark collector endpoint for `trimwire share benchmark`.
 ///

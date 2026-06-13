@@ -24,6 +24,13 @@ workers_dev = false
 pattern = "api.trimwire.dev"
 custom_domain = true
 
+# Logs + metrics in the Cloudflare dashboard. 100% head sampling — this is a
+# low-traffic collector, so full sampling is cheap and makes ingest/aggregate
+# issues debuggable (the Worker uses structured console.error on bad rows).
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 # k-anonymity threshold (the Worker floors this at 5). Raise as the user base
 # grows; the dashboard stays intentionally sparse until buckets fill.
 # MAX_PER_DAY caps accepted uploads per IP per UTC day.
@@ -44,7 +51,7 @@ MAX_PER_DAY = "50"
 # (add `preview_id` too if you use `wrangler dev --remote`.)
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+id = "c21864118ca74267ab35e720a061e5f2"
 
 # D1 binding. Create the DB and paste its id here before deploying:
 #   wrangler d1 create trimwire-telemetry
@@ -53,4 +60,4 @@ id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
 [[d1_databases]]
 binding = "DB"
 database_name = "trimwire-telemetry"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "5e132ac0-8d1b-42cf-b463-0d40a82b1ea2"
