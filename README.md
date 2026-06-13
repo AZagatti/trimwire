@@ -1,8 +1,9 @@
 # trimwire
 
-> A tiny local gateway that prunes Claude Code's API context on every request,
-> so the bytes shipped to Anthropic actually shrink mid-session. No CA cert, no
-> MITM, no restart.
+> Long Claude Code sessions fill up with stale file reads, superseded tool output,
+> and old reasoning — so every turn ships more dead weight to Anthropic. trimwire
+> is a tiny local gateway that prunes that dead weight from each request,
+> deterministically, keeping recent turns verbatim. No CA cert, no MITM, no restart.
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 [![Crates.io](https://img.shields.io/crates/v/trimwire)](https://crates.io/crates/trimwire)

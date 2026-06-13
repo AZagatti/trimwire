@@ -84,18 +84,25 @@ fn evict_stale(cache: &DashMap<String, PruneState>, max: usize, ttl_secs: u64) {
     if cache.len() <= max {
         return;
     }
+    // First drop everything past its TTL — usually enough on its own.
     cache.retain(|_, st| st.idle_secs() < ttl_secs);
-    while cache.len() > max {
-        let oldest = cache
-            .iter()
-            .max_by_key(|e| e.idle_secs())
-            .map(|e| e.key().clone());
-        match oldest {
-            Some(k) => {
-                cache.remove(&k);
-            }
-            None => break,
-        }
+    if cache.len() <= max {
+        return;
+    }
+    // Still over cap: take ONE snapshot of (key, idle), then remove the oldest
+    // `excess` in a single sorted pass — O(N log N), not the old O(N²) of
+    // re-scanning for the max on every single removal.
+    let mut entries: Vec<(String, u64)> = cache
+        .iter()
+        .map(|e| (e.key().clone(), e.idle_secs()))
+        .collect();
+    let excess = entries.len().saturating_sub(max);
+    if excess == 0 {
+        return;
+    }
+    entries.sort_unstable_by_key(|e| std::cmp::Reverse(e.1)); // oldest (largest idle) first
+    for (k, _) in entries.into_iter().take(excess) {
+        cache.remove(&k);
     }
 }
 

@@ -584,7 +584,7 @@ export function renderEmptyState(root: HTMLElement): void {
   link.textContent = "How opt-in telemetry works →";
   const demoLink = document.createElement("a");
   demoLink.href = "?demo";
-  demoLink.textContent = "Preview with demo data →";
+  demoLink.textContent = "Show what this looks like when populated →";
   demoLink.style.cssText = "font-size:0.85rem;color:var(--sl-color-accent);";
   box.append(title, body, code, link, demoLink);
   tableHost.append(box);
@@ -593,14 +593,19 @@ export function renderEmptyState(root: HTMLElement): void {
   statusEl.textContent = "";
 }
 
-/** Render a visible "Demo data" badge on `root` so demo mode is never mistaken
- *  for real community data. Inserted once; safe to call from init(). */
+/** Render a prominent "Demo data" banner on `root` so demo mode is never mistaken
+ *  for real community data (a screenshot must carry the warning). Inserted once;
+ *  safe to call from init(). */
 function mountDemoBadge(root: HTMLElement): void {
   if (root.querySelector(".tw-demo-badge")) return;
   const badge = document.createElement("p");
   badge.className = "tw-demo-badge";
-  badge.setAttribute("role", "note");
-  badge.textContent = "Demo data — not real community results";
+  badge.setAttribute("role", "alert");
+  badge.textContent =
+    "⚠ Demo data — synthetic placeholder numbers, NOT real community results.";
+  badge.style.cssText =
+    "margin:0 0 1rem;padding:0.6rem 0.9rem;border:2px solid #d97706;" +
+    "border-radius:0.5rem;background:rgba(217,119,6,0.12);font-weight:600;";
   root.insertBefore(badge, root.firstChild);
 }
 

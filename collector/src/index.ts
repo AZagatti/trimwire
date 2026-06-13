@@ -310,12 +310,19 @@ async function handleAggregates(
   ctx: ExecutionContext,
 ): Promise<Response> {
   // Edge-cache the computed JSON so a miss (a full D1 cursor scan) is rare — a
-  // GET flood otherwise burns the D1 read quota. Key on the URL only.
+  // GET flood otherwise burns the D1 read quota.
   // NOTE: caches.default is a no-op on *.workers.dev — it only works behind a
   // custom domain/route (hence workers_dev=false in wrangler.toml). Without one,
   // every GET rescans D1.
   const cache = caches.default;
-  const cacheKey = new Request(request.url, { method: "GET" });
+  // Key on the PATH ONLY (origin + pathname), never the query string: the
+  // response ignores query params, so keying on the full URL would let
+  // `/aggregates.json?x=1`, `?x=2`, … each miss the cache and force a fresh D1
+  // scan, bypassing the edge cache (and the post-cache rate-limiter) — a cheap
+  // amplification. A canonical key collapses them to one cached entry.
+  const canonicalUrl = new URL(request.url);
+  canonicalUrl.search = "";
+  const cacheKey = new Request(canonicalUrl.toString(), { method: "GET" });
   const hit = await cache.match(cacheKey);
   if (hit) return hit; // already carries security headers (stored wrapped)
 

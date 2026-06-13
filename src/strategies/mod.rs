@@ -211,13 +211,25 @@ pub(crate) fn serialized_len(messages: &[Value]) -> usize {
     serde_json::to_vec(messages).map(|v| v.len()).unwrap_or(0)
 }
 
-/// Returns `true` when `content` is the exact string `"[Old tool result content cleared]"` —
-/// Claude Code's own micro-compact marker that appears on the wire when the user has already
-/// compacted the conversation context. Strategies should skip results carrying this marker to
-/// avoid double-elision (their own stub would only grow the body for no benefit, and the
-/// marker's presence means the model already knows the content is gone).
+/// Returns `true` when `content` is Claude Code's own micro-compact marker
+/// `"[Old tool result content cleared]"` — which appears on the wire when the user
+/// has already compacted the context. Matches BOTH the bare-string form and the
+/// single-text-block array form `[{"type":"text","text":"[Old tool result content
+/// cleared]"}]` (Claude Code has emitted both shapes). Strategies skip results
+/// carrying this marker to avoid double-elision (their own stub would only grow the
+/// body, and the marker means the model already knows the content is gone).
 pub(crate) fn is_already_cleared(content: &Value) -> bool {
-    content.as_str() == Some("[Old tool result content cleared]")
+    const MARKER: &str = "[Old tool result content cleared]";
+    match content {
+        Value::String(s) => s == MARKER,
+        // A single text block whose text is exactly the marker (nothing else).
+        Value::Array(blocks) => {
+            blocks.len() == 1
+                && blocks[0].get("type").and_then(Value::as_str) == Some("text")
+                && blocks[0].get("text").and_then(Value::as_str) == Some(MARKER)
+        }
+        _ => false,
+    }
 }
 
 /// Build an elision marker that records *how much* was dropped:
@@ -267,6 +279,22 @@ fn is_already_cleared_matches_exact_marker() {
     );
     assert!(!is_already_cleared(&json!(null)), "must not match null");
     assert!(!is_already_cleared(&json!({})), "must not match objects");
+    // The single-text-block array form CC also emits.
+    assert!(
+        is_already_cleared(&json!([{"type": "text", "text": "[Old tool result content cleared]"}])),
+        "single text block carrying the marker must return true"
+    );
+    assert!(
+        !is_already_cleared(&json!([
+            {"type": "text", "text": "[Old tool result content cleared]"},
+            {"type": "text", "text": "and more"}
+        ])),
+        "must not match when the array has extra content"
+    );
+    assert!(
+        !is_already_cleared(&json!([{"type": "text", "text": "real output"}])),
+        "must not match an ordinary single text block"
+    );
 }
 
 #[cfg(test)]

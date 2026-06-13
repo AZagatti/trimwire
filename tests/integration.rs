@@ -229,6 +229,67 @@ async fn pass_through_byte_equality() {
     assert_eq!(auth, "Bearer test-token");
 }
 
+/// An SSE (`text/event-stream`) response — the real Anthropic response shape —
+/// streams back through the gateway byte-for-byte, with the content-type intact.
+/// Exercises the `MeteredBody` SSE-scanning path (it parses `message_start` /
+/// `message_delta` line events for token metering) on the live proxy path, not
+/// just a plain JSON body.
+#[tokio::test]
+async fn sse_response_streams_back_verbatim() {
+    let upstream = MockServer::start().await;
+    // A representative multi-event SSE body (events are `\n\n`-separated).
+    let sse: &[u8] = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"hi\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_bytes(sse.to_vec()),
+        )
+        .mount(&upstream)
+        .await;
+
+    let (listener, gw_addr) = bind_listener().await;
+    let upstream_uri = upstream.uri();
+    tokio::spawn(async move {
+        let _ = gateway::run_from_listener(
+            listener,
+            upstream_uri,
+            Arc::new(Config::default()),
+            Ledger::disabled(),
+            None,
+        )
+        .await;
+    });
+    await_listening(gw_addr).await;
+
+    let body_in = br#"{"model":"claude-sonnet-4-5","messages":[]}"#;
+    let client = reqwest::Client::builder().build().expect("reqwest client");
+    let res = client
+        .post(format!("http://{gw_addr}/v1/messages"))
+        .header("authorization", "Bearer test-token")
+        .header("anthropic-version", "2023-06-01")
+        .body(body_in.to_vec())
+        .send()
+        .await
+        .expect("send through gateway");
+
+    assert_eq!(res.status().as_u16(), 200);
+    assert_eq!(
+        res.headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok()),
+        Some("text/event-stream"),
+        "SSE content-type preserved through the gateway"
+    );
+    let got = res.bytes().await.expect("response bytes");
+    assert_eq!(
+        got.as_ref(),
+        sse,
+        "SSE stream is forwarded byte-for-byte (metering must not mutate it)"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Step 2/3: SlidingWindow strategy
 // ---------------------------------------------------------------------------
