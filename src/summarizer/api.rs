@@ -39,7 +39,7 @@
 
 use std::time::Duration;
 
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Bytes;
 use serde_json::Value;
 
@@ -50,6 +50,13 @@ use crate::summarizer::{CompactorError, SUMMARY_SYSTEM_PROMPT};
 /// still cap this to ~1/4 of the local num_ctx-equivalent budget —
 /// a summary that costs thousands of output tokens is the wrong tool.
 const API_MAX_TOKENS: u64 = 4_096;
+
+/// Hard cap on the summarizer API *response* body we'll buffer (8 MiB). The
+/// request asks for ≤4096 output tokens (a few hundred KB at most), so this is
+/// generous — its job is to stop a slow/hostile/misconfigured endpoint from
+/// streaming an unbounded body into memory (the call runs in a background task).
+/// Exceeding it aborts the read (treated as "skip compaction", like any I/O error).
+const API_MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Call the cloud API backend once (non-streaming) and return the summary text.
 ///
@@ -317,7 +324,9 @@ async fn execute_request(
         if !status.is_success() {
             return Err(CompactorError::HttpStatus(status.as_u16()));
         }
-        resp.into_body()
+        // Bound the buffered response so a hostile/misconfigured endpoint can't
+        // stream an unbounded body into the background task's memory.
+        Limited::new(resp.into_body(), API_MAX_RESPONSE_BYTES)
             .collect()
             .await
             .map_err(|e| CompactorError::Unreachable(e.to_string()))

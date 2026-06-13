@@ -634,6 +634,26 @@ pub async fn preview_summary(
     }))
 }
 
+/// RAII release of a session's in-flight summarization slot. Dropping it (on the
+/// spawned task's normal completion, early return, or **panic**) clears the
+/// `summary_inflight` flag — but only if the task's `epoch` is still the active one,
+/// so an evicted+recreated entry or a newer in-flight summary is never disturbed.
+/// Without this, a panic in the background task would leave the flag stuck and that
+/// session would never summarize again until TTL eviction.
+struct InFlightGuard {
+    cache: std::sync::Arc<dashmap::DashMap<String, crate::reprune::PruneState>>,
+    key: String,
+    epoch: u64,
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        if let Some(mut st) = self.cache.get_mut(&self.key) {
+            st.end_summary_if(self.epoch);
+        }
+    }
+}
+
 pub fn maybe_spawn_summarization(
     cache: std::sync::Arc<dashmap::DashMap<String, crate::reprune::PruneState>>,
     key: String,
@@ -656,7 +676,7 @@ pub fn maybe_spawn_summarization(
     };
 
     // Sync decision under the lock; capture an owned snapshot for the task.
-    let (start, end, is_append, snapshot, permit) = {
+    let (start, end, is_append, snapshot, permit, epoch) = {
         let Some(mut st) = cache.get_mut(&key) else {
             return;
         };
@@ -846,12 +866,22 @@ pub fn maybe_spawn_summarization(
         let Ok(permit) = summary_semaphore().try_acquire() else {
             return;
         };
-        st.begin_summary();
-        (start, end, is_append, messages.to_vec(), permit)
+        let epoch = st.begin_summary();
+        (start, end, is_append, messages.to_vec(), permit, epoch)
     };
 
     tokio::spawn(async move {
         let _permit = permit; // held for the task's lifetime; releases the slot on drop
+        // RAII: clear THIS task's in-flight slot on drop — normal completion, early
+        // return, OR panic — but only if our epoch is still active (so an evicted +
+        // recreated entry, or a newer summary, is never disturbed). Fixes the
+        // flag-leak-on-panic that would otherwise wedge this session's summarizer
+        // until TTL eviction.
+        let _inflight = InFlightGuard {
+            cache: cache.clone(),
+            key: key.clone(),
+            epoch,
+        };
         let slice_text = slice::serialize_slice(
             &snapshot[start..end],
             slice::REASONING_BLOCK_CAP,
@@ -880,10 +910,16 @@ pub fn maybe_spawn_summarization(
         let result = run_cascade(&cfg.summarizer, build_prompt(&slice_text)).await;
         // Re-acquire the lock to record the outcome (never held across an await).
         // If the session was evicted mid-flight, get_mut returns None and we drop
-        // the result; the in-flight flag died with the entry, and the next request
-        // starts a fresh PruneState (inflight=false), so no slot leaks.
+        // the result; the next request starts a fresh PruneState. The in-flight slot
+        // is released by `_inflight` (the RAII guard) on this task's exit, under our
+        // epoch — so a recycled entry / newer summary is never disturbed.
         if let Some(mut st) = cache.get_mut(&key) {
-            st.end_summary();
+            // If this entry was evicted+recreated (or a newer summary superseded us)
+            // while we ran, our epoch is no longer active — drop the stale result
+            // rather than splicing it onto a different generation's state.
+            if !st.summary_active(epoch) {
+                return;
+            }
             // Outcome code recorded (content-free) for the `share stats` install-rate:
             // 'a' accepted (installed), 'r' rejected / empty decision, 'e' model error.
             // winning_engine: "local" | "api" when outcome='a'; "model-free" otherwise.
@@ -1635,15 +1671,67 @@ mod tests {
         cache
     }
 
+    #[test]
+    fn inflight_guard_clears_flag_on_drop() {
+        // The RAII guard releases the in-flight slot when the task ends — this is what
+        // fixes the flag-leak-on-panic (Drop runs during unwind too, not just on the
+        // normal path).
+        let cache = std::sync::Arc::new(dashmap::DashMap::new());
+        let mut st = crate::reprune::PruneState::default();
+        let epoch = st.begin_summary();
+        assert!(st.summary_inflight());
+        cache.insert("k".to_owned(), st);
+        {
+            let _g = InFlightGuard {
+                cache: cache.clone(),
+                key: "k".to_owned(),
+                epoch,
+            };
+        } // guard drops here
+        assert!(
+            !cache.get("k").unwrap().summary_inflight(),
+            "guard must clear the in-flight flag on drop"
+        );
+    }
+
+    #[test]
+    fn inflight_guard_does_not_disturb_a_recycled_entry() {
+        // If the entry was evicted + recreated (and a NEW summary started) while the
+        // old task ran, the stale task's guard must NOT clear the new summary's flag,
+        // and the stale task must NOT see its epoch as active.
+        let cache = std::sync::Arc::new(dashmap::DashMap::new());
+        let mut st = crate::reprune::PruneState::default();
+        let stale_epoch = st.begin_summary();
+        cache.insert("k".to_owned(), st);
+        // Simulate eviction + recreation + a fresh in-flight summary on the same key:
+        let mut fresh = crate::reprune::PruneState::default();
+        let new_epoch = fresh.begin_summary();
+        assert_ne!(stale_epoch, new_epoch, "epochs are process-globally unique");
+        assert!(
+            !fresh.summary_active(stale_epoch),
+            "stale epoch is not active"
+        );
+        cache.insert("k".to_owned(), fresh);
+        // Stale task's guard drops with the OLD epoch:
+        {
+            let _g = InFlightGuard {
+                cache: cache.clone(),
+                key: "k".to_owned(),
+                epoch: stale_epoch,
+            };
+        }
+        assert!(
+            cache.get("k").unwrap().summary_inflight(),
+            "a stale guard must not clear a recycled entry's newer in-flight flag"
+        );
+    }
+
     /// Poll until the background summary task settles (drops the in-flight flag).
     ///
-    /// This is a **bounded busy-wait**: up to 200 × 25 ms = 5 s maximum. If the
-    /// spawned task panics before calling `end_summary`, the in-flight flag stays
-    /// set for the full 5 s before this returns — the test will then assert the
-    /// session state correctly (no summary installed), so correctness is preserved.
-    /// A cleaner fix (capturing the `JoinHandle` and observing completion/panic) would
-    /// require `end_summary` to also clear the flag on `JoinHandle::is_finished`, which
-    /// is more invasive than the bounded wait warrants in practice.
+    /// This is a **bounded busy-wait**: up to 200 × 25 ms = 5 s maximum. The flag is
+    /// released by the task's `InFlightGuard` on ANY exit — normal completion, early
+    /// return, or panic (Drop runs during unwind) — so this settles promptly even if
+    /// the spawned task panics.
     async fn await_settled(
         cache: &dashmap::DashMap<String, crate::reprune::PruneState>,
         key: &str,

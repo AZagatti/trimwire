@@ -74,6 +74,13 @@ pub struct PruneState {
     /// True while an async summarization task is in flight for this session, so
     /// the gateway doesn't spawn duplicate model calls turn after turn.
     summary_inflight: bool,
+    /// Monotonic id of the current in-flight summarization, bumped on each
+    /// `begin_summary`. A background task captures its epoch and only clears /
+    /// records under it, so that after a TTL/LRU eviction recreates this entry
+    /// (epoch reset to 0) a stale in-flight task can't clear a *newer* summary's
+    /// flag or splice a stale result. (Wraps; collision needs 2^64 summaries on
+    /// one recreated key while one task is suspended — not reachable.)
+    summary_epoch: u64,
     /// Last access, for TTL eviction by the owner.
     last_used: Instant,
     initialized: bool,
@@ -89,6 +96,7 @@ impl Default for PruneState {
             checkpoint_prefix: Vec::new(),
             summary: Vec::new(),
             summary_inflight: false,
+            summary_epoch: 0,
             last_used: Instant::now(),
             initialized: false,
         }
@@ -213,14 +221,34 @@ impl PruneState {
         self.summary_inflight
     }
 
-    /// Mark a summarization task as started (claim the in-flight slot).
-    pub fn begin_summary(&mut self) {
+    /// Mark a summarization task as started (claim the in-flight slot) and return
+    /// its epoch. The caller passes the epoch back to [`end_summary_if`] /
+    /// [`summary_active`] so a stale task can't act on a recycled entry.
+    ///
+    /// The epoch is drawn from a PROCESS-GLOBAL counter (not a per-entry one), so
+    /// it stays unique even after this key is evicted and a fresh `PruneState`
+    /// (epoch back at 0) is created for it — otherwise a recycled entry's first
+    /// summary could collide with a still-running stale task's epoch.
+    pub fn begin_summary(&mut self) -> u64 {
+        static SUMMARY_EPOCH_SEQ: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(1);
         self.summary_inflight = true;
+        self.summary_epoch = SUMMARY_EPOCH_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.summary_epoch
     }
 
-    /// Mark the summarization task as finished (release the slot).
-    pub fn end_summary(&mut self) {
-        self.summary_inflight = false;
+    /// True iff a summary with this exact `epoch` is still the in-flight one — i.e.
+    /// this entry wasn't evicted+recreated and no newer summary superseded it.
+    pub fn summary_active(&self, epoch: u64) -> bool {
+        self.summary_inflight && self.summary_epoch == epoch
+    }
+
+    /// Release the in-flight slot, but only if `epoch` is still the active one
+    /// (no-op otherwise — protects a recycled entry / a newer in-flight summary).
+    pub fn end_summary_if(&mut self, epoch: u64) {
+        if self.summary_inflight && self.summary_epoch == epoch {
+            self.summary_inflight = false;
+        }
     }
 }
 
