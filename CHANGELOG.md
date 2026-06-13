@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/AZagatti/trimwire/compare/v0.2.0...v0.2.1) - 2026-06-13
+
+### Other
+
+- drop placeholder /v1/benchmark route name, note sharing not live
+- *(readme)* lead install with binary download, not curl | sh
+- stop claiming benchmark sharing is live (it always dry-runs)
+
 ## [0.2.0](https://github.com/AZagatti/trimwire/compare/v0.1.2...v0.2.0) - 2026-06-13
 
 ### Other
