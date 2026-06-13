@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2](https://github.com/AZagatti/trimwire/compare/v0.2.1...v0.2.2) - 2026-06-13
+
+### Other
+
+- benchmark sharing: wire the live endpoint + flip docs to "live"
+
 ## [0.2.1](https://github.com/AZagatti/trimwire/compare/v0.2.0...v0.2.1) - 2026-06-13
 
 ### Other
