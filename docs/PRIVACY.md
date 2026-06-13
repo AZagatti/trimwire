@@ -56,7 +56,9 @@ the build if the payload ever contains a field not on that list.
 
 **Benchmark sharing** (`trimwire share benchmark`) is a separate opt-in upload that
 scores a model against a *bundled synthetic corpus* — never your session — and is
-likewise content-free. See [Telemetry](TELEMETRY.md#benchmark-sharing).
+likewise content-free. (It is **not live yet** — no benchmark collector is
+deployed, so the command only prints what it would send.) See
+[Telemetry](TELEMETRY.md#benchmark-sharing).
 
 ## The website
 

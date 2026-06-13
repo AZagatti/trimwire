@@ -40,8 +40,8 @@ const COMMUNITY_STATS_ENDPOINT: &str = "https://api.trimwire.dev/ingest";
 
 /// Built-in community benchmark collector endpoint for `trimwire share benchmark`.
 ///
-/// **EMPTY PLACEHOLDER (§8D):** the maintainer fills this in once the
-/// `/v1/benchmark` collector route is deployed. Until then the command always
+/// **EMPTY PLACEHOLDER (§8D):** the maintainer fills this in once a community
+/// benchmark collector is deployed. Until then the command always
 /// dry-runs. Resolution order: an explicit `[share] benchmark_endpoint` in config
 /// overrides this constant. Both empty → dry run.
 ///
@@ -906,7 +906,7 @@ fn guard_content_free(value: &serde_json::Value) -> Result<()> {
 }
 
 // ---- `trimwire share benchmark` payload (separate wire shape, separate
-// collector endpoint /v1/benchmark) -----------------------------------------
+// benchmark collector — not yet deployed) -----------------------------------
 //
 // Lives here, beside the stats telemetry, so ALL content-free machinery (the
 // closed enum sets, the guard discipline, the bucketing helpers) sits in one

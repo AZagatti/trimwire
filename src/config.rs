@@ -70,7 +70,7 @@ pub struct ShareConfig {
     /// a SEPARATE route/dataset from the stats `endpoint`). **Empty by default**:
     /// when empty, the built-in `COMMUNITY_BENCHMARK_ENDPOINT` constant is used;
     /// if THAT is also empty, `share benchmark` is a dry run and never uploads.
-    /// The maintainer publishes this once the `/v1/benchmark` collector route is live.
+    /// The maintainer publishes this once a community benchmark collector is deployed.
     pub benchmark_endpoint: String,
 }
 
