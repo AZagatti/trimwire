@@ -15,7 +15,9 @@ targets = [
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-yanked = "warn"
+# Deny (not just warn) yanked crates: for a security tool that ships binaries, a
+# dep yanked by its author (often for a soundness/security reason) should fail CI.
+yanked = "deny"
 
 [licenses]
 confidence-threshold = 0.8

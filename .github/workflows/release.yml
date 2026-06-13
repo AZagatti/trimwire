@@ -31,6 +31,14 @@ on:
 permissions:
   contents: write
 
+# Serialize per tag: if a manual `workflow_dispatch` is fired while the automatic
+# `release: published` run for the same tag is in flight, the two would race on
+# uploading identical assets (one fails on a GitHub API conflict). Never cancel an
+# in-flight release — let the first finish.
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -39,7 +47,7 @@ jobs:
     name: tag matches Cargo.toml version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
       - name: Refuse to release if the tag != the crate version
@@ -72,15 +80,15 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
@@ -109,7 +117,7 @@ jobs:
           "ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.event.release.tag_name || inputs.tag }}
           files: |
