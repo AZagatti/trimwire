@@ -70,3 +70,43 @@ CREATE INDEX IF NOT EXISTS idx_group ON telemetry
 -- Partial index: NULL dedup_token rows (legacy/pre-§3.1) never participate in the conflict.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dedup ON telemetry (dedup_token)
   WHERE dedup_token IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- `trimwire share benchmark` — the model-quality leaderboard (a SEPARATE
+-- dataset + route from the stats telemetry above). One row per benchmarked
+-- model, scored against a bundled synthetic corpus (never user content).
+-- Content-free by construction: only the coarse rank-table columns. Mirrors the
+-- BenchmarkPayload wire shape in src/cli/share.rs.
+--
+-- NOTE: the benchmark payload carries NO dedup token and the collector never
+-- stores an IP, so there is no per-identity dedup here — `contributors` counts
+-- uploaded rows. This is a deliberately directional leaderboard (and the more
+-- private choice: no cross-day identity is retained at all). The k-anonymity
+-- suppression in aggregate.ts still hides any group below BENCH_K rows.
+CREATE TABLE IF NOT EXISTS benchmark (
+  id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- Server-side UTC receive date (coarse, content-free; defense in depth).
+  received_day             TEXT    NOT NULL,
+  schema_version           INTEGER NOT NULL,
+  sent_day                 TEXT    NOT NULL,
+  trimwire_version         TEXT    NOT NULL,
+  -- Which bundled corpus produced the score (rows across versions aren't comparable).
+  corpus_version           TEXT    NOT NULL,
+  -- Summarizer model family (qwen3.5 / llama3.1 / … / other) — never the raw tag.
+  model_family             TEXT    NOT NULL,
+  -- Coarse size tier from the tag: ≤2b | 3-4b | 5-9b | ≥10b | unknown.
+  model_size_bucket        TEXT    NOT NULL,
+  -- Fact retention floored to nearest 10 pp (0..100).
+  retention_bucket         INTEGER NOT NULL,
+  -- Summary compression (1 − out/in) floored to nearest 10 pp (0..100).
+  compression_bucket       INTEGER NOT NULL,
+  -- Unsupported-completion-claim count, capped client-side: "0" | "1" | "2+".
+  false_done_count         TEXT    NOT NULL,
+  -- Did every slice yield a usable (non-empty, non-verbatim) summary? (0/1)
+  produced_usable_summary  INTEGER NOT NULL,
+  os_family                TEXT    NOT NULL DEFAULT 'other'
+);
+
+-- Leaderboard grouping key: a model row is (corpus_version, family, size tier).
+CREATE INDEX IF NOT EXISTS idx_bench_group ON benchmark
+  (corpus_version, model_family, model_size_bucket);

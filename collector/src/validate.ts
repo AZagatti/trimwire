@@ -349,6 +349,122 @@ export function validatePayload(body: unknown): ValidateResult {
   return { ok: true, value: body as unknown as TelemetryRow };
 }
 
+// ---- `share benchmark` payload --------------------------------------------
+//
+// A SEPARATE wire shape from the stats telemetry above — one content-free row
+// per benchmarked model. MIRRORS `BENCHMARK_ALLOWED_KEYS` + `BenchmarkPayload`
+// in src/cli/share.rs (keep byte-identical across the language boundary).
+
+export const BENCHMARK_ALLOWED_KEYS = [
+  "schema_version",
+  "sent_day",
+  "trimwire_version",
+  "corpus_version",
+  "model_family",
+  "model_size_bucket",
+  "retention_bucket",
+  "compression_bucket",
+  "false_done_count",
+  "produced_usable_summary",
+  "os_family",
+] as const;
+
+/** Closed value set for `false_done_count`, capped client-side ("2+"). */
+const FALSE_DONE_BUCKETS = ["0", "1", "2+"];
+/** A corpus version is a small integer string ("1", "2", …) — shape-checked so
+ *  a new corpus needs no collector change, but junk can't enter the dataset. */
+const CORPUS_VERSION_RE = /^[1-9]\d{0,3}$/;
+
+export interface BenchmarkRow {
+  schema_version: number;
+  sent_day: string;
+  trimwire_version: string;
+  corpus_version: string;
+  /** Summarizer family (qwen3.5 / … / other) — never the raw tag. */
+  model_family: string;
+  /** Coarse size tier (≤2b / 3-4b / 5-9b / ≥10b / unknown). */
+  model_size_bucket: string;
+  retention_bucket: number;
+  compression_bucket: number;
+  false_done_count: string;
+  produced_usable_summary: boolean;
+  os_family: string;
+}
+
+export type BenchmarkValidateResult =
+  | { ok: true; value: BenchmarkRow }
+  | { ok: false; error: string };
+
+// Compile-time guard: BENCHMARK_ALLOWED_KEYS must equal keyof BenchmarkRow exactly.
+export const _BENCHMARK_KEYS_MATCH_ROW: Exact<
+  (typeof BENCHMARK_ALLOWED_KEYS)[number],
+  keyof BenchmarkRow
+> = true;
+
+/** Validate one decoded benchmark JSON payload. Pure; no I/O. Same fail-closed
+ *  discipline as `validatePayload`: exact key set, every value within its closed
+ *  set / range, error strings never echo attacker-controlled input. */
+export function validateBenchmarkPayload(body: unknown): BenchmarkValidateResult {
+  if (!isPlainObject(body)) return { ok: false, error: "payload is not an object" };
+
+  const keys = Object.keys(body);
+  for (const k of keys) {
+    if (!BENCHMARK_ALLOWED_KEYS.includes(k as (typeof BENCHMARK_ALLOWED_KEYS)[number])) {
+      return { ok: false, error: "unexpected key" };
+    }
+  }
+  for (const k of BENCHMARK_ALLOWED_KEYS) {
+    if (!(k in body)) return { ok: false, error: "missing key" };
+  }
+
+  if (body.schema_version !== SCHEMA_VERSION) {
+    return { ok: false, error: "schema_version mismatch" };
+  }
+  if (!isSaneDay(body.sent_day)) {
+    return { ok: false, error: "bad sent_day" };
+  }
+  if (
+    typeof body.trimwire_version !== "string" ||
+    !/^((0|[1-9]\d{0,3})\.(0|[1-9]\d{0,3})|dev)$/.test(body.trimwire_version)
+  ) {
+    return { ok: false, error: "bad trimwire_version" };
+  }
+  if (typeof body.corpus_version !== "string" || !CORPUS_VERSION_RE.test(body.corpus_version)) {
+    return { ok: false, error: "bad corpus_version" };
+  }
+  // model_family: a known summarizer family, or the structural "none"/"other".
+  const mf = body.model_family;
+  if (
+    typeof mf !== "string" ||
+    (mf !== "none" && mf !== "other" && !SUMMARIZER_FAMILIES.includes(mf))
+  ) {
+    return { ok: false, error: "bad model_family" };
+  }
+  if (
+    typeof body.model_size_bucket !== "string" ||
+    !SUMMARIZER_SIZE_BUCKETS.includes(body.model_size_bucket)
+  ) {
+    return { ok: false, error: "bad model_size_bucket" };
+  }
+  if (!intInRange(body.retention_bucket, 0, 100, 10)) {
+    return { ok: false, error: "bad retention_bucket" };
+  }
+  if (!intInRange(body.compression_bucket, 0, 100, 10)) {
+    return { ok: false, error: "bad compression_bucket" };
+  }
+  if (typeof body.false_done_count !== "string" || !FALSE_DONE_BUCKETS.includes(body.false_done_count)) {
+    return { ok: false, error: "bad false_done_count" };
+  }
+  if (typeof body.produced_usable_summary !== "boolean") {
+    return { ok: false, error: "bad produced_usable_summary" };
+  }
+  if (typeof body.os_family !== "string" || !OS_FAMILIES.includes(body.os_family)) {
+    return { ok: false, error: "bad os_family" };
+  }
+
+  return { ok: true, value: body as unknown as BenchmarkRow };
+}
+
 // ---- read-path sanitizers -------------------------------------------------
 //
 // A row already stored in D1 (written before a validation rule existed, or

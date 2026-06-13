@@ -13,18 +13,23 @@
 
 import {
   validatePayload,
+  validateBenchmarkPayload,
   SCHEMA_VERSION,
   HARNESSES,
   sanitizeStrategyShare,
   sanitizeStrategiesFired,
 } from "./validate";
-import { aggregate } from "./aggregate";
-import type { KnownStrategy, TelemetryRow } from "./validate";
+import { aggregate, aggregateBenchmark } from "./aggregate";
+import type { BenchmarkRow, KnownStrategy, TelemetryRow } from "./validate";
 
 export interface Env {
   DB: D1Database;
   /** k-anonymity threshold (string from wrangler vars); default 10, floor 5. */
   K?: string;
+  /** k-anonymity threshold for the benchmark leaderboard; default 5, floor 3.
+   *  Lower than K because benchmark rows are far less identifying (only model
+   *  family/size + score buckets — no IP, no per-session behavior). */
+  BENCH_K?: string;
   /** REQUIRED-in-production KV namespace for abuse rate-limiting. When unbound,
    *  /ingest fails closed (503) unless ALLOW_UNTHROTTLED="true". */
   RATE_LIMIT?: KVNamespace;
@@ -53,6 +58,12 @@ function kFromEnv(env: Env): number {
   const parsed = Math.floor(Number(env.K ?? "10"));
   if (!Number.isFinite(parsed)) return 10;
   return Math.max(5, parsed); // never below the floor
+}
+
+function benchKFromEnv(env: Env): number {
+  const parsed = Math.floor(Number(env.BENCH_K ?? "5"));
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.max(3, parsed); // never below the floor
 }
 
 /** Per-IP daily-cap gate for /ingest. Returns a Response to short-circuit with
@@ -379,6 +390,149 @@ async function handleAggregates(
   return resp;
 }
 
+// ---- `share benchmark` ingest + leaderboard -------------------------------
+
+async function handleBenchIngest(request: Request, env: Env): Promise<Response> {
+  // Same per-IP daily cap as /ingest (shared rate-limit counter, fail-closed).
+  const gate = await rateLimitGate(request, env);
+  if (gate) return gate;
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    return new Response("payload too large", { status: 413 });
+  }
+  const buf = await request.arrayBuffer();
+  if (buf.byteLength > MAX_BODY_BYTES) {
+    return new Response("payload too large", { status: 413 });
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(new TextDecoder().decode(buf));
+  } catch {
+    return new Response("invalid JSON", { status: 400 });
+  }
+  const result = validateBenchmarkPayload(body);
+  if (!result.ok) {
+    return new Response(`rejected: ${result.error}`, { status: 400 });
+  }
+  const r = result.value;
+  // Plain INSERT (no dedup token in the benchmark payload — see schema.sql).
+  await env.DB.prepare(
+    `INSERT INTO benchmark (
+       received_day, schema_version, sent_day, trimwire_version, corpus_version,
+       model_family, model_size_bucket, retention_bucket, compression_bucket,
+       false_done_count, produced_usable_summary, os_family
+     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  )
+    .bind(
+      utcToday(),
+      r.schema_version,
+      r.sent_day,
+      r.trimwire_version,
+      r.corpus_version,
+      r.model_family,
+      r.model_size_bucket,
+      r.retention_bucket,
+      r.compression_bucket,
+      r.false_done_count,
+      r.produced_usable_summary ? 1 : 0,
+      r.os_family,
+    )
+    .run();
+  return new Response(null, { status: 204 });
+}
+
+interface BenchDbRow {
+  id: number;
+  schema_version: number;
+  sent_day: string;
+  trimwire_version: string;
+  corpus_version: string;
+  model_family: string;
+  model_size_bucket: string;
+  retention_bucket: number;
+  compression_bucket: number;
+  false_done_count: string;
+  produced_usable_summary: number;
+  os_family: string;
+}
+
+/** Read-path sanitizer (defense-in-depth, mirrors rowFromDb): re-validate a
+ *  stored benchmark row and DROP it if it wouldn't pass ingest today, so a
+ *  legacy/out-of-band row can't skew the leaderboard. Returns null to drop. */
+function benchRowFromDb(d: BenchDbRow): BenchmarkRow | null {
+  const candidate = {
+    schema_version: SCHEMA_VERSION,
+    sent_day: d.sent_day,
+    trimwire_version: d.trimwire_version,
+    corpus_version: d.corpus_version,
+    model_family: d.model_family,
+    model_size_bucket: d.model_size_bucket,
+    retention_bucket: d.retention_bucket,
+    compression_bucket: d.compression_bucket,
+    false_done_count: d.false_done_count,
+    produced_usable_summary: d.produced_usable_summary === 1,
+    os_family: d.os_family,
+  };
+  const res = validateBenchmarkPayload(candidate);
+  if (!res.ok) {
+    console.error(`dropping non-conforming benchmark row id=${d.id}: ${res.error}`);
+    return null;
+  }
+  return res.value;
+}
+
+async function handleBenchmarks(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const cache = caches.default;
+  const canonicalUrl = new URL(request.url);
+  canonicalUrl.search = "";
+  const cacheKey = new Request(canonicalUrl.toString(), { method: "GET" });
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+
+  const gate = await aggregatesRateLimit(request, env);
+  if (gate) return withSecurityHeaders(gate);
+
+  const k = benchKFromEnv(env);
+  const rows: BenchmarkRow[] = [];
+  let cursor = 0;
+  for (;;) {
+    const { results } = await env.DB.prepare(
+      `SELECT id, schema_version, sent_day, trimwire_version, corpus_version,
+              model_family, model_size_bucket, retention_bucket, compression_bucket,
+              false_done_count, produced_usable_summary, os_family
+         FROM benchmark WHERE id > ? ORDER BY id LIMIT ${PAGE}`,
+    )
+      .bind(cursor)
+      .all<BenchDbRow>();
+    const batch = results ?? [];
+    if (batch.length === 0) break;
+    for (const d of batch) {
+      const row = benchRowFromDb(d);
+      if (row) rows.push(row);
+    }
+    cursor = batch[batch.length - 1].id;
+    if (batch.length < PAGE) break;
+  }
+  const agg = aggregateBenchmark(rows, k);
+  const payload = { generated_at: new Date().toISOString(), ...agg };
+  const resp = withSecurityHeaders(
+    new Response(JSON.stringify(payload), {
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "access-control-allow-origin": "*",
+        "cache-control": `public, max-age=${AGGREGATE_TTL_SECONDS}, s-maxage=${AGGREGATE_TTL_SECONDS}`,
+        "content-security-policy": "default-src 'none'",
+      },
+    }),
+  );
+  ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+  return resp;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -388,6 +542,12 @@ export default {
     if (request.method === "GET" && url.pathname === "/aggregates.json") {
       // Self-wraps (and caches the wrapped copy) — don't double-wrap here.
       return handleAggregates(request, env, ctx);
+    }
+    if (request.method === "POST" && url.pathname === "/ingest-benchmark") {
+      return withSecurityHeaders(await handleBenchIngest(request, env));
+    }
+    if (request.method === "GET" && url.pathname === "/benchmarks.json") {
+      return handleBenchmarks(request, env, ctx);
     }
     return withSecurityHeaders(new Response("not found", { status: 404 }));
   },

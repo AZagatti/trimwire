@@ -10,7 +10,12 @@
 //   - l-diversity: a marginal's distribution is shown only when it has >= 3
 //     distinct values within the (already K-safe) group.
 
-import { KNOWN_STRATEGIES, SCHEMA_VERSION, type TelemetryRow } from "./validate";
+import {
+  KNOWN_STRATEGIES,
+  SCHEMA_VERSION,
+  type BenchmarkRow,
+  type TelemetryRow,
+} from "./validate";
 
 export interface GroupAggregate {
   trimwire_version: string;
@@ -283,4 +288,97 @@ export function aggregate(rows: TelemetryRow[], k: number): AggregateResult {
   );
 
   return { schema_version: SCHEMA_VERSION, k, suppressed_groups: suppressed, groups };
+}
+
+// ---- `share benchmark` leaderboard aggregation ----------------------------
+//
+// One published model is (model_family, model_size_bucket) within the LATEST
+// corpus_version (rows from different corpora aren't comparable, so only one
+// corpus is shown at a time). Groups below k are suppressed. Output matches the
+// `BenchmarkModel` / `BenchmarkPayload` contract the dashboard consumes
+// (site/src/scripts/benchmark.ts).
+
+/** One row of the leaderboard — mirrors `BenchmarkModel` in benchmark.ts. */
+export interface BenchmarkModelAggregate {
+  model_family: string;
+  model_size_bucket: string;
+  /** Number of uploaded rows in this group (>= k). Row count, not distinct
+   *  identities — the benchmark payload is identity-free (no dedup token). */
+  contributors: number;
+  /** Mean fact-retention bucket across the group (0..100). */
+  avg_retention: number;
+  /** Mean compression bucket across the group (0..100). */
+  avg_compression: number;
+  /** % of rows with a non-zero false_done_count — the disqualifying signal. */
+  false_done_rate: number;
+  /** % of rows that produced a usable summary on every slice. */
+  usable_pct: number;
+}
+
+export interface BenchmarkAggregateResult {
+  schema_version: number;
+  k: number;
+  /** The corpus the published rows were scored against (latest present). */
+  corpus_version: string | null;
+  suppressed_groups: number;
+  models: BenchmarkModelAggregate[];
+}
+
+/** Aggregate raw benchmark rows into a k-anonymous, intensive-only leaderboard.
+ *  Only the latest corpus_version is published (cross-corpus scores aren't
+ *  comparable). Pure; no I/O. */
+export function aggregateBenchmark(rows: BenchmarkRow[], k: number): BenchmarkAggregateResult {
+  // Pick the latest corpus_version present (numeric compare on the small-int string).
+  let corpus: string | null = null;
+  for (const r of rows) {
+    if (corpus === null || Number(r.corpus_version) > Number(corpus)) corpus = r.corpus_version;
+  }
+  if (corpus === null) {
+    return { schema_version: SCHEMA_VERSION, k, corpus_version: null, suppressed_groups: 0, models: [] };
+  }
+
+  const buckets = new Map<string, BenchmarkRow[]>();
+  for (const r of rows) {
+    if (r.corpus_version !== corpus) continue; // only the latest corpus is comparable
+    const key = `${r.model_family}|${r.model_size_bucket}`;
+    const arr = buckets.get(key);
+    if (arr) arr.push(r);
+    else buckets.set(key, [r]);
+  }
+
+  const models: BenchmarkModelAggregate[] = [];
+  let suppressed = 0;
+  for (const group of buckets.values()) {
+    if (group.length < k) {
+      suppressed++;
+      continue;
+    }
+    const n = group.length;
+    const first = group[0];
+    const avg = (sel: (r: BenchmarkRow) => number) =>
+      group.reduce((acc, r) => acc + sel(r), 0) / n;
+    const pctTrue = (sel: (r: BenchmarkRow) => boolean) =>
+      round1((group.filter(sel).length / n) * 100);
+
+    models.push({
+      model_family: first.model_family,
+      model_size_bucket: first.model_size_bucket,
+      contributors: n,
+      avg_retention: round1(avg((r) => r.retention_bucket)),
+      avg_compression: round1(avg((r) => r.compression_bucket)),
+      false_done_rate: pctTrue((r) => r.false_done_count !== "0"),
+      usable_pct: pctTrue((r) => r.produced_usable_summary),
+    });
+  }
+
+  // Deterministic order: most contributors first, then by label.
+  models.sort(
+    (a, b) =>
+      b.contributors - a.contributors ||
+      `${a.model_family}|${a.model_size_bucket}`.localeCompare(
+        `${b.model_family}|${b.model_size_bucket}`,
+      ),
+  );
+
+  return { schema_version: SCHEMA_VERSION, k, corpus_version: corpus, suppressed_groups: suppressed, models };
 }

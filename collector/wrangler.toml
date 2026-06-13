@@ -36,6 +36,10 @@ head_sampling_rate = 1
 # MAX_PER_DAY caps accepted uploads per IP per UTC day.
 [vars]
 K = "10"
+# Benchmark-leaderboard k-anonymity threshold (the Worker floors this at 3).
+# Lower than K: benchmark rows carry only model family/size + score buckets
+# (no IP, no per-session behavior), so they're far less identifying.
+BENCH_K = "5"
 MAX_PER_DAY = "50"
 # Local dev / tests ONLY: set "true" to run /ingest without the rate-limiter.
 # NEVER set this in production — it disables DoS / poisoning protection.
