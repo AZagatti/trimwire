@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/AZagatti/trimwire/compare/v0.1.2...v0.2.0) - 2026-06-13
+
+### Other
+
+- clear the deferred review items (reviewed, SHIP)
+- fix intra-doc links broken in 945fc62 (cargo doc -D warnings)
+- harden the background-task lifecycle (RAII slot + epoch + resp cap)
+- post-deploy accuracy + honesty pass
+- add funding links (GitHub Sponsors + Ko-fi)
+- go live — fill D1/KV ids, observability, wire endpoints
+- add harness field to the stats schema before first deploy
+- point homepage at the live docs site (trimwire.dev)
+
+### Security
+
+- make summarizer provider URLs + listen safe from project files
+
 ## [0.1.2](https://github.com/AZagatti/trimwire/compare/v0.1.1...v0.1.2) - 2026-06-12
 
 ### Fixed
