@@ -51,14 +51,14 @@ pub struct ShareConfig {
     /// is ever sent without the user setting this to `true` (via `trimwire config edit`
     /// or by hand). With `enabled = true` AND a non-empty resolved endpoint (either
     /// an explicit `endpoint` override, or the built-in `COMMUNITY_STATS_ENDPOINT`
-    /// constant once the maintainer fills it in at §8D), `trimwire share stats` uploads
-    /// without needing `--yes` on every run. Without consent (`enabled = false`) the
-    /// command is always a dry run: it prints the payload and explains how to opt in.
+    /// constant, which ships pointing at `api.trimwire.dev`), `trimwire share stats`
+    /// uploads without needing `--yes` on every run. Without consent (`enabled =
+    /// false`) the command is always a dry run: it prints the payload and explains
+    /// how to opt in.
     ///
-    /// Privacy invariant: this flag is meaningless until a non-empty endpoint exists.
-    /// While the built-in endpoints are both empty (§8D pending) the command always
-    /// dry-runs regardless of this flag — no destination exists, so there is nothing
-    /// to send.
+    /// Privacy invariant: this flag is meaningless unless a non-empty endpoint
+    /// exists. A self-hoster who sets both the config and built-in endpoints empty
+    /// always dry-runs regardless of this flag — no destination, nothing to send.
     pub enabled: bool,
     /// Collector URL for `trimwire share stats`. **Empty by default** — when empty,
     /// the built-in `COMMUNITY_STATS_ENDPOINT` constant is used instead; if THAT is
@@ -70,7 +70,7 @@ pub struct ShareConfig {
     /// a SEPARATE route/dataset from the stats `endpoint`). **Empty by default**:
     /// when empty, the built-in `COMMUNITY_BENCHMARK_ENDPOINT` constant is used;
     /// if THAT is also empty, `share benchmark` is a dry run and never uploads.
-    /// The maintainer publishes this once a community benchmark collector is deployed.
+    /// The built-in const points at the live `api.trimwire.dev/ingest-benchmark`.
     pub benchmark_endpoint: String,
 }
 

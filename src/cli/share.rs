@@ -40,13 +40,16 @@ const COMMUNITY_STATS_ENDPOINT: &str = "https://api.trimwire.dev/ingest";
 
 /// Built-in community benchmark collector endpoint for `trimwire share benchmark`.
 ///
-/// **EMPTY PLACEHOLDER (§8D):** the maintainer fills this in once a community
-/// benchmark collector is deployed. Until then the command always
-/// dry-runs. Resolution order: an explicit `[share] benchmark_endpoint` in config
-/// overrides this constant. Both empty → dry run.
+/// Live: the Cloudflare Worker collector deployed at `api.trimwire.dev` (see
+/// `collector/`, route `POST /ingest-benchmark`; the leaderboard reads
+/// `GET /benchmarks.json`). `share benchmark` still only uploads with explicit
+/// `--yes`; without it the command dry-runs (prints the row it would send).
+///
+/// Resolution order: an explicit `[share] benchmark_endpoint` in config overrides
+/// this constant. Both empty → dry run.
 ///
 /// Referenced by `resolve_benchmark_endpoint` below (used from `benchmark.rs`).
-const COMMUNITY_BENCHMARK_ENDPOINT: &str = "";
+const COMMUNITY_BENCHMARK_ENDPOINT: &str = "https://api.trimwire.dev/ingest-benchmark";
 
 /// The exact top-level keys the payload is allowed to contain. The content-free
 /// guarantee is enforced structurally (the `SharePayload` type), and this list
@@ -906,7 +909,7 @@ fn guard_content_free(value: &serde_json::Value) -> Result<()> {
 }
 
 // ---- `trimwire share benchmark` payload (separate wire shape, separate
-// benchmark collector — not yet deployed) -----------------------------------
+// benchmark collector at api.trimwire.dev/ingest-benchmark) ------------------
 //
 // Lives here, beside the stats telemetry, so ALL content-free machinery (the
 // closed enum sets, the guard discipline, the bucketing helpers) sits in one
@@ -925,9 +928,9 @@ mod benchmark_share {
         cache_pct_bucket, os_family, summarizer_family, summarizer_size_bucket,
     };
 
-    /// Top-level keys the benchmark payload may contain. Will mirror the planned
-    /// `collector/src/validate.ts` benchmark route once that route is built (the
-    /// collector side is maintainer-owned and not built here — see docs/TELEMETRY.md).
+    /// Top-level keys the benchmark payload may contain. MIRRORS
+    /// `BENCHMARK_ALLOWED_KEYS` in `collector/src/validate.ts` (the deployed
+    /// benchmark route) — keep byte-identical across the language boundary.
     const BENCHMARK_ALLOWED_KEYS: &[&str] = &[
         "schema_version",
         "sent_day",
@@ -1181,7 +1184,7 @@ pub(super) fn utc_today() -> String {
 ///
 /// Resolution order (first non-empty wins):
 /// 1. Explicit `[share] endpoint` in the user's config (allows self-hosting/testing).
-/// 2. Built-in `COMMUNITY_STATS_ENDPOINT` constant (§8D fills this in).
+/// 2. Built-in `COMMUNITY_STATS_ENDPOINT` constant (the deployed `api.trimwire.dev`).
 /// 3. Empty string → dry run; no network I/O.
 fn resolve_stats_endpoint(config_endpoint: &str) -> &'static str {
     // The caller is responsible for checking `config_endpoint` first (non-empty
@@ -1197,11 +1200,11 @@ fn resolve_stats_endpoint(config_endpoint: &str) -> &'static str {
 ///
 /// Resolution order (first non-empty wins):
 /// 1. Explicit `[share] benchmark_endpoint` in the user's config.
-/// 2. Built-in `COMMUNITY_BENCHMARK_ENDPOINT` constant (§8D fills this in).
+/// 2. Built-in `COMMUNITY_BENCHMARK_ENDPOINT` constant (the deployed
+///    `api.trimwire.dev/ingest-benchmark`).
 /// 3. Empty string → dry run.
 ///
-/// Called by `benchmark.rs` (`run_share`) so the const goes live for the
-/// benchmark path the moment §8D fills it, symmetric with `resolve_stats_endpoint`.
+/// Called by `benchmark.rs` (`run_share`), symmetric with `resolve_stats_endpoint`.
 pub(super) fn resolve_benchmark_endpoint(config_endpoint: &str) -> &str {
     if !config_endpoint.trim().is_empty() {
         config_endpoint
@@ -1315,9 +1318,9 @@ fn with_trailing_newline(mut s: String) -> String {
 /// - `--yes` is an explicit per-run override: it acts as consent for a single
 ///   upload even if `enabled` is not set, provided a non-empty endpoint exists.
 ///   It also lets first-time uploaders confirm before setting `enabled` permanently.
-/// - While the built-in endpoint constants are both empty (§8D pending), the
-///   command always dry-runs regardless of `enabled` or `--yes` — no destination
-///   exists, so there is nothing to send.
+/// - Both community endpoints are live (`api.trimwire.dev`). Self-hosters who set
+///   an empty `[share] endpoint`/`benchmark_endpoint` and have no built-in const
+///   simply dry-run — with no destination there is nothing to send.
 ///
 /// `--force` bypasses the once-per-day upload throttle (useful for testing).
 pub fn share_stats(yes: bool, force: bool) -> Result<()> {
@@ -1381,12 +1384,12 @@ pub fn share_stats(yes: bool, force: bool) -> Result<()> {
     };
 
     if endpoint.is_empty() {
-        // No endpoint exists anywhere (§8D pending or user hasn't self-hosted).
+        // No endpoint resolved — only reachable if a self-hoster set [share]
+        // endpoint empty (the built-in const ships pointing at api.trimwire.dev).
         // Dry run regardless of consent or --yes — there is nowhere to send.
         println!(
-            "\n  No collector endpoint is available yet (the community endpoint ships once\n\
-             \x20  the maintainer deploys the collector — §8D). This was a DRY RUN.\n\
-             \x20  To opt in to the community dashboard once it's live: `trimwire share enable`.\n\
+            "\n  No collector endpoint is configured, so this was a DRY RUN.\n\
+             \x20  To opt in to the community dashboard: `trimwire share enable`.\n\
              \x20  To self-host, set [share] endpoint in `trimwire config edit`."
         );
         return Ok(());

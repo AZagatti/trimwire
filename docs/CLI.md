@@ -225,17 +225,17 @@ trimwire share stats --force      # re-upload today (bypasses the daily throttle
 
 ### `trimwire share benchmark`
 
-Score your summarizer model and print the anonymous, content-free per-model row. **Sharing is not live yet** — no community benchmark collector is deployed, so this always dry-runs (prints only, even with `--yes`). The model is scored on a bundled synthetic corpus — never your session content.
+Score your summarizer model and upload the anonymous, content-free per-model result to the community benchmark leaderboard. Dry run unless `--yes`. The model is scored on a bundled synthetic corpus — never your session content.
 
 | Flag | Description |
 |---|---|
 | `--model TAG_OR_ID` | Model tag to score (repeatable). Omit to use your configured summarizer model |
 | `--all-installed` | Score every model installed in ollama (disqualified ones are skipped) |
-| `--yes` | Reserved for upload once a collector is deployed; currently a no-op (always dry-runs) |
+| `--yes` | Confirm the upload (without it, this is a dry run) |
 
 ```sh
 trimwire share benchmark                          # dry run (prints the row)
-trimwire share benchmark --model qwen3.5:4b --yes # still prints only — sharing not live yet
+trimwire share benchmark --model qwen3.5:4b --yes # score + upload
 ```
 
 ---

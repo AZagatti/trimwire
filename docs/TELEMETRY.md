@@ -8,8 +8,9 @@
 > The built-in community stats collector URL ships in the binary at
 > `https://api.trimwire.dev/ingest`. `trimwire share stats` uploads when
 > consent is given (`share enable` or `--yes`); without consent it dry-runs.
-> The benchmark collector endpoint is not yet deployed — `trimwire share
-> benchmark` always dry-runs.
+> The benchmark collector ships in the binary at
+> `https://api.trimwire.dev/ingest-benchmark`; `trimwire share benchmark`
+> uploads only with `--yes`, otherwise it dry-runs.
 
 **Sample payload** (the complete set of fields — nothing else is ever sent):
 
@@ -70,8 +71,9 @@ contains at least K distinct contributors, so no individual's data is surfaced).
 2. **Dry-run without consent.** Without explicit consent (`trimwire share enable`
    or `--yes`), `trimwire share stats` always dry-runs: it prints the payload and
    exits without network I/O. The stats collector is deployed at
-   `https://api.trimwire.dev/ingest`. The benchmark endpoint is not yet deployed
-   — `trimwire share benchmark` always dry-runs regardless of consent.
+   `https://api.trimwire.dev/ingest`. The benchmark endpoint is
+   `https://api.trimwire.dev/ingest-benchmark` — `trimwire share benchmark`
+   uploads only with `--yes`, otherwise it dry-runs.
    `[share] endpoint` / `[share] benchmark_endpoint` exist as overrides for
    self-hosting or testing.
 3. **Content-free.** Only ledger-derived metadata; never message content/paths.
@@ -169,9 +171,9 @@ from production telemetry indefinitely. (Consistent with the project's standing
 
 ## Benchmark sharing (`trimwire share benchmark`)
 
-A **separate**, opt-in payload to a **separate** (not-yet-deployed) benchmark
-collector and dataset (the [model-benchmark page](/benchmark/), not the stats
-dashboard). It is
+A **separate**, opt-in payload to a **separate** benchmark collector route
+(`/ingest-benchmark`) and dataset (the [model-benchmark page](/benchmark/), not
+the stats dashboard). It is
 the one place a *directional* quality signal is shared, and it stays content-free
 because the model summarizes a **bundled synthetic corpus**, never your session.
 Measuring fact-retention and false-done there reads no user content (invariant
@@ -196,8 +198,15 @@ Same discipline as the stats payload: values are coarsened client-side, a conten
 No raw model tag, no summary text, no per-slice detail, no paths/ids/raw counts.
 Sharing is blocked unless the bundled corpus matches a pinned, verified hash, so
 modified builds can't inject results into the shared dataset. Off by default:
-with no `[share] benchmark_endpoint` configured (or without `--yes`), `trimwire share benchmark`
-only prints the row. See [the benchmark guide](BENCHMARK.md).
+without `--yes` (or with `[share] benchmark_endpoint` set empty), `trimwire share
+benchmark` only prints the row. See [the benchmark guide](BENCHMARK.md).
+
+The leaderboard suppresses any (model family + size) group below **k=5** uploads.
+Unlike the stats payload, the benchmark row carries **no dedup token** and the
+collector never stores an IP — so there is no per-identity dedup and the
+leaderboard's `N` counts uploaded rows, not distinct people. That is a deliberate
+trade-off (no cross-day identity is ever retained) and is why the page is framed
+as a *directional* ranking, not an authoritative one.
 
 ## k-anonymity & how the dashboard is computed
 

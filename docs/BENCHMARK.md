@@ -38,7 +38,7 @@ With `--yes`, each corpus slice is a **real, paid call** on your provider's key
 ```sh
 trimwire summarizer benchmark --model anthropic          # dry run: prints warning, no calls
 trimwire summarizer benchmark --model anthropic --yes    # real calls on your API key
-trimwire share benchmark --model anthropic --yes         # run AND print the shareable row (upload not live yet)
+trimwire share benchmark --model anthropic --yes         # run AND upload the score
 ```
 
 **API scores are directional only.** The corpus is tuned for local summarizers
@@ -72,13 +72,12 @@ scores can't judge prose, so pass `--out` and skim a few summaries yourself.
 
 ```sh
 trimwire share benchmark --model qwen3.5:4b        # prints the exact row; sends nothing
-trimwire share benchmark --model qwen3.5:4b --yes  # still prints only — no collector is deployed yet
+trimwire share benchmark --model qwen3.5:4b --yes  # uploads it to the community leaderboard
 ```
 
-`share benchmark` is built to contribute an **anonymous, content-free** row to a
-future community [model-benchmark page](/benchmark/): your model's family + coarse
-size tier (never the raw tag), bucketed retention/reduction, a capped false-done
-count, and whether it produced usable summaries — nothing else. **Sharing is not
-live yet:** no benchmark collector is deployed, so the command only ever prints
-what it *would* send (even with `--yes`). See [Telemetry](TELEMETRY.md) for the
-exact payload.
+`share benchmark` contributes an **anonymous, content-free** row to the community
+[model-benchmark page](/benchmark/): your model's family + coarse size tier (never
+the raw tag), bucketed retention/reduction, a capped false-done count, and whether
+it produced usable summaries — nothing else. It is **off by default**: without
+`--yes` it only prints what it *would* send (a dry run). See
+[Telemetry](TELEMETRY.md) for the exact payload.

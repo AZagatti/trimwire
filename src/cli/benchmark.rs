@@ -350,7 +350,7 @@ fn api_safety_warning(provider: &SummarizerProviderConfig, corpus_len: usize, ye
         eprintln!(
             "\n  DRY RUN — no API calls made.\n\
              \x20  To run locally (no upload): trimwire summarizer benchmark --model {} --yes\n\
-             \x20  To run and print the shareable row: trimwire share benchmark --model {} --yes",
+             \x20  To run AND share the score: trimwire share benchmark --model {} --yes",
             provider.id, provider.id,
         );
     }
@@ -657,8 +657,7 @@ pub fn benchmark(
 
     if share {
         // Symmetric with `share stats`: an explicit config endpoint wins, else
-        // the built-in const (empty until §8D) — so the const goes live for the
-        // benchmark path too once it's filled, with no further code change.
+        // the built-in const (the deployed api.trimwire.dev/ingest-benchmark).
         let endpoint =
             super::share::resolve_benchmark_endpoint(cfg.share.benchmark_endpoint.trim());
         return run_share(&results, yes, endpoint);
