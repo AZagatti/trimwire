@@ -7,9 +7,11 @@ inline. Nothing aspirational.
 ## How do I install it?
 
 ```bash
+# Linux/macOS quick install (downloads a prebuilt binary, runs `trimwire install`):
 curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh
-# or: cargo binstall trimwire   (prebuilt binary)
-# or: cargo install trimwire    (from crates.io)
+# any platform: cargo binstall trimwire   (prebuilt binary, incl. Windows)
+#               cargo install trimwire     (from crates.io)
+# Windows: download the .zip from the GitHub releases page, or use cargo binstall.
 ```
 
 Then `trimwire install` wires it into Claude Code (config + `ANTHROPIC_BASE_URL` +

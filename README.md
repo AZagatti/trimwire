@@ -39,13 +39,19 @@ cargo install trimwire   # from crates.io (builds from source; needs Rust 1.85+)
 cargo install --path .   # build from a local checkout
 ```
 
-**Quick install (convenience)** — downloads the right prebuilt binary *and* runs
-`trimwire install` for you. Read [the script](scripts/install.sh) first if you
-pipe to a shell:
+**Quick install — Linux/macOS only** (convenience) — downloads the right prebuilt
+binary *and* runs `trimwire install` for you. Read [the script](scripts/install.sh)
+first if you pipe to a shell:
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh
 ```
+
+**Windows** — download `trimwire-x86_64-pc-windows-msvc.zip` from the
+[latest release](https://github.com/AZagatti/trimwire/releases/latest), unzip it,
+and put `trimwire.exe` on your `PATH` (or `cargo binstall trimwire`). Note: Claude
+Code on Windows typically runs under WSL2 — there, use the Linux instructions
+above; the always-on service targets Linux/macOS (systemd/launchd).
 
 ### 2. Wire it up
 
