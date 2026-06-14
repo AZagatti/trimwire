@@ -141,7 +141,8 @@ deploy-time decisions before `wrangler deploy`:
   (racy), so a concurrent burst can overshoot the cap by ~the degree of concurrency.
   This is deliberate abuse-bounding, not a hard quota — confirm `MAX_PER_DAY` (50) and
   `MAX_AGG_PER_DAY` (2000) are the budgets you want.
-- [ ] **k-anonymity `K` ≥ 10** (floored at 5 in code) for the cohort threshold.
+- [ ] **k-anonymity `K` ≥ 10** (floored at 5 in code) for the stats cohort threshold.
+- [ ] **`BENCH_K` ≥ 5** (floored at 3 in code) for the benchmark-leaderboard threshold.
 - Known-latent, fix-if-needed-later (not blockers): `/ingest` has no CORS/OPTIONS
   handler (only matters if a *browser* ever POSTs — the CLI doesn't); a non-SSE
   upstream error response yields a 0-token ledger row (metrics only, not the collector).

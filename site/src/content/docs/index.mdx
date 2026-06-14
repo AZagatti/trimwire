@@ -110,9 +110,10 @@ forwards your original bytes unchanged. The worst case is "no pruning this turn.
     trimwire shapes the outbound request only; it never writes your `~/.claude`
     session files.
   </Card>
-  <Card title="ToS-safe">
+  <Card title="ToS-safe (API keys)">
     `ANTHROPIC_BASE_URL` is Anthropic's documented gateway mechanism. Claude Code
-    stays verbatim; `system` is never altered.
+    stays verbatim; `system` is never altered. On a Pro/Max OAuth subscription
+    it's a greyer area — see [FAQ & Trust](/guides/faq/).
   </Card>
   <Card title="Try it risk-free">
     `trimwire preview <session.jsonl>` replays the real strategies over a recorded

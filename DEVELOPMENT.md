@@ -499,7 +499,7 @@ critical (see `ARCHITECTURE.md` and [`SPIKE.md` §9](SPIKE.md)).
 
 **Acceptance:**
 - Fresh `trimwire install` on a clean machine works end-to-end.
-- `trimwire run claude --print "hi"` works in one command.
+- `trimwire run --print "hi"` works in one command.
 
 ### Step 7 — Polish + release readiness (~half evening)
 
@@ -526,7 +526,7 @@ critical (see `ARCHITECTURE.md` and [`SPIKE.md` §9](SPIKE.md)).
 ### Phase 1 acceptance criteria (= v0.1.0 release-ready)
 
 - `cargo build --release` → single binary, <12 MB.
-- `trimwire run claude --print "hi"` works in a fresh checkout.
+- `trimwire run --print "hi"` works in a fresh checkout.
 - All Phase 0 fixtures pass the Rust integration tests.
 - CI green on Linux, macOS, Windows.
 - `cargo-deny check` clean.

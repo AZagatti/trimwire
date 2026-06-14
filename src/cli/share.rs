@@ -1186,6 +1186,15 @@ mod benchmark_share {
                     "model_size_bucket {bad:?} should be rejected"
                 );
             }
+
+            // model_family "none" is valid for STATS (backend off) but a benchmarked
+            // model always has a real tag — reject it (symmetric with size above).
+            let mut bad_fam = serde_json::to_value(&p).unwrap();
+            bad_fam
+                .as_object_mut()
+                .unwrap()
+                .insert("model_family".to_owned(), Value::String("none".to_owned()));
+            assert!(guard_benchmark_content_free(&bad_fam).is_err());
         }
     }
 } // mod benchmark_share

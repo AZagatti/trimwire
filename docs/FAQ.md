@@ -163,8 +163,11 @@ so a connection that arrives while the worker is restarting is **queued, not
 refused**. Claude Code is never stranded with a connection error. And on any
 internal error or a request it can't safely prune, trimwire forwards your
 original bytes unchanged. The worst case is "no pruning this turn," never a
-broken request. To stop using it entirely, `trimwire off` (or unset
-`ANTHROPIC_BASE_URL`) sends Claude Code straight back to Anthropic.
+broken request. To send Claude Code straight back to Anthropic, `unset
+ANTHROPIC_BASE_URL` (or open a fresh shell after `trimwire uninstall`). Note
+`trimwire off` only stops the gateway — your shell still exports
+`ANTHROPIC_BASE_URL`, so Claude calls fail until you `trimwire on` again or unset
+it.
 
 ## Do the `[trimwire: …]` markers confuse Claude?
 

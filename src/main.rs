@@ -240,7 +240,8 @@ enum Cmd {
     #[command(display_order = 12)]
     On,
 
-    /// Stop the gateway service (Claude Code goes straight to Anthropic again).
+    /// Stop the gateway service. Your shell still exports ANTHROPIC_BASE_URL, so
+    /// Claude calls fail until you `on` again or `unset ANTHROPIC_BASE_URL`.
     #[command(display_order = 13)]
     Off,
 

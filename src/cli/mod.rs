@@ -609,7 +609,7 @@ retain_days = 365
 #
 # # Cloud API backend — define one or more named providers:
 # # PRIVACY: the prunable slice is sent to your chosen provider to be summarized.
-# # This is your key and your provider — trimwire never has a default endpoint.
+# # This is your key and your provider — trimwire ships no default summarizer endpoint (you set base_url).
 # [[summarizer.providers]]
 # id          = "anthropic"                 # any unique label; use as engine = "anthropic"
 # style       = "anthropic"                 # "anthropic" | "openai" (OpenAI-compatible)

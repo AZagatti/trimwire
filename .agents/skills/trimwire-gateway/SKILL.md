@@ -146,7 +146,7 @@ cargo test --lib                                 # unit tests only (fast)
 cargo clippy --all-targets -- -D warnings        # strict lint
 cargo fmt --check                                # format check
 cargo fmt --all                                  # apply formatting
-cargo run -- daemon                              # run the gateway in foreground
+cargo run -- serve                               # run the gateway in foreground (alias: daemon)
 cargo run -- stats                               # show the ledger
 cargo insta review                               # batch-accept snapshot diffs
 ```
