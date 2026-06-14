@@ -37,7 +37,7 @@ plain form when you just want to show the user the human report.
 | List recent sessions (date, requests, in→out + reduction %, cache-hit %, model), newest first; optional id/model substring filter | `trimwire recall [query] [--limit N]` · `trimwire recall --json` |
 | What-if: what pruning *would* trim on a recorded session, without touching the file or the network | `trimwire preview --last` · `trimwire preview <session.jsonl>` · add `--profile gentle` or `--json` |
 | Write a self-contained local HTML stats dashboard (content-free; opens via file://) | `trimwire dashboard [--out FILE]` |
-| Preview the anonymous, content-free telemetry that `share stats` *would* upload (dry run — prints the exact payload, sends nothing) | `trimwire share stats` |
+| Show the anonymous, content-free telemetry payload (prints it; **uploads if the user already opted in**, else dry-run — see Notes) | `trimwire share stats` |
 | Score a summarizer model and preview the content-free leaderboard row it *would* share (dry run without `--yes`) | `trimwire share benchmark` |
 | Opt in / out of community uploads (persists consent; after `enable`, `share stats` uploads without `--yes` each run) | `trimwire share enable` · `trimwire share disable` |
 | Is the gateway running and serving? | `trimwire status` |
@@ -61,14 +61,18 @@ plain form when you just want to show the user the human report.
 - These commands need the `trimwire` binary on `PATH` (built/installed from this
   repo). If a command isn't found, say so plainly rather than guessing numbers —
   never fabricate stats.
-- This skill is for visibility, not changes. Changing the profile or config is
-  `trimwire config` (leave that to the user). The only command here that writes
-  anything is `dashboard --out` (a local HTML file). See `docs/FAQ.md` for
-  trust/ToS questions.
-- `trimwire share stats` / `share benchmark` **without** `--yes` are safe to run
-  — they only *print* the anonymous, content-free payload they would upload (a
-  dry run; nothing is sent). The binary *does* ship a built-in community endpoint
-  (`api.trimwire.dev`), so the dry-run is gated on **consent**, not a missing
-  destination: nothing uploads until the user runs `share enable` or passes
-  `--yes`. **Do not** run them with `--yes` — opting in is the user's explicit
-  choice. See `docs/TELEMETRY.md` for exactly what each payload contains.
+- This skill is for visibility, not changes. Changing the profile or pruning
+  config is `trimwire config` (leave that to the user). The only commands here
+  that write anything are `dashboard --out` (a local HTML file) and
+  `share enable`/`disable` (which flip the `[share] enabled` consent flag) — run
+  the latter only when the user explicitly asks to opt in/out. See `docs/FAQ.md`
+  for trust/ToS questions.
+- **`share stats` is not always a dry run.** It uploads when consent is already
+  enabled (after a prior `share enable`) — *and* `--yes` forces an upload. It only
+  *prints* the payload (no network) when sharing is **off** and you pass no
+  `--yes`. So don't run `share stats` to "just preview" unless you know sharing is
+  off; if unsure, check `trimwire config show` for `[share] enabled` first, and
+  never pass `--yes` yourself — opting in is the user's explicit choice. The
+  binary ships a built-in community endpoint (`api.trimwire.dev`); the gate is
+  **consent**, not a missing destination. Same applies to `share benchmark`
+  (uploads only with `--yes`). See `docs/TELEMETRY.md` for each payload.

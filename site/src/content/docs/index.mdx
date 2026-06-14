@@ -133,15 +133,21 @@ import { Aside } from "@astrojs/starlight/components";
   pruning automatically. [Learn more →](/guides/summarizer/)
 </Aside>
 
-Requires Rust 1.85+ (edition 2024).
+No toolchain required — grab a prebuilt binary. (Rust 1.85+ is only needed if you
+build from source with `cargo install`.)
 
 ```sh
-cargo binstall trimwire   # prebuilt binary (fastest); or `cargo install trimwire`
-# from source: cargo install --path .   ·   script: curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh
+# prebuilt binary: download from github.com/AZagatti/trimwire/releases/latest,
+# or with cargo-binstall (no compile):
+cargo binstall trimwire
+# Linux/macOS convenience script (downloads the binary AND runs `trimwire install`):
+#   curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh
+# from source (needs Rust 1.85+): cargo install trimwire
 
 # wire trimwire into Claude Code (idempotent, safe to re-run)
 trimwire install
-exec $SHELL            # pick up the new ANTHROPIC_BASE_URL, then use `claude` as normal
+exec $SHELL            # pick up the new ANTHROPIC_BASE_URL
+trimwire doctor        # optional: confirm the gateway is healthy, then use `claude` as normal
 
 # check the setup, then watch the savings
 trimwire doctor        # config + gateway health + ANTHROPIC_BASE_URL wiring

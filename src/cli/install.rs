@@ -92,7 +92,7 @@ pub fn install(boot: bool) -> Result<()> {
             }
             Err(e) => {
                 println!("could not install the background service ({e}).");
-                println!("→ run the gateway yourself with `trimwire run claude`.");
+                println!("→ run the gateway yourself with `trimwire run`.");
             }
         },
         Err(_) => println!("could not parse listen address `{listen}`; skipped service install"),

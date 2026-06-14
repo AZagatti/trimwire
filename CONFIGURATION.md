@@ -28,7 +28,7 @@ works — no global toggle needed:
   `unset ANTHROPIC_BASE_URL` then run `claude` — it goes straight to Anthropic.
 - **Bypass for a single command:** `ANTHROPIC_BASE_URL= claude …`.
 - **Use trimwire for ONE session without the always-on service:**
-  `trimwire run claude …` — it scopes `ANTHROPIC_BASE_URL` to just that child
+  `trimwire run …` — it scopes `ANTHROPIC_BASE_URL` to just that child
   process (reusing the running gateway if one is up, else starting a private one)
   and tears it down afterward.
 

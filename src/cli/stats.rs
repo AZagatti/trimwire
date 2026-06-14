@@ -41,7 +41,7 @@ pub fn stats(
             );
         } else {
             println!(
-                "ledger not yet created — run `trimwire run claude` (or `trimwire on`), \
+                "ledger not yet created — run `trimwire run` (or `trimwire on`), \
                  use Claude Code a bit, then re-run `trimwire stats`."
             );
         }

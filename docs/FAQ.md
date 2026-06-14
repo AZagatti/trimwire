@@ -7,16 +7,19 @@ inline. Nothing aspirational.
 ## How do I install it?
 
 ```bash
-# Linux/macOS quick install (downloads a prebuilt binary, runs `trimwire install`):
+# 1. Prebuilt binary, no toolchain — grab the asset for your OS/arch from
+#    github.com/AZagatti/trimwire/releases/latest, then: chmod +x trimwire &&
+#    sudo mv trimwire /usr/local/bin/   (Windows: unzip the .zip onto your PATH)
+# 2. Have Rust?  cargo binstall trimwire   (fetches the prebuilt binary, no compile)
+#                cargo install trimwire     (builds from source; needs Rust 1.85+)
+# 3. Convenience — Linux/macOS only (downloads the binary AND runs `trimwire install`):
 curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh
-# any platform: cargo binstall trimwire   (prebuilt binary, incl. Windows)
-#               cargo install trimwire     (from crates.io)
-# Windows: download the .zip from the GitHub releases page, or use cargo binstall.
 ```
 
-Then `trimwire install` wires it into Claude Code (config + `ANTHROPIC_BASE_URL` +
-the background service). To **update**, re-run the install script or
-`cargo binstall trimwire` — it replaces the binary in place. Full walkthrough: the
+If you used option 1 or 2, run `trimwire install` next — it wires Claude Code
+(config + `ANTHROPIC_BASE_URL` + the always-up service). The `curl | sh` script in
+option 3 already runs that for you. To **update**, re-fetch the binary or re-run
+`cargo binstall trimwire`. Full walkthrough: the
 [README](https://github.com/AZagatti/trimwire#quickstart).
 
 ## Is trimwire safe to use with my Claude subscription? (Terms of Service)

@@ -78,8 +78,9 @@ On systemd/launchd, `install` starts the service for you (socket activation). No
 systemd/launchd (some containers)? `install` prints a one-time `trimwire on`.
 
 `install` is idempotent and **never touches your statusline.** Want to try it
-once without installing anything? `trimwire run claude` spins up the gateway in
-the background and launches `claude` through it for that one session. To see
+once without installing anything? `trimwire run` spins up the gateway in
+the background and launches `claude` through it for that one session (any args
+you pass are forwarded to `claude`). To see
 the savings on a session you've *already* run, with zero install:
 
 ```bash
@@ -130,11 +131,14 @@ instead of being refused. Set it and forget it.
   [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/CONFIGURATION.md)
   and [`benchmark/`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md)
   for what each trades.
-- **Rollback any time.** `trimwire off` disables it instantly (or `unset
-  ANTHROPIC_BASE_URL` in a shell). `trimwire uninstall` reverses everything
-  `install` did: the service, the shell-rc env block, login autostart, and the
-  statusline (only if trimwire added it). Your config and ledger stay until you
-  delete `~/.trimwire/`.
+- **Rollback any time.** To route Claude Code straight to Anthropic again,
+  `unset ANTHROPIC_BASE_URL` in your shell (or open a fresh shell after
+  uninstalling). `trimwire off` stops the gateway — note your rc still exports
+  `ANTHROPIC_BASE_URL`, so Claude calls fail until you `on` again or unset it.
+  `trimwire uninstall` removes the service, login autostart, and the statusline
+  (only if trimwire added it); it **leaves the shell-rc `ANTHROPIC_BASE_URL`
+  block** for you to delete by hand (it prints a reminder). Your config and
+  ledger stay until you delete `~/.trimwire/`.
 - **No message content stored.** The only local persistence is an optional
   savings ledger of **byte counts + hashes** (`~/.trimwire/ledger.db`); it never
   records your prompts or tool output. Disable with `[ledger] enabled = false`.
@@ -209,7 +213,7 @@ verified model ranking.
 | `trimwire hook` | Optional `SessionStart` hook that warns in-session if trimwire is set but not actually serving. |
 | `trimwire sweep list` / `all [--dry-run] [--yes]` / `file <path>` / `undo <path>` | Clean session transcripts on disk (atomic, backed up). `list`/`all` auto-discover; `all` confirms first (`--yes` to skip; required when piped/CI); `undo` restores a backup. |
 | `trimwire config` / `config show [--json]` | Open the config in `$EDITOR`; `show` prints the *resolved* effective config + active profile. |
-| `trimwire uninstall` | Reverse `install` (service, env hooks, lingering, and the statusline if trimwire added it). |
+| `trimwire uninstall` | Remove the service, GUI/login env hooks, lingering, and the statusline (if trimwire added it). Leaves the shell-rc `ANTHROPIC_BASE_URL` block for you to delete by hand. |
 
 > Output adapts to context: the status glyphs (`✓ ✗ ⚠ ⊡`) and the `▰▱` gauge fall
 > back to ASCII (`[ok] [x] [!] ::`, `#-`) when stdout is piped/redirected or

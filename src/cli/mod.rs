@@ -102,7 +102,7 @@ pub fn on() -> Result<()> {
             println!("couldn't start the service: {e}");
             println!(
                 "→ is it installed? run `trimwire install`. Or run the gateway yourself: \
-                 `trimwire run claude`."
+                 `trimwire run`."
             );
         }
     }
@@ -251,7 +251,7 @@ pub fn doctor() -> Result<()> {
                 // when the gateway hasn't been started yet after install.
                 println!(
                     "{} gateway not responding on {addr} — start it with `trimwire on` (service) \
-                     or `trimwire run claude`",
+                     or `trimwire run`",
                     render::warn()
                 );
             }

@@ -35,7 +35,7 @@ trimwire install --boot     # also survive logout (systemd lingering)
 
 ### `trimwire uninstall`
 
-Remove the service, env hooks, and lingering that `install` set up. Reverses `install` completely.
+Remove the service, the GUI/login env hooks, and lingering that `install` set up. **It does not edit your shell rc** — the `# >>> trimwire >>>` block that exports `ANTHROPIC_BASE_URL` is left in place (rewriting a user's rc is risky); the command prints a reminder to delete that block by hand and restart your shell.
 
 ### `trimwire on`
 
@@ -43,11 +43,11 @@ Start the gateway service.
 
 ### `trimwire off`
 
-Stop the gateway service. Claude Code sends requests directly to Anthropic until you run `trimwire on` again.
+Stop the gateway service. Your shell still exports `ANTHROPIC_BASE_URL` (from `install`), so Claude Code keeps pointing at the now-stopped local gateway and its calls **fail** until you either `trimwire on` again **or** `unset ANTHROPIC_BASE_URL` (or open a fresh shell after `trimwire uninstall`) to go straight to Anthropic.
 
-### `trimwire run [-- <cmd>…]`
+### `trimwire run [<claude args>…]`
 
-Launch `claude` (with any forwarded args) through a one-shot gateway, without installing the always-on service: trimwire starts the gateway in the background, points the child at it via `ANTHROPIC_BASE_URL`, runs it, then tears the gateway down on exit. Good for trying trimwire once. `--audit FILE` (or `TRIMWIRE_AUDIT=FILE`) writes a metadata-only wire audit (JSONL — shape/counts only, never message content).
+Launch `claude` through a one-shot gateway, without installing the always-on service: trimwire starts the gateway in the background, points it at `claude` via `ANTHROPIC_BASE_URL`, runs `claude`, then tears the gateway down on exit. The command is always `claude` — any positional args are forwarded to it (so it's `trimwire run`, *not* `trimwire run claude`). Good for trying trimwire once. `--audit FILE` (or `TRIMWIRE_AUDIT=FILE`) writes a metadata-only wire audit (JSONL — shape/counts only, never message content).
 
 ### `trimwire status`
 
@@ -394,7 +394,7 @@ trimwire man --out ./man/      # write all pages for packaging
 | Variable | Description |
 |---|---|
 | `ANTHROPIC_BASE_URL` | Points Claude Code at the trimwire gateway. Set automatically by `trimwire install`; unset it (or run `trimwire off`) to bypass the proxy |
-| `TRIMWIRE_LOG` | Log verbosity for the gateway: `warn` (default), `info`, `debug`. Logs go to stderr. Example: `TRIMWIRE_LOG=info trimwire run claude` (the foreground gateway picks up the env). |
+| `TRIMWIRE_LOG` | Log verbosity for the gateway: `warn` (default), `info`, `debug`. Logs go to stderr. Example: `TRIMWIRE_LOG=info trimwire run` (the foreground gateway picks up the env). |
 | `TRIMWIRE_AUDIT` | Opt-in metadata-only wire audit: append one JSONL line per request describing its *shape* (counts/flags + cache-prefix structure, never content) to `<file>`. Same as `--audit <file>`. See [CONFIGURATION.md](../CONFIGURATION.md). Off when unset |
 
 ---
