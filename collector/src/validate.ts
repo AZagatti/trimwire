@@ -371,6 +371,12 @@ export const BENCHMARK_ALLOWED_KEYS = [
 
 /** Closed value set for `false_done_count`, capped client-side ("2+"). */
 const FALSE_DONE_BUCKETS = ["0", "1", "2+"];
+/** A benchmark row's `model_size_bucket` — a SUBSET of SUMMARIZER_SIZE_BUCKETS.
+ *  A benchmarked model always has a real size tier (or "unknown"), never "none"
+ *  (backend off) or "api" (cloud), so those are excluded to keep the leaderboard
+ *  clean against a hand-crafted POST. MIRRORS `BENCHMARK_SIZE_BUCKETS` in
+ *  src/cli/share.rs. */
+const BENCHMARK_SIZE_BUCKETS = ["≤2b", "3-4b", "5-9b", "≥10b", "unknown"];
 /** A corpus version is a small integer string ("1", "2", …) — shape-checked so
  *  a new corpus needs no collector change, but junk can't enter the dataset. */
 const CORPUS_VERSION_RE = /^[1-9]\d{0,3}$/;
@@ -432,17 +438,15 @@ export function validateBenchmarkPayload(body: unknown): BenchmarkValidateResult
   if (typeof body.corpus_version !== "string" || !CORPUS_VERSION_RE.test(body.corpus_version)) {
     return { ok: false, error: "bad corpus_version" };
   }
-  // model_family: a known summarizer family, or the structural "none"/"other".
+  // model_family: a known summarizer family or "other" — NOT "none" (a
+  // benchmarked model always has a real tag). Matches the Rust client guard.
   const mf = body.model_family;
-  if (
-    typeof mf !== "string" ||
-    (mf !== "none" && mf !== "other" && !SUMMARIZER_FAMILIES.includes(mf))
-  ) {
+  if (typeof mf !== "string" || (mf !== "other" && !SUMMARIZER_FAMILIES.includes(mf))) {
     return { ok: false, error: "bad model_family" };
   }
   if (
     typeof body.model_size_bucket !== "string" ||
-    !SUMMARIZER_SIZE_BUCKETS.includes(body.model_size_bucket)
+    !BENCHMARK_SIZE_BUCKETS.includes(body.model_size_bucket)
   ) {
     return { ok: false, error: "bad model_size_bucket" };
   }

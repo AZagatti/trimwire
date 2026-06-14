@@ -77,6 +77,32 @@ describe("validateBenchmarkPayload", () => {
       error: "bad produced_usable_summary",
     });
   });
+
+  it('rejects model_family "none" (a benchmarked model always has a real tag)', () => {
+    expect(validateBenchmarkPayload({ ...goodBenchmark(), model_family: "none" })).toEqual({
+      ok: false,
+      error: "bad model_family",
+    });
+  });
+
+  it("accepts model_family \"other\"", () => {
+    expect(validateBenchmarkPayload({ ...goodBenchmark(), model_family: "other" }).ok).toBe(true);
+  });
+
+  it('rejects model_size_bucket "none"/"api" (leaderboard-poisoning guard)', () => {
+    expect(validateBenchmarkPayload({ ...goodBenchmark(), model_size_bucket: "none" })).toEqual({
+      ok: false,
+      error: "bad model_size_bucket",
+    });
+    expect(validateBenchmarkPayload({ ...goodBenchmark(), model_size_bucket: "api" })).toEqual({
+      ok: false,
+      error: "bad model_size_bucket",
+    });
+  });
+
+  it('accepts model_size_bucket "unknown" (a tag with no parseable size)', () => {
+    expect(validateBenchmarkPayload({ ...goodBenchmark(), model_size_bucket: "unknown" }).ok).toBe(true);
+  });
 });
 
 function brow(over: Partial<BenchmarkRow> = {}): BenchmarkRow {

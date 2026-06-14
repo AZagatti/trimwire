@@ -924,8 +924,8 @@ mod benchmark_share {
     use serde::Serialize;
 
     use super::{
-        OS_FAMILIES, SCHEMA_VERSION, SUMMARIZER_FAMILIES, SUMMARIZER_SIZE_BUCKETS,
-        cache_pct_bucket, os_family, summarizer_family, summarizer_size_bucket,
+        OS_FAMILIES, SCHEMA_VERSION, SUMMARIZER_FAMILIES, cache_pct_bucket, os_family,
+        summarizer_family, summarizer_size_bucket,
     };
 
     /// Top-level keys the benchmark payload may contain. MIRRORS
@@ -948,6 +948,13 @@ mod benchmark_share {
     /// Closed value set for `false_done_count` — capped at "2+" so a high count can't
     /// fingerprint, and so the dashboard buckets cleanly.
     const FALSE_DONE_BUCKETS: &[&str] = &["0", "1", "2+"];
+
+    /// Closed value set for a benchmark row's `model_size_bucket`. A SUBSET of the
+    /// stats `SUMMARIZER_SIZE_BUCKETS`: a *benchmarked* model always has a real
+    /// size tier (or "unknown"), never "none" (backend off) or "api" (cloud) — so
+    /// those are excluded here and at the collector to keep the leaderboard clean.
+    /// MIRRORS `BENCHMARK_SIZE_BUCKETS` in `collector/src/validate.ts`.
+    const BENCHMARK_SIZE_BUCKETS: &[&str] = &["≤2b", "3-4b", "5-9b", "≥10b", "unknown"];
 
     /// Aggregated, content-free inputs `benchmark.rs` hands to the share layer (one
     /// per benchmarked model). No prose, no per-slice detail — only the coarse
@@ -980,7 +987,7 @@ mod benchmark_share {
         model_size_bucket: String,
         /// Fact retention floored to nearest 10 pp (0..100).
         retention_bucket: i64,
-        /// Reduction (1 − out/in) floored to nearest 10 pp (0..100).
+        /// Summary compression (1 − out/in) floored to nearest 10 pp (0..100).
         compression_bucket: i64,
         /// Unsupported-completion-claim count, capped: "0" | "1" | "2+".
         false_done_count: String,
@@ -1049,7 +1056,7 @@ mod benchmark_share {
         }
         check_enum_in(
             get_str("model_size_bucket")?,
-            SUMMARIZER_SIZE_BUCKETS,
+            BENCHMARK_SIZE_BUCKETS,
             "model_size_bucket",
         )?;
         check_enum_in(
@@ -1164,6 +1171,21 @@ mod benchmark_share {
                 .unwrap()
                 .insert("false_done_count".to_owned(), Value::String("3".to_owned()));
             assert!(guard_benchmark_content_free(&bad_fd).is_err());
+
+            // model_size_bucket values that are valid for STATS but nonsensical
+            // for a benchmarked model ("none" = off, "api" = cloud) must be
+            // rejected — they'd pollute the leaderboard grouping.
+            for bad in ["none", "api"] {
+                let mut v = serde_json::to_value(&p).unwrap();
+                v.as_object_mut().unwrap().insert(
+                    "model_size_bucket".to_owned(),
+                    Value::String(bad.to_owned()),
+                );
+                assert!(
+                    guard_benchmark_content_free(&v).is_err(),
+                    "model_size_bucket {bad:?} should be rejected"
+                );
+            }
         }
     }
 } // mod benchmark_share
@@ -1225,7 +1247,7 @@ pub fn share_enable() -> Result<()> {
     );
     println!("  wrote `[share] enabled = true` to {}", path.display());
     println!(
-        "  (uploads stay dry-run until the community collector is live; opt back out with \
+        "  (uploads go to the community collector at api.trimwire.dev; opt back out any time with \
          `trimwire share disable`.)"
     );
     Ok(())
