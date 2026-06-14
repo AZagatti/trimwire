@@ -30,7 +30,7 @@ describe("benchmark leaderboard", () => {
     const root = host();
     mount(root, EXAMPLE);
     expect(root.querySelectorAll("tbody tr")).toHaveLength(EXAMPLE.models!.length);
-    expect(root.querySelectorAll("thead th")).toHaveLength(7);
+    expect(root.querySelectorAll("thead th")).toHaveLength(9);
     const fcsCells = [...root.querySelectorAll("td.twb-fcs")].map((c) => Number(c.textContent));
     expect(fcsCells[0]).toBe(Math.max(...fcsCells));
   });
@@ -68,7 +68,7 @@ describe("benchmark leaderboard", () => {
       .dispatchEvent(new MouseEvent("click", { bubbles: true })); // Model col
     expect(root.querySelector("thead th")!.getAttribute("aria-sort")).toBe("ascending");
     const firstModel = root.querySelector("tbody tr td")!.textContent ?? "";
-    expect(firstModel.startsWith("gemma3")).toBe(true); // ascending by family·size
+    expect(firstModel.startsWith("claude-haiku-4-5")).toBe(true); // ascending by model_bucket label
   });
 
   it("search box filters the visible rows", () => {
@@ -150,8 +150,10 @@ describe("benchmark leaderboard", () => {
 
   it("escapes data via textContent (no HTML injection from a hostile feed)", () => {
     const root = host();
-    const evil = { model_family: "<img src=x onerror=alert(1)>", model_size_bucket: "3-4b",
-      contributors: 1, avg_retention: 50, avg_compression: 50, false_done_rate: 0, usable_pct: 100 };
+    const evil = { backend: "local", provider_route: "none", model_family: "other",
+      model_bucket: "<img src=x onerror=alert(1)>", model_size_bucket: "3-4b",
+      benchmark_scope: "full_corpus", contributors: 1, avg_retention: 50, avg_compression: 50,
+      false_done_rate: 0, usable_pct: 100, failed_rate: 0 };
     mount(root, { k: 5, models: [evil] } as BenchmarkPayload);
     expect(root.querySelector("tbody tr td img")).toBeNull();
     expect(root.querySelector("td.twb-model")?.textContent).toContain("<img");

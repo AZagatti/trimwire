@@ -6,13 +6,24 @@
 // data dressed up as real. Dependency-free; `mount()` is pure DOM (jsdom-testable).
 
 export interface BenchmarkModel {
+  /** "local" | "api" — local and api rows are filtered/labeled separately. */
+  backend: string;
+  /** Coarse provider route for api rows ("none" for local). */
+  provider_route: string;
+  /** Broad family. */
   model_family: string;
+  /** Public coarse model id — the display label. */
+  model_bucket: string;
   model_size_bucket: string;
+  /** "full_corpus" | "partial_corpus". */
+  benchmark_scope: string;
   contributors: number;
   avg_retention: number;
   avg_compression: number;
   false_done_rate: number;
   usable_pct: number;
+  /** % of runs with a provider/model call failure (api reliability, not model quality). */
+  failed_rate: number;
 }
 
 export interface BenchmarkPayload {
@@ -31,23 +42,29 @@ export const EXAMPLE: BenchmarkPayload = {
   generated_at: null,
   suppressed_groups: 2,
   models: [
-    { model_family: "qwen3.5", model_size_bucket: "3-4b", contributors: 21, avg_retention: 95, avg_compression: 52, false_done_rate: 0, usable_pct: 100 },
-    { model_family: "qwen3.5", model_size_bucket: "5-9b", contributors: 12, avg_retention: 97, avg_compression: 55, false_done_rate: 0, usable_pct: 100 },
-    { model_family: "llama3.1", model_size_bucket: "5-9b", contributors: 8, avg_retention: 88, avg_compression: 48, false_done_rate: 0, usable_pct: 100 },
-    { model_family: "granite4.1", model_size_bucket: "5-9b", contributors: 6, avg_retention: 90, avg_compression: 60, false_done_rate: 33, usable_pct: 100 },
-    { model_family: "gemma3", model_size_bucket: "3-4b", contributors: 5, avg_retention: 80, avg_compression: 58, false_done_rate: 20, usable_pct: 80 },
+    { backend: "local", provider_route: "none", model_family: "qwen3.5", model_bucket: "qwen3.5", model_size_bucket: "3-4b", benchmark_scope: "full_corpus", contributors: 21, avg_retention: 95, avg_compression: 52, false_done_rate: 0, usable_pct: 100, failed_rate: 0 },
+    { backend: "local", provider_route: "none", model_family: "qwen3.5", model_bucket: "qwen3.5", model_size_bucket: "5-9b", benchmark_scope: "full_corpus", contributors: 12, avg_retention: 97, avg_compression: 55, false_done_rate: 0, usable_pct: 100, failed_rate: 0 },
+    { backend: "local", provider_route: "none", model_family: "llama3.1", model_bucket: "llama3.1", model_size_bucket: "5-9b", benchmark_scope: "full_corpus", contributors: 8, avg_retention: 88, avg_compression: 48, false_done_rate: 0, usable_pct: 100, failed_rate: 0 },
+    { backend: "api", provider_route: "anthropic", model_family: "claude-haiku", model_bucket: "claude-haiku-4-5", model_size_bucket: "api", benchmark_scope: "full_corpus", contributors: 9, avg_retention: 96, avg_compression: 58, false_done_rate: 0, usable_pct: 100, failed_rate: 0 },
+    { backend: "api", provider_route: "openrouter", model_family: "gpt", model_bucket: "gpt-4.1-mini", model_size_bucket: "api", benchmark_scope: "partial_corpus", contributors: 6, avg_retention: 90, avg_compression: 60, false_done_rate: 0, usable_pct: 100, failed_rate: 17 },
+    { backend: "local", provider_route: "none", model_family: "gemma3", model_bucket: "gemma3", model_size_bucket: "3-4b", benchmark_scope: "full_corpus", contributors: 5, avg_retention: 80, avg_compression: 58, false_done_rate: 20, usable_pct: 80, failed_rate: 0 },
   ],
 };
 
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-const label = (r: BenchmarkModel): string => `${r.model_family} · ${r.model_size_bucket}`;
+/** Display label: the public model bucket, + size tier for local models. */
+const label = (r: BenchmarkModel): string =>
+  r.backend === "api" ? r.model_bucket : `${r.model_bucket} · ${r.model_size_bucket}`;
+/** Backend cell text: "local" or "api · <route>". */
+const backendLabel = (r: BenchmarkModel): string =>
+  r.backend === "api" ? `api · ${r.provider_route}` : "local";
 
 /** FCS = retention × compression (each a 0..100 percent → /100), 0..100. */
 export const fcs = (r: BenchmarkModel): number =>
   Math.round((num(r.avg_retention) / 100) * (num(r.avg_compression) / 100) * 100);
 
 type Dir = "asc" | "desc";
-type Cell = "model" | "bar" | "fcs" | "falsedone" | "num";
+type Cell = "model" | "backend" | "bar" | "fcs" | "falsedone" | "num";
 
 interface Col {
   key: string;
@@ -61,11 +78,13 @@ interface Col {
 // False-done is the disqualifying signal, so it sits right after the model name.
 const COLS: Col[] = [
   { key: "model", label: "Model", get: label, dir: "asc", cell: "model" },
+  { key: "backend", label: "Backend", get: backendLabel, dir: "asc", cell: "backend", hint: "local (ollama) vs api (cloud provider + route). API and local scores are NOT directly comparable." },
   { key: "false_done_rate", label: "False-done", get: (r) => num(r.false_done_rate), dir: "asc", cell: "falsedone", hint: "% of runs with an unsupported completion claim — non-zero is disqualifying" },
   { key: "avg_retention", label: "Retention", get: (r) => num(r.avg_retention), dir: "desc", cell: "bar", hint: "% of load-bearing facts kept" },
   { key: "avg_compression", label: "Compression", get: (r) => num(r.avg_compression), dir: "desc", cell: "bar", hint: "% the summary shrank the excerpt" },
   { key: "usable_pct", label: "Usable", get: (r) => num(r.usable_pct), dir: "desc", cell: "bar", hint: "% of runs that produced a usable summary" },
   { key: "fcs", label: "FCS", get: fcs, dir: "desc", cell: "fcs", hint: "Faithful-compression score = retention × compression (higher = better)" },
+  { key: "failed_rate", label: "Failed", get: (r) => num(r.failed_rate), dir: "asc", cell: "falsedone", hint: "% of runs with a provider/model CALL failure — a reliability signal, not model quality" },
   { key: "contributors", label: "N", get: (r) => num(r.contributors), dir: "desc", cell: "num", hint: "uploaded rows (identity-free, so not necessarily distinct people)" },
 ];
 
@@ -75,6 +94,7 @@ interface State {
   sortDir: Dir;
   search: string;
   family: string; // "all" or a model_family
+  backend: string; // "all" | "local" | "api"
   k: number | null;
   corpus_version?: string;
   generated_at?: string | null;
@@ -85,6 +105,7 @@ function visibleRows(state: State): BenchmarkModel[] {
   const q = state.search.trim().toLowerCase();
   const rows = state.rows.filter(
     (r) =>
+      (state.backend === "all" || r.backend === state.backend) &&
       (state.family === "all" || r.model_family === state.family) &&
       (q === "" || label(r).toLowerCase().includes(q)),
   );
@@ -201,6 +222,18 @@ function renderTable(host: HTMLElement, status: HTMLElement, state: State, reren
         if (c.cell === "model") {
           td.className = "twb-model";
           td.textContent = String(v);
+          if (r.benchmark_scope === "partial_corpus") {
+            const badge = document.createElement("span");
+            badge.className = "twb-badge";
+            badge.textContent = " partial";
+            badge.title =
+              "partial-corpus run (fewer slices scored) — not comparable to full-corpus rows";
+            td.append(document.createTextNode(" "));
+            td.append(badge);
+          }
+        } else if (c.cell === "backend") {
+          td.className = "twb-model twb-backend" + (r.backend === "api" ? " twb-api" : "");
+          td.textContent = String(v);
         } else if (c.cell === "falsedone") {
           const n = num(v);
           td.className = "twb-num" + (n > 0 ? " tw-bad" : " tw-dim");
@@ -208,7 +241,11 @@ function renderTable(host: HTMLElement, status: HTMLElement, state: State, reren
             const flag = document.createElement("span");
             flag.className = "twb-flag";
             flag.setAttribute("role", "img");
-            flag.setAttribute("aria-label", "warning: non-zero false-done rate — disqualifying");
+            const what =
+              c.key === "failed_rate"
+                ? "provider/model call failure rate — a reliability signal, not model quality"
+                : "false-done rate — disqualifying";
+            flag.setAttribute("aria-label", `warning: non-zero ${what}`);
             flag.textContent = "⚑ ";
             td.append(flag);
           }
@@ -242,7 +279,10 @@ function renderTable(host: HTMLElement, status: HTMLElement, state: State, reren
     (state.generated_at ? `Updated ${state.generated_at} · ` : "") +
     `${rows.length} of ${state.rows.length} model(s) · corpus v${state.corpus_version ?? "?"} · ` +
     `k=${state.k ?? "?"} · ${state.suppressed_groups ?? 0} hidden as too small. ` +
-    "FCS = retention × compression (higher = better); Usable = % of runs that produced a usable summary; ⚑ = disqualifying false-done.";
+    "Backend separates local (ollama) from api (cloud) — NOT directly comparable. " +
+    "FCS = retention × compression (higher = better); Usable = % producing a usable summary; " +
+    "⚑ = disqualifying false-done; Failed = provider/model call failures (reliability, not quality); " +
+    "'partial' = fewer corpus slices scored.";
 }
 
 /** Build the search box + family filter chips ONCE (so the search input keeps
@@ -259,6 +299,41 @@ function buildControls(el: HTMLElement, state: State, rerender: () => void): () 
     rerender();
   });
   el.append(search);
+
+  // Backend filter — keep local (ollama) and api (cloud) results visibly distinct;
+  // they are NOT directly comparable. Only shown when both kinds are present.
+  const backends = [...new Set(state.rows.map((r) => r.backend))];
+  const backendChips: HTMLButtonElement[] = [];
+  if (backends.length > 1) {
+    const row = document.createElement("div");
+    row.className = "tw-chips tw-chips-backend";
+    row.setAttribute("role", "radiogroup");
+    row.setAttribute("aria-label", "Filter by backend (local vs api)");
+    for (const be of ["all", "local", "api"]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "tw-chip";
+      b.textContent = be;
+      b.setAttribute("role", "radio");
+      b.dataset.backend = be;
+      b.addEventListener("click", () => {
+        state.backend = be;
+        syncBackend();
+        rerender();
+      });
+      backendChips.push(b);
+      row.append(b);
+    }
+    el.append(row);
+  }
+  const syncBackend = () => {
+    for (const b of backendChips) {
+      const active = b.dataset.backend === state.backend;
+      b.classList.toggle("tw-chip-on", active);
+      b.setAttribute("aria-checked", String(active));
+    }
+  };
+  syncBackend();
 
   const families = ["all", ...[...new Set(state.rows.map((r) => r.model_family))].sort()];
   const chips: HTMLButtonElement[] = [];
@@ -308,6 +383,7 @@ export function mount(root: HTMLElement, data: BenchmarkPayload): void {
     sortDir: "desc",
     search: "",
     family: "all",
+    backend: "all",
     k: data.k ?? null,
     corpus_version: data.corpus_version,
     generated_at: data.generated_at ?? null,

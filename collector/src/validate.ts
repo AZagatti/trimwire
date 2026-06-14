@@ -360,23 +360,63 @@ export const BENCHMARK_ALLOWED_KEYS = [
   "sent_day",
   "trimwire_version",
   "corpus_version",
+  "backend",
+  "provider_style",
+  "provider_route",
   "model_family",
+  "model_bucket",
   "model_size_bucket",
   "retention_bucket",
   "compression_bucket",
   "false_done_count",
   "produced_usable_summary",
+  "benchmark_scope",
+  "slice_count_bucket",
+  "failed_slice_count",
+  "error_kind",
   "os_family",
 ] as const;
 
-/** Closed value set for `false_done_count`, capped client-side ("2+"). */
-const FALSE_DONE_BUCKETS = ["0", "1", "2+"];
+/** Closed value set for `false_done_count` / `failed_slice_count`, capped ("2+"). */
+const COUNT_BUCKETS = ["0", "1", "2+"];
+const BENCHMARK_BACKENDS = ["local", "api"];
+const PROVIDER_STYLES = ["none", "anthropic", "openai"];
+const PROVIDER_ROUTES = ["none", "anthropic", "openai", "openrouter", "azure", "other"];
+const BENCHMARK_SCOPES = ["full_corpus", "partial_corpus"];
+const SLICE_COUNT_BUCKETS = ["1", "2-4", "full"];
+const ERROR_KINDS = [
+  "none", "timeout", "http_status", "malformed", "empty", "unreachable", "auth_or_config", "other",
+];
+/** Broad API model families (the closed set api `model_family` is coarsened to). */
+const API_FAMILIES = ["claude-opus", "claude-sonnet", "claude-haiku", "gpt", "o-series", "other"];
+/** Shape checks for an api `model_bucket` (low-cardinality public model id).
+ *  MIRRORS `is_valid_api_model_bucket` in src/cli/share.rs. */
+const API_BUCKET_CLAUDE_RE = /^claude-(opus|sonnet|haiku)-\d{1,3}-\d{1,3}$/;
+const API_BUCKET_GPT_RE = /^gpt-[a-z0-9.]{1,8}(-(mini|nano|turbo))?$/;
+const API_BUCKET_O_RE = /^o[1-9](-mini)?$/;
+function isValidApiModelBucket(s: string): boolean {
+  return (
+    s === "other" ||
+    API_BUCKET_CLAUDE_RE.test(s) ||
+    API_BUCKET_GPT_RE.test(s) ||
+    API_BUCKET_O_RE.test(s)
+  );
+}
 /** A benchmark row's `model_size_bucket` — a SUBSET of SUMMARIZER_SIZE_BUCKETS.
  *  A benchmarked model always has a real size tier (or "unknown"), never "none"
  *  (backend off) or "api" (cloud), so those are excluded to keep the leaderboard
  *  clean against a hand-crafted POST. MIRRORS `BENCHMARK_SIZE_BUCKETS` in
  *  src/cli/share.rs. */
 const BENCHMARK_SIZE_BUCKETS = ["≤2b", "3-4b", "5-9b", "≥10b", "unknown"];
+/** A benchmark row's `model_family` — the LOCAL-model families only (a SUBSET of
+ *  SUMMARIZER_FAMILIES with the api-backend sentinels removed). The leaderboard
+ *  ranks local summarizer models, so a provider name ("anthropic"/"openai") is
+ *  NOT a valid benchmark family — reject provider-as-family. Mirrors the Rust
+ *  guard (its SUMMARIZER_FAMILIES carries no api sentinels). Derived (not a
+ *  second literal list) so it can't drift from SUMMARIZER_FAMILIES. */
+const BENCHMARK_FAMILIES = SUMMARIZER_FAMILIES.filter(
+  (f) => f !== "anthropic" && f !== "openai",
+);
 /** A corpus version is a small integer string ("1", "2", …) — shape-checked so
  *  a new corpus needs no collector change, but junk can't enter the dataset. */
 const CORPUS_VERSION_RE = /^[1-9]\d{0,3}$/;
@@ -386,14 +426,30 @@ export interface BenchmarkRow {
   sent_day: string;
   trimwire_version: string;
   corpus_version: string;
-  /** Summarizer family (qwen3.5 / … / other) — never the raw tag. */
+  /** "local" | "api" — keeps API rows from being ranked as local models. */
+  backend: string;
+  /** API style: "none" | "anthropic" | "openai". */
+  provider_style: string;
+  /** Coarse route: "none" | anthropic | openai | openrouter | azure | other. */
+  provider_route: string;
+  /** Broad family. local: ollama family; api: claude-{tier} | gpt | o-series | other. */
   model_family: string;
-  /** Coarse size tier (≤2b / 3-4b / 5-9b / ≥10b / unknown). */
+  /** Public coarse model id. local: ollama family; api: claude-tier-N-N | gpt-… | o… | other. */
+  model_bucket: string;
+  /** Size tier (local) or "api". */
   model_size_bucket: string;
   retention_bucket: number;
   compression_bucket: number;
   false_done_count: string;
   produced_usable_summary: boolean;
+  /** "full_corpus" | "partial_corpus". */
+  benchmark_scope: string;
+  /** "1" | "2-4" | "full". */
+  slice_count_bucket: string;
+  /** Provider/model call failures, capped: "0" | "1" | "2+". */
+  failed_slice_count: string;
+  /** Coarse error kind across failed slices (closed set). */
+  error_kind: string;
   os_family: string;
 }
 
@@ -438,26 +494,57 @@ export function validateBenchmarkPayload(body: unknown): BenchmarkValidateResult
   if (typeof body.corpus_version !== "string" || !CORPUS_VERSION_RE.test(body.corpus_version)) {
     return { ok: false, error: "bad corpus_version" };
   }
-  // model_family: a known summarizer family or "other" — NOT "none" (a
-  // benchmarked model always has a real tag). Matches the Rust client guard.
-  const mf = body.model_family;
-  if (typeof mf !== "string" || (mf !== "other" && !SUMMARIZER_FAMILIES.includes(mf))) {
-    return { ok: false, error: "bad model_family" };
+  // Closed enums shared by both backends.
+  const enums: [string, string[]][] = [
+    ["backend", BENCHMARK_BACKENDS],
+    ["provider_style", PROVIDER_STYLES],
+    ["provider_route", PROVIDER_ROUTES],
+    ["benchmark_scope", BENCHMARK_SCOPES],
+    ["slice_count_bucket", SLICE_COUNT_BUCKETS],
+    ["false_done_count", COUNT_BUCKETS],
+    ["failed_slice_count", COUNT_BUCKETS],
+    ["error_kind", ERROR_KINDS],
+  ];
+  for (const [field, set] of enums) {
+    const v = (body as Record<string, unknown>)[field];
+    if (typeof v !== "string" || !set.includes(v)) {
+      return { ok: false, error: `bad ${field}` };
+    }
   }
-  if (
-    typeof body.model_size_bucket !== "string" ||
-    !BENCHMARK_SIZE_BUCKETS.includes(body.model_size_bucket)
-  ) {
-    return { ok: false, error: "bad model_size_bucket" };
+  const backend = body.backend as string;
+  const mf = body.model_family;
+  const bucket = body.model_bucket;
+  const size = body.model_size_bucket;
+  if (typeof mf !== "string" || typeof bucket !== "string" || typeof size !== "string") {
+    return { ok: false, error: "bad model fields" };
+  }
+  if (backend === "api") {
+    // model_family/bucket derived from the real model — provider names rejected.
+    if (!API_FAMILIES.includes(mf)) return { ok: false, error: "bad model_family" };
+    if (!isValidApiModelBucket(bucket)) return { ok: false, error: "bad model_bucket" };
+    if (size !== "api") return { ok: false, error: "bad model_size_bucket" };
+    // an api row carries a real style; "none" is local-only.
+    if (body.provider_style === "none") return { ok: false, error: "bad provider_style" };
+  } else {
+    // local: a LOCAL-model family (never a provider name), family == bucket-tier.
+    if (mf !== "other" && !BENCHMARK_FAMILIES.includes(mf)) {
+      return { ok: false, error: "bad model_family" };
+    }
+    if (bucket !== "other" && !BENCHMARK_FAMILIES.includes(bucket)) {
+      return { ok: false, error: "bad model_bucket" };
+    }
+    if (!BENCHMARK_SIZE_BUCKETS.includes(size)) {
+      return { ok: false, error: "bad model_size_bucket" };
+    }
+    if (body.provider_style !== "none" || body.provider_route !== "none") {
+      return { ok: false, error: "bad provider for local row" };
+    }
   }
   if (!intInRange(body.retention_bucket, 0, 100, 10)) {
     return { ok: false, error: "bad retention_bucket" };
   }
   if (!intInRange(body.compression_bucket, 0, 100, 10)) {
     return { ok: false, error: "bad compression_bucket" };
-  }
-  if (typeof body.false_done_count !== "string" || !FALSE_DONE_BUCKETS.includes(body.false_done_count)) {
-    return { ok: false, error: "bad false_done_count" };
   }
   if (typeof body.produced_usable_summary !== "boolean") {
     return { ok: false, error: "bad produced_usable_summary" };

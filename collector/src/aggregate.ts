@@ -300,8 +300,18 @@ export function aggregate(rows: TelemetryRow[], k: number): AggregateResult {
 
 /** One row of the leaderboard — mirrors `BenchmarkModel` in benchmark.ts. */
 export interface BenchmarkModelAggregate {
+  /** "local" | "api" — the site filters/labels on this so the two aren't mixed. */
+  backend: string;
+  /** Coarse provider route for api rows ("none" for local). */
+  provider_route: string;
+  /** Broad family (local: ollama family; api: claude-{tier}|gpt|o-series|other). */
   model_family: string;
+  /** Public coarse model id (the display label). */
+  model_bucket: string;
+  /** Size tier (local) or "api". */
   model_size_bucket: string;
+  /** "full_corpus" | "partial_corpus" — partial rows shown/labeled apart. */
+  benchmark_scope: string;
   /** Number of uploaded rows in this group (>= k). Row count, not distinct
    *  identities — the benchmark payload is identity-free (no dedup token). */
   contributors: number;
@@ -313,6 +323,8 @@ export interface BenchmarkModelAggregate {
   false_done_rate: number;
   /** % of rows that produced a usable summary on every slice. */
   usable_pct: number;
+  /** % of rows that had any provider/model call failure (api reliability signal). */
+  failed_rate: number;
 }
 
 export interface BenchmarkAggregateResult {
@@ -337,10 +349,15 @@ export function aggregateBenchmark(rows: BenchmarkRow[], k: number): BenchmarkAg
     return { schema_version: SCHEMA_VERSION, k, corpus_version: null, suppressed_groups: 0, models: [] };
   }
 
+  // Group key: backend + model_family + model_bucket + size + scope (within the
+  // latest corpus). backend + scope are in the key so api/local and full/partial
+  // rows are NEVER merged into one leaderboard cell.
+  const keyOf = (r: BenchmarkRow) =>
+    [r.backend, r.model_family, r.model_bucket, r.model_size_bucket, r.benchmark_scope].join("|");
   const buckets = new Map<string, BenchmarkRow[]>();
   for (const r of rows) {
     if (r.corpus_version !== corpus) continue; // only the latest corpus is comparable
-    const key = `${r.model_family}|${r.model_size_bucket}`;
+    const key = keyOf(r);
     const arr = buckets.get(key);
     if (arr) arr.push(r);
     else buckets.set(key, [r]);
@@ -359,24 +376,34 @@ export function aggregateBenchmark(rows: BenchmarkRow[], k: number): BenchmarkAg
       group.reduce((acc, r) => acc + sel(r), 0) / n;
     const pctTrue = (sel: (r: BenchmarkRow) => boolean) =>
       round1((group.filter(sel).length / n) * 100);
+    // Most-common provider_route in the group (the key already fixes backend).
+    const routeCounts = new Map<string, number>();
+    for (const r of group) routeCounts.set(r.provider_route, (routeCounts.get(r.provider_route) ?? 0) + 1);
+    const provider_route = [...routeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 
     models.push({
+      backend: first.backend,
+      provider_route,
       model_family: first.model_family,
+      model_bucket: first.model_bucket,
       model_size_bucket: first.model_size_bucket,
+      benchmark_scope: first.benchmark_scope,
       contributors: n,
       avg_retention: round1(avg((r) => r.retention_bucket)),
       avg_compression: round1(avg((r) => r.compression_bucket)),
       false_done_rate: pctTrue((r) => r.false_done_count !== "0"),
       usable_pct: pctTrue((r) => r.produced_usable_summary),
+      failed_rate: pctTrue((r) => r.failed_slice_count !== "0"),
     });
   }
 
-  // Deterministic order: most contributors first, then by label.
+  // Deterministic order: local before api, then most contributors, then label.
   models.sort(
     (a, b) =>
+      a.backend.localeCompare(b.backend) ||
       b.contributors - a.contributors ||
-      `${a.model_family}|${a.model_size_bucket}`.localeCompare(
-        `${b.model_family}|${b.model_size_bucket}`,
+      `${a.model_bucket}|${a.model_size_bucket}`.localeCompare(
+        `${b.model_bucket}|${b.model_size_bucket}`,
       ),
   );
 

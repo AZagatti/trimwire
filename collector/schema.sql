@@ -92,9 +92,19 @@ CREATE TABLE IF NOT EXISTS benchmark (
   trimwire_version         TEXT    NOT NULL,
   -- Which bundled corpus produced the score (rows across versions aren't comparable).
   corpus_version           TEXT    NOT NULL,
-  -- Summarizer model family (qwen3.5 / llama3.1 / … / other) — never the raw tag.
+  -- "local" (ollama) | "api" (cloud provider). API rows are ranked SEPARATELY.
+  backend                  TEXT    NOT NULL DEFAULT 'local',
+  -- API style: "none" (local) | "anthropic" | "openai".
+  provider_style           TEXT    NOT NULL DEFAULT 'none',
+  -- Coarse route bucket from the provider URL (never the raw URL/host):
+  -- "none" (local) | anthropic | openai | openrouter | azure | other.
+  provider_route           TEXT    NOT NULL DEFAULT 'none',
+  -- Broad family. local: ollama family (qwen3.5 / …); api: claude-{tier} | gpt | o-series | other.
   model_family             TEXT    NOT NULL,
-  -- Coarse size tier from the tag: ≤2b | 3-4b | 5-9b | ≥10b | unknown.
+  -- Public coarse model id. local: ollama family; api: claude-tier-N-N | gpt-… | o… | other.
+  -- Derived from the REAL model — a provider name is never a valid value here.
+  model_bucket             TEXT    NOT NULL DEFAULT 'other',
+  -- Size tier (local: ≤2b | 3-4b | 5-9b | ≥10b | unknown) or "api" (cloud).
   model_size_bucket        TEXT    NOT NULL,
   -- Fact retention floored to nearest 10 pp (0..100).
   retention_bucket         INTEGER NOT NULL,
@@ -104,9 +114,18 @@ CREATE TABLE IF NOT EXISTS benchmark (
   false_done_count         TEXT    NOT NULL,
   -- Did every slice yield a usable (non-empty, non-verbatim) summary? (0/1)
   produced_usable_summary  INTEGER NOT NULL,
+  -- "full_corpus" | "partial_corpus" — partial (e.g. --max-calls) runs ranked apart.
+  benchmark_scope          TEXT    NOT NULL DEFAULT 'full_corpus',
+  -- How many slices were scored: "1" | "2-4" | "full".
+  slice_count_bucket       TEXT    NOT NULL DEFAULT 'full',
+  -- Provider/model call failures across slices, capped: "0" | "1" | "2+".
+  failed_slice_count       TEXT    NOT NULL DEFAULT '0',
+  -- Coarse error kind across failed slices (closed set; never a raw message).
+  error_kind               TEXT    NOT NULL DEFAULT 'none',
   os_family                TEXT    NOT NULL DEFAULT 'other'
 );
 
--- Leaderboard grouping key: a model row is (corpus_version, family, size tier).
+-- Leaderboard grouping key: a published model row is
+-- (corpus_version, backend, model_family, model_bucket, model_size_bucket, benchmark_scope).
 CREATE INDEX IF NOT EXISTS idx_bench_group ON benchmark
-  (corpus_version, model_family, model_size_bucket);
+  (corpus_version, backend, model_family, model_bucket, model_size_bucket, benchmark_scope);

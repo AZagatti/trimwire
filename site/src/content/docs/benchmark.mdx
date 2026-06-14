@@ -10,12 +10,19 @@ head:
 
 import BenchmarkTable from '../../components/BenchmarkTable.astro';
 
-How well do local models summarize a coding session? Rows below come from users
-who ran `trimwire summarizer benchmark` and **opted in** via `trimwire share
-benchmark`. Each is **anonymous and content-free** — only coarse buckets (model
-family + size tier, not the raw tag), with small groups suppressed (k-anonymity,
-k=5). No summaries, prompts, paths, or identifiers are collected. See
+How well do models summarize a coding session? Rows below come from users who ran
+`trimwire summarizer benchmark` and **opted in** via `trimwire share benchmark`.
+Each is **anonymous and content-free** — only coarse buckets (model family +
+bucket, not the raw tag), with small groups suppressed (k-anonymity, k=5). No
+summaries, prompts, paths, or identifiers are collected. See
 [how the data is collected & protected](/guides/telemetry/).
+
+Both **local** (ollama) and **API/provider** models appear here, but they are
+**never ranked head-to-head** — use the **Local / API** filter. API scores are a
+directional cross-check (different context windows, temperatures, pricing), not
+equivalent to local-model scores. API rows are labeled by provider *route*
+(anthropic/openai/openrouter/…), partial-corpus runs are tagged **partial**, and a
+**Failed** column flags provider/call reliability separately from model quality.
 
 The leaderboard fills in over time, as each model group crosses the k-anonymity
 threshold; until then it shows an honest empty-state (try the `?demo` view to

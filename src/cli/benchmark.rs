@@ -50,7 +50,7 @@ use serde::{Deserialize, Serialize};
 use trimwire::config::{Config, SummarizerLocalConfig, SummarizerProviderConfig};
 use trimwire::summarizer::api::call_api;
 use trimwire::summarizer::{
-    APPROVED_MODELS, WARN_MODELS, build_prompt, call_model, fact_retention,
+    APPROVED_MODELS, CompactorError, WARN_MODELS, build_prompt, call_model, fact_retention,
     harm_check::detect_false_done, is_disqualified,
 };
 
@@ -133,6 +133,23 @@ struct SliceScore {
     /// `Some` when the model call failed (skip-compaction error); the slice then
     /// scores zero retention and is not usable.
     error: Option<String>,
+    /// Coarse, content-free classification of `error` (none when `error` is None):
+    /// `timeout | http_status | malformed | empty | unreachable | auth_or_config | other`.
+    /// Never the raw error string.
+    error_kind: Option<&'static str>,
+}
+
+/// Coarsen a summarizer call failure into a content-free `error_kind` enum value.
+/// Never returns the raw message. Mirrors the closed set the collector validates.
+fn classify_error(e: &CompactorError) -> &'static str {
+    match e {
+        CompactorError::Timeout => "timeout",
+        CompactorError::HttpStatus(401 | 403) => "auth_or_config",
+        CompactorError::HttpStatus(_) => "http_status",
+        CompactorError::Malformed(_) => "malformed",
+        CompactorError::EmptyResponse => "empty",
+        CompactorError::Unreachable(_) => "unreachable",
+    }
 }
 
 impl SliceScore {
@@ -167,11 +184,13 @@ fn score_summary(slice: &CorpusSlice, summary: &str) -> SliceScore {
         false_done,
         usable,
         error: None,
+        error_kind: None,
     }
 }
 
-/// Score for a slice whose model call failed: zero retention, not usable.
-fn errored_score(slice: &CorpusSlice, err: String) -> SliceScore {
+/// Score for a slice whose model call failed: zero retention, not usable. Captures
+/// a coarse, content-free `error_kind` (never the raw message text in the share path).
+fn errored_score(slice: &CorpusSlice, err: &CompactorError) -> SliceScore {
     SliceScore {
         id: slice.id.clone(),
         is_trap: slice.false_done_trap,
@@ -181,7 +200,8 @@ fn errored_score(slice: &CorpusSlice, err: String) -> SliceScore {
         out_chars: 0,
         false_done: 0,
         usable: false,
-        error: Some(err),
+        error: Some(err.to_string()),
+        error_kind: Some(classify_error(err)),
     }
 }
 
@@ -206,6 +226,22 @@ struct ModelScore {
     gated: bool,
     /// `gated ? 0 : fcs` — the value the rank sorts on.
     composite: f64,
+    /// For `backend = "api"`: the provider's real model id (e.g. `claude-haiku-4-5`,
+    /// `gpt-5.4-mini`, or an OpenRouter `vendor/model`). `None` for local rows.
+    /// Used by the share path to coarsen `model_family` from the actual model — NOT
+    /// the provider id. Never uploaded raw (coarsened first).
+    provider_model: Option<String>,
+    /// For `backend = "api"`: the provider's API style (`"anthropic"` | `"openai"`).
+    /// Becomes the content-free `provider_style` field on the shared row. `None` local.
+    provider_style: Option<String>,
+    /// For `backend = "api"`: a coarse public route bucket derived from the provider
+    /// base URL (`anthropic` | `openai` | `openrouter` | `azure` | `other`). Never the
+    /// raw URL/host. `None` for local rows.
+    provider_route: Option<String>,
+    /// True when every corpus slice was scored (a `--max-calls` cap below the corpus
+    /// size makes this false → `benchmark_scope = partial_corpus`). Local runs are
+    /// always full.
+    full_corpus: bool,
     slices: Vec<SliceScore>,
 }
 
@@ -257,6 +293,11 @@ fn aggregate(model: String, backend: &str, slices: Vec<SliceScore>) -> ModelScor
         fcs,
         gated,
         composite,
+        // Defaults for local rows; the API path overrides provider_* + full_corpus.
+        provider_model: None,
+        provider_style: None,
+        provider_route: None,
+        full_corpus: true,
         slices,
     }
 }
@@ -286,7 +327,7 @@ async fn run_model(
                 }
                 score_summary(slice, &summary)
             }
-            Err(e) => errored_score(slice, e.to_string()),
+            Err(e) => errored_score(slice, &e),
         };
         scores.push(score);
     }
@@ -318,12 +359,45 @@ async fn run_api_provider(
                 }
                 score_summary(slice, &summary)
             }
-            Err(e) => errored_score(slice, e.to_string()),
+            Err(e) => errored_score(slice, &e),
         };
         scores.push(score);
     }
-    // Label the ModelScore with the provider id so the table is unambiguous.
-    aggregate(provider.id.clone(), "api", scores)
+    // Label the table row with the provider id (for the local printout), and carry
+    // the content-free provenance the share path coarsens (provider model/style/route)
+    // — never the provider id — plus whether the full corpus ran.
+    let full_corpus = slices.len() >= corpus.len();
+    let mut ms = aggregate(provider.id.clone(), "api", scores);
+    ms.provider_model = Some(provider.model.clone());
+    ms.provider_style = Some(provider.style.clone());
+    ms.provider_route = Some(provider_route(&provider.base_url, &provider.style));
+    ms.full_corpus = full_corpus;
+    ms
+}
+
+/// Coarse, content-free route bucket from a provider base URL (never the raw URL,
+/// host, or user-defined id): `anthropic | openai | openrouter | azure | other`.
+/// An empty base_url (provider default) falls back to the API style.
+fn provider_route(base_url: &str, style: &str) -> String {
+    let u = base_url.to_ascii_lowercase();
+    if u.contains("openrouter") {
+        "openrouter"
+    } else if u.contains("azure") {
+        "azure"
+    } else if u.contains("anthropic.com") {
+        "anthropic"
+    } else if u.contains("openai.com") {
+        "openai"
+    } else if u.is_empty() {
+        match style {
+            "anthropic" => "anthropic",
+            "openai" => "openai",
+            _ => "other",
+        }
+    } else {
+        "other"
+    }
+    .to_owned()
 }
 
 /// Print the pre-call safety warning for an API provider and return whether
@@ -726,8 +800,38 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
             );
             continue;
         }
+        let is_api = r.backend == "api";
+        let failed_slices = r.slices.iter().filter(|s| s.error.is_some()).count();
+        let error_kind = r.slices.iter().find_map(|s| s.error_kind).unwrap_or("none");
+        // Don't upload rows with provider/model call failures — they conflate a
+        // weak model with a broken provider/config/network. Print a report-issue
+        // hint instead (no error auto-upload yet). Never paste secrets/content.
+        if failed_slices > 0 || error_kind != "none" {
+            let scope = if r.full_corpus { "full" } else { "partial" };
+            eprintln!(
+                "\n⚠ {} had {failed_slices} failed slice(s) (error_kind: {error_kind}).\n\
+                 \x20  This looks like a provider/config issue, not a clean model-quality result —\n\
+                 \x20  not uploading this row. Please open an issue with: trimwire --version, the\n\
+                 \x20  command used, backend={}, provider_style={}, provider_route={}, error_kind={error_kind},\n\
+                 \x20  and whether the run was {scope} corpus. Do NOT paste API keys, prompts,\n\
+                 \x20  summaries, session content, raw URLs, or stack traces.",
+                r.model,
+                r.backend,
+                r.provider_style.as_deref().unwrap_or("none"),
+                r.provider_route.as_deref().unwrap_or("none"),
+            );
+            continue;
+        }
+        let model = if is_api {
+            r.provider_model.as_deref().unwrap_or("")
+        } else {
+            r.model.as_str()
+        };
         let input = BenchmarkShareInput {
-            model_tag: &r.model,
+            backend: &r.backend,
+            model,
+            provider_style: r.provider_style.as_deref().unwrap_or("none"),
+            provider_route: r.provider_route.as_deref().unwrap_or("none"),
             corpus_version: CORPUS_VERSION,
             retention: r.retention,
             reduction: r.reduction,
@@ -735,6 +839,10 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
             // Exact (not a float compare on usable_pct): every slice produced a
             // usable summary. Robust as the corpus grows.
             all_usable: r.slices.iter().all(|s| s.usable),
+            full_corpus: r.full_corpus,
+            scored_slices: r.slices.len(),
+            failed_slices,
+            error_kind,
         };
         let payload: BenchmarkPayload = build_benchmark_payload(
             &input,
@@ -748,8 +856,10 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
         bodies.push(serde_json::to_string(&value)?);
     }
     println!(
-        "  No model names (only family + size tier), no summaries, no paths, ids, or\n\
-         \x20  raw counts — just the coarse rank-table columns. See docs/TELEMETRY.md."
+        "  No raw model names/tags (only coarse family + bucket), no provider ids/URLs/keys,\n\
+         \x20  no summaries, paths, or raw counts — just the rank-table columns + backend/\n\
+         \x20  provider route. API and local rows are tagged `backend` and ranked separately.\n\
+         \x20  See docs/TELEMETRY.md."
     );
 
     if bodies.is_empty() {
@@ -1149,9 +1259,13 @@ mod tests {
             &["a", "b"],
             "### user\nsome text here for length",
         );
-        let sc = errored_score(&s, "local model unreachable".into());
+        let sc = errored_score(
+            &s,
+            &CompactorError::Unreachable("local model unreachable".into()),
+        );
         assert_eq!(sc.kept, 0);
         assert!(!sc.usable);
+        assert_eq!(sc.error_kind, Some("unreachable"));
         let m = aggregate("down".into(), "local", vec![sc]);
         assert!(m.gated, "a model error gates the run");
         assert_eq!(m.composite, 0.0);

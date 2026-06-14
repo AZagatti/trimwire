@@ -924,8 +924,8 @@ mod benchmark_share {
     use serde::Serialize;
 
     use super::{
-        OS_FAMILIES, SCHEMA_VERSION, SUMMARIZER_FAMILIES, cache_pct_bucket, os_family,
-        summarizer_family, summarizer_size_bucket,
+        OS_FAMILIES, SCHEMA_VERSION, SUMMARIZER_FAMILIES, cache_pct_bucket, model_family,
+        os_family, summarizer_family, summarizer_size_bucket,
     };
 
     /// Top-level keys the benchmark payload may contain. MIRRORS
@@ -936,42 +936,91 @@ mod benchmark_share {
         "sent_day",
         "trimwire_version",
         "corpus_version",
+        "backend",
+        "provider_style",
+        "provider_route",
         "model_family",
+        "model_bucket",
         "model_size_bucket",
         "retention_bucket",
         "compression_bucket",
         "false_done_count",
         "produced_usable_summary",
+        "benchmark_scope",
+        "slice_count_bucket",
+        "failed_slice_count",
+        "error_kind",
         "os_family",
     ];
 
-    /// Closed value set for `false_done_count` — capped at "2+" so a high count can't
-    /// fingerprint, and so the dashboard buckets cleanly.
-    const FALSE_DONE_BUCKETS: &[&str] = &["0", "1", "2+"];
-
-    /// Closed value set for a benchmark row's `model_size_bucket`. A SUBSET of the
-    /// stats `SUMMARIZER_SIZE_BUCKETS`: a *benchmarked* model always has a real
-    /// size tier (or "unknown"), never "none" (backend off) or "api" (cloud) — so
-    /// those are excluded here and at the collector to keep the leaderboard clean.
-    /// MIRRORS `BENCHMARK_SIZE_BUCKETS` in `collector/src/validate.ts`.
+    /// Closed value set for `false_done_count` / `failed_slice_count` — capped at
+    /// "2+" so a high count can't fingerprint.
+    const COUNT_BUCKETS: &[&str] = &["0", "1", "2+"];
+    /// Local-row `model_size_bucket` set (param-count tiers). API rows use "api".
     const BENCHMARK_SIZE_BUCKETS: &[&str] = &["≤2b", "3-4b", "5-9b", "≥10b", "unknown"];
+    const BACKENDS: &[&str] = &["local", "api"];
+    const PROVIDER_STYLES: &[&str] = &["none", "anthropic", "openai"];
+    const PROVIDER_ROUTES: &[&str] = &[
+        "none",
+        "anthropic",
+        "openai",
+        "openrouter",
+        "azure",
+        "other",
+    ];
+    const BENCHMARK_SCOPES: &[&str] = &["full_corpus", "partial_corpus"];
+    const SLICE_COUNT_BUCKETS: &[&str] = &["1", "2-4", "full"];
+    const ERROR_KINDS: &[&str] = &[
+        "none",
+        "timeout",
+        "http_status",
+        "malformed",
+        "empty",
+        "unreachable",
+        "auth_or_config",
+        "other",
+    ];
+    /// Broad API model families (the closed set the api `model_family` is coarsened to).
+    const API_FAMILIES: &[&str] = &[
+        "claude-opus",
+        "claude-sonnet",
+        "claude-haiku",
+        "gpt",
+        "o-series",
+        "other",
+    ];
 
     /// Aggregated, content-free inputs `benchmark.rs` hands to the share layer (one
-    /// per benchmarked model). No prose, no per-slice detail — only the coarse
-    /// numbers the dashboard rank table needs.
+    /// per benchmarked model). No prose, no per-slice detail, no raw URLs/ids — only
+    /// the coarse values the dashboard rank table needs. Coarsening happens HERE.
     pub struct BenchmarkShareInput<'a> {
-        /// The ollama model tag (coarsened to family + size bucket here; never sent raw).
-        pub model_tag: &'a str,
+        /// "local" | "api".
+        pub backend: &'a str,
+        /// The model string to coarsen: the ollama tag (local) or `provider.model`
+        /// (api). Coarsened to family/bucket here; NEVER sent raw.
+        pub model: &'a str,
+        /// API style ("none" for local).
+        pub provider_style: &'a str,
+        /// Coarse route bucket ("none" for local).
+        pub provider_route: &'a str,
         /// `CORPUS_VERSION` the score was produced against.
         pub corpus_version: &'a str,
         /// Overall fact retention, 0..1.
         pub retention: f64,
-        /// Overall reduction (1 − out/in), 0..1.
+        /// Overall reduction/compression (1 − out/in), 0..1.
         pub reduction: f64,
-        /// Total unsupported completion claims across the corpus.
+        /// Total unsupported completion claims across the scored slices.
         pub false_done_total: usize,
-        /// True iff EVERY slice produced a usable summary.
+        /// True iff EVERY scored slice produced a usable summary.
         pub all_usable: bool,
+        /// True when the full corpus was scored (false ⟹ partial_corpus).
+        pub full_corpus: bool,
+        /// How many slices were actually scored.
+        pub scored_slices: usize,
+        /// How many scored slices failed (call error).
+        pub failed_slices: usize,
+        /// Coarse error kind across failed slices ("none" when no failures).
+        pub error_kind: &'a str,
     }
 
     #[derive(Debug, Serialize, PartialEq)]
@@ -979,30 +1028,117 @@ mod benchmark_share {
         schema_version: u32,
         sent_day: String,
         trimwire_version: String,
-        /// Corpus the score was produced against (results across versions aren't comparable).
         corpus_version: String,
-        /// Summarizer family (qwen3.5 / … / other) — never the raw tag.
+        /// "local" | "api" — keeps API rows from being ranked as local models.
+        backend: String,
+        /// API style: "none" | "anthropic" | "openai".
+        provider_style: String,
+        /// Coarse route: "none" | anthropic | openai | openrouter | azure | other.
+        provider_route: String,
+        /// Broad family. local: ollama family; api: claude-{tier} | gpt | o-series | other.
         model_family: String,
-        /// Coarse size tier (≤2b / 3-4b / 5-9b / ≥10b / unknown).
+        /// Public coarse model id. local: ollama family; api: claude-tier-N-N | gpt-… | o… | other.
+        model_bucket: String,
+        /// Size tier (local) or "api".
         model_size_bucket: String,
-        /// Fact retention floored to nearest 10 pp (0..100).
         retention_bucket: i64,
-        /// Summary compression (1 − out/in) floored to nearest 10 pp (0..100).
         compression_bucket: i64,
-        /// Unsupported-completion-claim count, capped: "0" | "1" | "2+".
         false_done_count: String,
-        /// Did every slice produce a usable (non-empty, non-verbatim) summary?
         produced_usable_summary: bool,
+        /// "full_corpus" | "partial_corpus" — partial runs aren't ranked as full.
+        benchmark_scope: String,
+        /// "1" | "2-4" | "full".
+        slice_count_bucket: String,
+        /// Provider/model call failures, capped: "0" | "1" | "2+".
+        failed_slice_count: String,
+        /// Coarse error kind across failed slices (closed set).
+        error_kind: String,
         os_family: String,
     }
 
-    fn false_done_bucket(n: usize) -> String {
+    fn count_bucket(n: usize) -> String {
         match n {
             0 => "0",
             1 => "1",
             _ => "2+",
         }
         .to_owned()
+    }
+
+    fn slice_count_bucket(scored: usize, full_corpus: bool) -> String {
+        if full_corpus {
+            "full"
+        } else if scored <= 1 {
+            "1"
+        } else {
+            "2-4"
+        }
+        .to_owned()
+    }
+
+    /// Strip an OpenRouter-style `vendor/` prefix: `anthropic/claude-…` → `claude-…`.
+    fn strip_vendor(m: &str) -> &str {
+        m.rsplit('/').next().unwrap_or(m)
+    }
+
+    /// Public coarse model id for an API model. Content-free, low-cardinality;
+    /// strips vendor prefixes + dated suffixes. Unknowns → "other".
+    fn api_model_bucket(provider_model: &str) -> String {
+        let lower = provider_model.to_ascii_lowercase();
+        let m = strip_vendor(&lower);
+        // claude-(opus|sonnet|haiku)-MAJ-MIN (dated suffix dropped by model_family()).
+        let claude = model_family(Some(m));
+        if claude != "other" {
+            return claude;
+        }
+        // gpt-<ver>[-(mini|nano|turbo)] — keep one version token + optional variant.
+        if let Some(rest) = m.strip_prefix("gpt-") {
+            let mut parts = rest.split('-');
+            if let Some(ver) = parts.next() {
+                let ver_ok = !ver.is_empty()
+                    && ver.len() <= 8
+                    && ver.chars().all(|c| c.is_ascii_alphanumeric() || c == '.');
+                if ver_ok {
+                    return match parts.next() {
+                        Some(v @ ("mini" | "nano" | "turbo")) => format!("gpt-{ver}-{v}"),
+                        _ => format!("gpt-{ver}"),
+                    };
+                }
+            }
+            return "other".to_owned();
+        }
+        // o-series reasoning models: o1, o3-mini, o4-mini …
+        if let Some(rest) = m.strip_prefix('o') {
+            let mut parts = rest.split('-');
+            if let Some(num) = parts.next() {
+                if num.len() == 1 && num.chars().all(|c| c.is_ascii_digit()) && num != "0" {
+                    return match parts.next() {
+                        Some("mini") => format!("o{num}-mini"),
+                        _ => format!("o{num}"),
+                    };
+                }
+            }
+        }
+        "other".to_owned()
+    }
+
+    /// Broad family from a coarse api `model_bucket`.
+    fn api_model_family(bucket: &str) -> String {
+        if let Some(tier) = bucket
+            .strip_prefix("claude-")
+            .and_then(|r| r.split('-').next())
+        {
+            if matches!(tier, "opus" | "sonnet" | "haiku") {
+                return format!("claude-{tier}");
+            }
+        }
+        if bucket.starts_with("gpt-") {
+            return "gpt".to_owned();
+        }
+        if bucket.len() >= 2 && bucket.starts_with('o') && bucket.as_bytes()[1].is_ascii_digit() {
+            return "o-series".to_owned();
+        }
+        "other".to_owned()
     }
 
     /// Build one content-free benchmark row. Pure: `version`/`sent_day` injected for
@@ -1012,26 +1148,98 @@ mod benchmark_share {
         version: String,
         sent_day: String,
     ) -> BenchmarkPayload {
+        let is_api = input.backend == "api";
+        let model_bucket = if is_api {
+            api_model_bucket(input.model)
+        } else {
+            // local: the ollama tag coarsens to its family; family == bucket.
+            summarizer_family(Some(input.model))
+        };
+        let model_family = if is_api {
+            api_model_family(&model_bucket)
+        } else {
+            model_bucket.clone()
+        };
+        let model_size_bucket = if is_api {
+            "api".to_owned()
+        } else {
+            summarizer_size_bucket("default", Some(input.model))
+        };
         BenchmarkPayload {
             schema_version: SCHEMA_VERSION,
             sent_day,
             trimwire_version: version,
             corpus_version: input.corpus_version.to_owned(),
-            // A benchmarked model always has a tag, so "default" here never yields the
-            // "off"→"none" branches; family/size coarsen the tag so it can't fingerprint.
-            model_family: summarizer_family(Some(input.model_tag)),
-            model_size_bucket: summarizer_size_bucket("default", Some(input.model_tag)),
+            backend: input.backend.to_owned(),
+            provider_style: input.provider_style.to_owned(),
+            provider_route: input.provider_route.to_owned(),
+            model_family,
+            model_bucket,
+            model_size_bucket,
             retention_bucket: cache_pct_bucket(input.retention * 100.0),
             compression_bucket: cache_pct_bucket(input.reduction * 100.0),
-            false_done_count: false_done_bucket(input.false_done_total),
+            false_done_count: count_bucket(input.false_done_total),
             produced_usable_summary: input.all_usable,
+            benchmark_scope: if input.full_corpus {
+                "full_corpus".to_owned()
+            } else {
+                "partial_corpus".to_owned()
+            },
+            slice_count_bucket: slice_count_bucket(input.scored_slices, input.full_corpus),
+            failed_slice_count: count_bucket(input.failed_slices),
+            error_kind: input.error_kind.to_owned(),
             os_family: os_family(),
         }
     }
 
-    /// Content-free guard for the benchmark payload — same fail-closed discipline as
-    /// [`guard_content_free`]: unknown top-level key, or any closed-enum/bucket value
-    /// out of its set/range, refuses (never printed, never sent).
+    /// True iff `s` is a valid api `model_bucket` shape (claude-tier-N-N | gpt-… | o… | "other").
+    fn is_valid_api_model_bucket(s: &str) -> bool {
+        if s == "other" {
+            return true;
+        }
+        // claude-(opus|sonnet|haiku)-D-D
+        if let Some(rest) = s.strip_prefix("claude-") {
+            let parts: Vec<&str> = rest.split('-').collect();
+            if parts.len() == 3
+                && matches!(parts[0], "opus" | "sonnet" | "haiku")
+                && parts[1].parse::<u32>().is_ok()
+                && parts[2].parse::<u32>().is_ok()
+            {
+                return true;
+            }
+            return false;
+        }
+        if let Some(rest) = s.strip_prefix("gpt-") {
+            let mut parts = rest.split('-');
+            let ver = parts.next().unwrap_or("");
+            let ver_ok = !ver.is_empty()
+                && ver.len() <= 8
+                && ver.chars().all(|c| c.is_ascii_alphanumeric() || c == '.');
+            let variant_ok = match parts.next() {
+                None => true,
+                Some("mini" | "nano" | "turbo") => parts.next().is_none(),
+                Some(_) => false,
+            };
+            return ver_ok && variant_ok;
+        }
+        if let Some(rest) = s.strip_prefix('o') {
+            let mut parts = rest.split('-');
+            let num = parts.next().unwrap_or("");
+            let num_ok = num.len() == 1 && num.chars().all(|c| c.is_ascii_digit()) && num != "0";
+            let variant_ok = match parts.next() {
+                None => true,
+                Some("mini") => parts.next().is_none(),
+                Some(_) => false,
+            };
+            return num_ok && variant_ok;
+        }
+        false
+    }
+
+    /// Content-free guard for the benchmark payload — fail-closed: unknown top-level
+    /// key, or any closed-enum/bucket value out of its set/range, refuses (never
+    /// printed, never sent). Backend-aware: provider/model fields are validated
+    /// against the local vs api rules.
     pub fn guard_benchmark_content_free(value: &serde_json::Value) -> Result<()> {
         let obj = value
             .as_object()
@@ -1039,6 +1247,11 @@ mod benchmark_share {
         for key in obj.keys() {
             if !BENCHMARK_ALLOWED_KEYS.contains(&key.as_str()) {
                 anyhow::bail!("refusing to share: unexpected benchmark field {key:?}");
+            }
+        }
+        for key in BENCHMARK_ALLOWED_KEYS {
+            if !obj.contains_key(*key) {
+                anyhow::bail!("refusing to share: missing benchmark field {key:?}");
             }
         }
         let get_str = |field: &str| -> Result<&str> {
@@ -1050,20 +1263,71 @@ mod benchmark_share {
             anyhow::bail!("refusing to share: benchmark schema_version mismatch");
         }
         check_enum_in(get_str("os_family")?, OS_FAMILIES, "os_family")?;
-        let fam = get_str("model_family")?;
-        if fam != "other" && !SUMMARIZER_FAMILIES.contains(&fam) {
-            anyhow::bail!("refusing to share: model_family has unexpected value {fam:?}");
-        }
+        let backend = get_str("backend")?;
+        check_enum_in(backend, BACKENDS, "backend")?;
         check_enum_in(
-            get_str("model_size_bucket")?,
-            BENCHMARK_SIZE_BUCKETS,
-            "model_size_bucket",
+            get_str("provider_style")?,
+            PROVIDER_STYLES,
+            "provider_style",
+        )?;
+        check_enum_in(
+            get_str("provider_route")?,
+            PROVIDER_ROUTES,
+            "provider_route",
+        )?;
+        check_enum_in(
+            get_str("benchmark_scope")?,
+            BENCHMARK_SCOPES,
+            "benchmark_scope",
+        )?;
+        check_enum_in(
+            get_str("slice_count_bucket")?,
+            SLICE_COUNT_BUCKETS,
+            "slice_count_bucket",
         )?;
         check_enum_in(
             get_str("false_done_count")?,
-            FALSE_DONE_BUCKETS,
+            COUNT_BUCKETS,
             "false_done_count",
         )?;
+        check_enum_in(
+            get_str("failed_slice_count")?,
+            COUNT_BUCKETS,
+            "failed_slice_count",
+        )?;
+        check_enum_in(get_str("error_kind")?, ERROR_KINDS, "error_kind")?;
+
+        let fam = get_str("model_family")?;
+        let bucket = get_str("model_bucket")?;
+        let size = get_str("model_size_bucket")?;
+        if backend == "api" {
+            check_enum_in(fam, API_FAMILIES, "model_family")?;
+            if !is_valid_api_model_bucket(bucket) {
+                anyhow::bail!("refusing to share: model_bucket has unexpected value {bucket:?}");
+            }
+            // provider name as family/bucket is invalid for benchmark rows.
+            if size != "api" {
+                anyhow::bail!("refusing to share: api model_size_bucket must be \"api\"");
+            }
+            // local-only providers must be "none"; api rows carry a real style.
+            if get_str("provider_style")? == "none" {
+                anyhow::bail!("refusing to share: api row missing provider_style");
+            }
+        } else {
+            // local: family == bucket, an ollama family or "other".
+            if fam != "other" && !SUMMARIZER_FAMILIES.contains(&fam) {
+                anyhow::bail!("refusing to share: model_family has unexpected value {fam:?}");
+            }
+            if bucket != "other" && !SUMMARIZER_FAMILIES.contains(&bucket) {
+                anyhow::bail!("refusing to share: model_bucket has unexpected value {bucket:?}");
+            }
+            check_enum_in(size, BENCHMARK_SIZE_BUCKETS, "model_size_bucket")?;
+            if get_str("provider_style")? != "none" || get_str("provider_route")? != "none" {
+                anyhow::bail!(
+                    "refusing to share: local row must have provider_style/route \"none\""
+                );
+            }
+        }
         for field in ["retention_bucket", "compression_bucket"] {
             let n = obj
                 .get(field)
@@ -1097,17 +1361,42 @@ mod benchmark_share {
 
         fn input() -> BenchmarkShareInput<'static> {
             BenchmarkShareInput {
-                model_tag: "qwen3.5:4b",
+                backend: "local",
+                model: "qwen3.5:4b",
+                provider_style: "none",
+                provider_route: "none",
                 corpus_version: "1",
                 retention: 1.0,
                 reduction: 0.51,
                 false_done_total: 0,
                 all_usable: true,
+                full_corpus: true,
+                scored_slices: 5,
+                failed_slices: 0,
+                error_kind: "none",
+            }
+        }
+
+        fn api_input() -> BenchmarkShareInput<'static> {
+            BenchmarkShareInput {
+                backend: "api",
+                model: "claude-haiku-4-5-20251101",
+                provider_style: "anthropic",
+                provider_route: "anthropic",
+                corpus_version: "1",
+                retention: 0.9,
+                reduction: 0.6,
+                false_done_total: 0,
+                all_usable: true,
+                full_corpus: true,
+                scored_slices: 5,
+                failed_slices: 0,
+                error_kind: "none",
             }
         }
 
         #[test]
-        fn benchmark_payload_is_content_free_and_coarse() {
+        fn benchmark_payload_local_is_content_free_and_coarse() {
             let p = build_benchmark_payload(&input(), "0.1".to_owned(), "2026-06-08".to_owned());
             let v = serde_json::to_value(&p).unwrap();
             let obj = v.as_object().unwrap();
@@ -1118,14 +1407,48 @@ mod benchmark_share {
                 );
             }
             assert_eq!(obj.len(), BENCHMARK_ALLOWED_KEYS.len(), "no silent drops");
-            // coarsened: family + size tier, never the raw tag; buckets floored to 10pp.
+            assert_eq!(p.backend, "local");
+            assert_eq!(p.provider_style, "none");
+            assert_eq!(p.provider_route, "none");
             assert_eq!(p.model_family, "qwen3.5");
+            assert_eq!(p.model_bucket, "qwen3.5");
             assert_eq!(p.model_size_bucket, "3-4b");
             assert_eq!(p.retention_bucket, 100);
             assert_eq!(p.compression_bucket, 50); // 51% → 50
-            assert_eq!(p.false_done_count, "0");
-            assert!(p.produced_usable_summary);
-            guard_benchmark_content_free(&v).expect("clean payload passes the guard");
+            assert_eq!(p.benchmark_scope, "full_corpus");
+            assert_eq!(p.slice_count_bucket, "full");
+            assert_eq!(p.failed_slice_count, "0");
+            assert_eq!(p.error_kind, "none");
+            guard_benchmark_content_free(&v).expect("clean local payload passes the guard");
+        }
+
+        #[test]
+        fn benchmark_payload_api_coarsens_from_real_model() {
+            let p =
+                build_benchmark_payload(&api_input(), "0.2".to_owned(), "2026-06-14".to_owned());
+            // model_family/bucket come from the real model, NOT the provider id/style.
+            assert_eq!(p.model_bucket, "claude-haiku-4-5"); // dated suffix dropped
+            assert_eq!(p.model_family, "claude-haiku");
+            assert_eq!(p.backend, "api");
+            assert_eq!(p.provider_style, "anthropic");
+            assert_eq!(p.provider_route, "anthropic");
+            assert_eq!(p.model_size_bucket, "api"); // param count meaningless for cloud
+            let v = serde_json::to_value(&p).unwrap();
+            guard_benchmark_content_free(&v).expect("clean api payload passes the guard");
+        }
+
+        #[test]
+        fn benchmark_payload_api_openai_and_openrouter_prefix() {
+            let mut i = api_input();
+            i.model = "openai/gpt-4.1-mini"; // openrouter-style vendor prefix
+            i.provider_style = "openai";
+            i.provider_route = "openrouter";
+            let p = build_benchmark_payload(&i, "0.2".to_owned(), "2026-06-14".to_owned());
+            assert_eq!(p.model_bucket, "gpt-4.1-mini"); // vendor/ stripped, variant kept
+            assert_eq!(p.model_family, "gpt");
+            assert_eq!(p.provider_route, "openrouter");
+            let v = serde_json::to_value(&p).unwrap();
+            guard_benchmark_content_free(&v).expect("openai/openrouter api payload passes");
         }
 
         #[test]
@@ -1148,13 +1471,18 @@ mod benchmark_share {
             );
             assert!(guard_benchmark_content_free(&extra).is_err());
 
-            // a raw/high-cardinality value in a closed enum field
-            let mut bad_size = serde_json::to_value(&p).unwrap();
-            bad_size.as_object_mut().unwrap().insert(
-                "model_size_bucket".to_owned(),
-                Value::String("9 billion".to_owned()),
-            );
-            assert!(guard_benchmark_content_free(&bad_size).is_err());
+            // a missing key
+            let mut missing = serde_json::to_value(&p).unwrap();
+            missing.as_object_mut().unwrap().remove("backend");
+            assert!(guard_benchmark_content_free(&missing).is_err());
+
+            // a value out of a closed enum (backend)
+            let mut bad_backend = serde_json::to_value(&p).unwrap();
+            bad_backend
+                .as_object_mut()
+                .unwrap()
+                .insert("backend".to_owned(), Value::String("cloud".to_owned()));
+            assert!(guard_benchmark_content_free(&bad_backend).is_err());
 
             // a retention bucket that isn't a 10pp step
             let mut bad_ret = serde_json::to_value(&p).unwrap();
@@ -1164,37 +1492,72 @@ mod benchmark_share {
                 .insert("retention_bucket".to_owned(), Value::from(85));
             assert!(guard_benchmark_content_free(&bad_ret).is_err());
 
-            // a false_done_count outside the closed set
-            let mut bad_fd = serde_json::to_value(&p).unwrap();
-            bad_fd
+            // error_kind outside the closed set
+            let mut bad_err = serde_json::to_value(&p).unwrap();
+            bad_err
                 .as_object_mut()
                 .unwrap()
-                .insert("false_done_count".to_owned(), Value::String("3".to_owned()));
-            assert!(guard_benchmark_content_free(&bad_fd).is_err());
+                .insert("error_kind".to_owned(), Value::String("explode".to_owned()));
+            assert!(guard_benchmark_content_free(&bad_err).is_err());
 
-            // model_size_bucket values that are valid for STATS but nonsensical
-            // for a benchmarked model ("none" = off, "api" = cloud) must be
-            // rejected — they'd pollute the leaderboard grouping.
+            // local row must not carry a provider_style/route
+            let mut local_with_provider = serde_json::to_value(&p).unwrap();
+            local_with_provider.as_object_mut().unwrap().insert(
+                "provider_style".to_owned(),
+                Value::String("anthropic".to_owned()),
+            );
+            assert!(guard_benchmark_content_free(&local_with_provider).is_err());
+
+            // local model_family/size that don't belong (none/api) are rejected.
             for bad in ["none", "api"] {
                 let mut v = serde_json::to_value(&p).unwrap();
                 v.as_object_mut().unwrap().insert(
                     "model_size_bucket".to_owned(),
                     Value::String(bad.to_owned()),
                 );
-                assert!(
-                    guard_benchmark_content_free(&v).is_err(),
-                    "model_size_bucket {bad:?} should be rejected"
-                );
+                assert!(guard_benchmark_content_free(&v).is_err());
             }
-
-            // model_family "none" is valid for STATS (backend off) but a benchmarked
-            // model always has a real tag — reject it (symmetric with size above).
             let mut bad_fam = serde_json::to_value(&p).unwrap();
             bad_fam
                 .as_object_mut()
                 .unwrap()
                 .insert("model_family".to_owned(), Value::String("none".to_owned()));
             assert!(guard_benchmark_content_free(&bad_fam).is_err());
+        }
+
+        #[test]
+        fn benchmark_guard_rejects_provider_as_family_on_api() {
+            // provider name as model_family / model_bucket is invalid for api rows.
+            let p =
+                build_benchmark_payload(&api_input(), "0.2".to_owned(), "2026-06-14".to_owned());
+            for provider in ["anthropic", "openai", "openrouter"] {
+                let mut bad_fam = serde_json::to_value(&p).unwrap();
+                bad_fam.as_object_mut().unwrap().insert(
+                    "model_family".to_owned(),
+                    Value::String(provider.to_owned()),
+                );
+                assert!(
+                    guard_benchmark_content_free(&bad_fam).is_err(),
+                    "model_family {provider:?} must be rejected on api rows"
+                );
+
+                let mut bad_bucket = serde_json::to_value(&p).unwrap();
+                bad_bucket.as_object_mut().unwrap().insert(
+                    "model_bucket".to_owned(),
+                    Value::String(provider.to_owned()),
+                );
+                assert!(
+                    guard_benchmark_content_free(&bad_bucket).is_err(),
+                    "model_bucket {provider:?} must be rejected on api rows"
+                );
+            }
+            // api rows must carry size "api" and a real provider_style.
+            let mut bad_size = serde_json::to_value(&p).unwrap();
+            bad_size.as_object_mut().unwrap().insert(
+                "model_size_bucket".to_owned(),
+                Value::String("3-4b".to_owned()),
+            );
+            assert!(guard_benchmark_content_free(&bad_size).is_err());
         }
     }
 } // mod benchmark_share

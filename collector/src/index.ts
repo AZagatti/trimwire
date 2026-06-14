@@ -421,9 +421,11 @@ async function handleBenchIngest(request: Request, env: Env): Promise<Response> 
   await env.DB.prepare(
     `INSERT INTO benchmark (
        received_day, schema_version, sent_day, trimwire_version, corpus_version,
-       model_family, model_size_bucket, retention_bucket, compression_bucket,
-       false_done_count, produced_usable_summary, os_family
-     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+       backend, provider_style, provider_route, model_family, model_bucket,
+       model_size_bucket, retention_bucket, compression_bucket, false_done_count,
+       produced_usable_summary, benchmark_scope, slice_count_bucket,
+       failed_slice_count, error_kind, os_family
+     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
     .bind(
       utcToday(),
@@ -431,12 +433,20 @@ async function handleBenchIngest(request: Request, env: Env): Promise<Response> 
       r.sent_day,
       r.trimwire_version,
       r.corpus_version,
+      r.backend,
+      r.provider_style,
+      r.provider_route,
       r.model_family,
+      r.model_bucket,
       r.model_size_bucket,
       r.retention_bucket,
       r.compression_bucket,
       r.false_done_count,
       r.produced_usable_summary ? 1 : 0,
+      r.benchmark_scope,
+      r.slice_count_bucket,
+      r.failed_slice_count,
+      r.error_kind,
       r.os_family,
     )
     .run();
@@ -449,12 +459,20 @@ interface BenchDbRow {
   sent_day: string;
   trimwire_version: string;
   corpus_version: string;
+  backend: string;
+  provider_style: string;
+  provider_route: string;
   model_family: string;
+  model_bucket: string;
   model_size_bucket: string;
   retention_bucket: number;
   compression_bucket: number;
   false_done_count: string;
   produced_usable_summary: number;
+  benchmark_scope: string;
+  slice_count_bucket: string;
+  failed_slice_count: string;
+  error_kind: string;
   os_family: string;
 }
 
@@ -467,12 +485,20 @@ function benchRowFromDb(d: BenchDbRow): BenchmarkRow | null {
     sent_day: d.sent_day,
     trimwire_version: d.trimwire_version,
     corpus_version: d.corpus_version,
+    backend: d.backend,
+    provider_style: d.provider_style,
+    provider_route: d.provider_route,
     model_family: d.model_family,
+    model_bucket: d.model_bucket,
     model_size_bucket: d.model_size_bucket,
     retention_bucket: d.retention_bucket,
     compression_bucket: d.compression_bucket,
     false_done_count: d.false_done_count,
     produced_usable_summary: d.produced_usable_summary === 1,
+    benchmark_scope: d.benchmark_scope,
+    slice_count_bucket: d.slice_count_bucket,
+    failed_slice_count: d.failed_slice_count,
+    error_kind: d.error_kind,
     os_family: d.os_family,
   };
   const res = validateBenchmarkPayload(candidate);
@@ -504,8 +530,10 @@ async function handleBenchmarks(
   for (;;) {
     const { results } = await env.DB.prepare(
       `SELECT id, schema_version, sent_day, trimwire_version, corpus_version,
-              model_family, model_size_bucket, retention_bucket, compression_bucket,
-              false_done_count, produced_usable_summary, os_family
+              backend, provider_style, provider_route, model_family, model_bucket,
+              model_size_bucket, retention_bucket, compression_bucket, false_done_count,
+              produced_usable_summary, benchmark_scope, slice_count_bucket,
+              failed_slice_count, error_kind, os_family
          FROM benchmark WHERE id > ? ORDER BY id LIMIT ${PAGE}`,
     )
       .bind(cursor)

@@ -71,13 +71,25 @@ scores can't judge prose, so pass `--out` and skim a few summaries yourself.
 ## Share your results (optional)
 
 ```sh
-trimwire share benchmark --model qwen3.5:4b        # prints the exact row; sends nothing
-trimwire share benchmark --model qwen3.5:4b --yes  # uploads it to the community leaderboard
+trimwire share benchmark --model qwen3.5:4b        # local: prints the exact row; sends nothing
+trimwire share benchmark --model qwen3.5:4b --yes  # local: uploads it to the community leaderboard
+trimwire share benchmark --model anthropic --yes   # API provider (configured): uploads an api row
 ```
 
 `share benchmark` contributes an **anonymous, content-free** row to the community
-[model-benchmark page](https://trimwire.dev/benchmark/): your model's family + coarse size tier (never
-the raw tag), bucketed retention/compression, a capped false-done count, and whether
-it produced usable summaries — nothing else. It is **off by default**: without
-`--yes` it only prints what it *would* send (a dry run). See
-[Telemetry](TELEMETRY.md) for the exact payload.
+[model-benchmark page](https://trimwire.dev/benchmark/): coarse model family + bucket
+(never the raw tag), bucketed retention/compression, a capped false-done count, and
+whether it produced usable summaries — nothing else. It is **off by default**:
+without `--yes` it only prints what it *would* send (a dry run).
+
+**Both local and API/provider models are supported** (including OpenRouter-style
+testing across many models), but they are kept **distinct**: every row carries a
+`backend` (`local`/`api`), and the leaderboard ranks + filters them separately —
+API scores are a *directional cross-check*, never compared head-to-head with local
+ones. API rows derive their family/bucket from the **real model** (`claude-haiku-4-5`,
+`gpt-4.1-mini`), never the provider id; the provider shows only as a coarse
+`provider_route` (anthropic/openai/openrouter/azure/other). Partial runs (e.g.
+`--max-calls`) are labeled **partial** and ranked apart from full-corpus runs. If a
+provider/model **call** fails, that row is **not** uploaded — trimwire prints a
+report-an-issue hint instead (so a broken key/network never looks like a weak
+model). See [Telemetry](TELEMETRY.md) for the exact payload.

@@ -179,6 +179,14 @@ because the model summarizes a **bundled synthetic corpus**, never your session.
 Measuring fact-retention and false-done there reads no user content (invariant
 3 holds; the "cannot measure quality" caveat above is about *production* sessions).
 
+Both **local** (ollama) and **API/provider** models can be benchmarked + shared
+— but they are **never mixed**: every row carries an explicit `backend`, and the
+leaderboard ranks and filters `local` and `api` separately (API scores are a
+directional cross-check, not comparable to local ones). For API rows the
+`model_family`/`model_bucket` are derived from the **real model** (e.g.
+`claude-haiku-4-5`, `gpt-4.1-mini`) — never the provider id/name; the provider is
+captured only as a coarse `provider_style` + `provider_route` bucket.
+
 Same discipline as the stats payload: values are coarsened client-side, a content-free guard validates the payload, and a test enforces the allowed fields. One row **per benchmarked model**:
 
 | Field | Type | Client-side normalization |
@@ -187,26 +195,40 @@ Same discipline as the stats payload: values are coarsened client-side, a conten
 | `sent_day` | string | UTC calendar date `YYYY-MM-DD`. **No** sub-day time. |
 | `trimwire_version` | string | `MAJOR.MINOR` of the build (or `"dev"`). |
 | `corpus_version` | string | Which bundled corpus produced the score (rows across versions aren't comparable). |
-| `model_family` | enum | The ollama tag coarsened to family (`qwen3.5`, `llama3.1`, …, else `other`). **The raw tag and its size suffix are dropped.** |
-| `model_size_bucket` | enum | Coarse size tier from the tag: `≤2b` \| `3-4b` \| `5-9b` \| `≥10b` \| `unknown`. |
+| `backend` | enum | `local` (ollama) \| `api` (cloud provider). The leaderboard ranks these **separately**. |
+| `provider_style` | enum | `none` (local) \| `anthropic` \| `openai` (the API protocol). Never a provider id. |
+| `provider_route` | enum | `none` (local) \| `anthropic` \| `openai` \| `openrouter` \| `azure` \| `other`. A coarse bucket derived from the provider URL — **never the raw base_url, host, key, or env-var name**. |
+| `model_family` | enum | Broad family. local: ollama family (`qwen3.5`, …, else `other`); api: `claude-{tier}` \| `gpt` \| `o-series` \| `other`. A provider name is **not** a valid value. |
+| `model_bucket` | string | Public coarse model id. local: the ollama family; api: derived from the real model — `claude-tier-N-N` \| `gpt-<ver>[-mini/nano/turbo]` \| `o<n>[-mini]` \| `other`. Vendor prefixes (`anthropic/…` from OpenRouter) + dated suffixes stripped. |
+| `model_size_bucket` | enum | local: `≤2b` \| `3-4b` \| `5-9b` \| `≥10b` \| `unknown`; api: `api` (param count meaningless for cloud). |
 | `retention_bucket` | int | Fact retention floored to nearest **10** pp (0–100). |
 | `compression_bucket` | int | Summary compression (`1 − out/in`) floored to nearest **10** pp (0–100). |
 | `false_done_count` | enum | Unsupported completion claims, **capped**: `"0"` \| `"1"` \| `"2+"`. |
 | `produced_usable_summary` | bool | Did every slice yield a usable (non-empty, non-verbatim) summary? |
+| `benchmark_scope` | enum | `full_corpus` \| `partial_corpus` (e.g. an API run capped with `--max-calls`). Partial rows are ranked + labeled apart from full-corpus rows. |
+| `slice_count_bucket` | enum | How many slices were scored: `1` \| `2-4` \| `full`. |
+| `failed_slice_count` | enum | Provider/model **call** failures, capped: `"0"` \| `"1"` \| `"2+"`. A reliability signal, distinct from model quality. |
+| `error_kind` | enum | Coarse error class across failed slices: `none` \| `timeout` \| `http_status` \| `malformed` \| `empty` \| `unreachable` \| `auth_or_config` \| `other`. **Never a raw message/stack trace.** |
 | `os_family` | enum | `linux` \| `macos` \| `windows` \| `other`. |
 
-No raw model tag, no summary text, no per-slice detail, no paths/ids/raw counts.
-Sharing is blocked unless the bundled corpus matches a pinned, verified hash, so
-modified builds can't inject results into the shared dataset. Off by default:
-without `--yes` (or with `[share] benchmark_endpoint` set empty), `trimwire share
-benchmark` only prints the row. See [the benchmark guide](BENCHMARK.md).
+No raw model tag/id, no provider URLs/hosts/keys/env-var names, no summary text,
+no per-slice detail, no paths/ids/raw counts, no error messages. Rows whose run
+had call failures are **not** uploaded (the CLI prints a report-an-issue hint
+instead — error auto-upload isn't enabled). Sharing is blocked unless the bundled
+corpus matches a pinned, verified hash, so modified builds can't inject results
+into the shared dataset. Off by default: without `--yes` (or with `[share]
+benchmark_endpoint` set empty), `trimwire share benchmark` only prints the row.
+See [the benchmark guide](BENCHMARK.md).
 
-The leaderboard suppresses any (model family + size) group below **k=5** uploads.
-Unlike the stats payload, the benchmark row carries **no dedup token** and the
-collector never stores an IP — so there is no per-identity dedup and the
+The leaderboard groups by `(corpus_version, backend, model_family, model_bucket,
+model_size_bucket, benchmark_scope)` and suppresses any group below **k=5**
+uploads. Unlike the stats payload, the benchmark row carries **no dedup token**
+and the collector never stores an IP — so there is no per-identity dedup and the
 leaderboard's `N` counts uploaded rows, not distinct people. That is a deliberate
 trade-off (no cross-day identity is ever retained) and is why the page is framed
-as a *directional* ranking, not an authoritative one.
+as a *directional* ranking, not an authoritative one. **Local and API rows are
+never combined into one ranking** (different `backend` ⟹ different group), and
+partial-corpus rows are kept apart from full-corpus rows.
 
 ## k-anonymity & how the dashboard is computed
 
