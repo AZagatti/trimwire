@@ -211,7 +211,11 @@ Same discipline as the stats payload: values are coarsened client-side, a conten
 | `error_kind` | enum | Coarse error class across failed slices: `none` \| `timeout` \| `http_status` \| `malformed` \| `empty` \| `unreachable` \| `auth_or_config` \| `other`. **Never a raw message/stack trace.** |
 | `os_family` | enum | `linux` \| `macos` \| `windows` \| `other`. |
 
-No raw model tag/id, no provider URLs/hosts/keys/env-var names, no summary text,
+The collector also fail-closes on internal inconsistency: `model_family` must be
+the one *derived from* the (public, coarsened) `model_bucket` (api) or equal to it
+(local), and the failed/error + scope/slice-count pairs must agree — so a
+valid-but-mismatched hand-crafted payload (e.g. family `gpt` + bucket `o3-mini`)
+is rejected. No raw model tag/id, no provider URLs/hosts/keys/env-var names, no summary text,
 no per-slice detail, no paths/ids/raw counts, no error messages. Rows whose run
 had call failures are **not** uploaded (the CLI prints a report-an-issue hint
 instead — error auto-upload isn't enabled). Sharing is blocked unless the bundled

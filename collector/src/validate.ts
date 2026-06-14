@@ -427,6 +427,20 @@ function isValidApiModelBucket(s: string): boolean {
   }
   return OPEN_FAMILY_BASES.includes(s);
 }
+
+/** Derive the expected broad `model_family` from the (already-coarsened, public)
+ *  api `model_bucket`. Uses ONLY the bucket in the payload — never a raw model id,
+ *  provider id, or URL. MIRRORS `api_model_family` in src/cli/share.rs. */
+function deriveApiFamilyFromBucket(bucket: string): string {
+  const claude = /^claude-(opus|sonnet|haiku)-/.exec(bucket);
+  if (claude) return `claude-${claude[1]}`;
+  if (bucket.startsWith("gpt-")) return "gpt";
+  if (bucket.length >= 2 && bucket[0] === "o" && bucket[1] >= "0" && bucket[1] <= "9") return "o-series";
+  // OPEN: strip a trailing "-{N}b" size to recover the base family.
+  const dash = bucket.lastIndexOf("-");
+  const base = dash > 0 && SIZE_TOKEN_RE.test(bucket.slice(dash + 1)) ? bucket.slice(0, dash) : bucket;
+  return OPEN_FAMILY_BASES.includes(base) ? base : "other";
+}
 /** A benchmark row's `model_size_bucket` — a SUBSET of SUMMARIZER_SIZE_BUCKETS.
  *  A benchmarked model always has a real size tier (or "unknown"), never "none"
  *  (backend off) or "api" (cloud), so those are excluded to keep the leaderboard
@@ -547,6 +561,11 @@ export function validateBenchmarkPayload(body: unknown): BenchmarkValidateResult
     // model_family/bucket derived from the real model — provider names rejected.
     if (!isValidApiFamily(mf)) return { ok: false, error: "bad model_family" };
     if (!isValidApiModelBucket(bucket)) return { ok: false, error: "bad model_bucket" };
+    // family must be the one DERIVED from the (public) bucket — reject a valid-but-
+    // mismatched pair (e.g. family "gpt" + bucket "o3-mini").
+    if (mf !== deriveApiFamilyFromBucket(bucket)) {
+      return { ok: false, error: "inconsistent model_family/model_bucket" };
+    }
     if (size !== "api") return { ok: false, error: "bad model_size_bucket" };
     // an api row carries a real style + route; "none" is local-only.
     if (body.provider_style === "none") return { ok: false, error: "bad provider_style" };
@@ -558,6 +577,10 @@ export function validateBenchmarkPayload(body: unknown): BenchmarkValidateResult
     }
     if (bucket !== "other" && !BENCHMARK_FAMILIES.includes(bucket)) {
       return { ok: false, error: "bad model_bucket" };
+    }
+    // local family + bucket are the SAME coarsened ollama family — enforce it.
+    if (mf !== bucket) {
+      return { ok: false, error: "inconsistent model_family/model_bucket" };
     }
     if (!BENCHMARK_SIZE_BUCKETS.includes(size)) {
       return { ok: false, error: "bad model_size_bucket" };

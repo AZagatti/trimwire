@@ -1346,13 +1346,18 @@ mod benchmark_share {
         if s == "other" {
             return true;
         }
-        // claude-(opus|sonnet|haiku)-D-D
+        // claude-(opus|sonnet|haiku)-D-D, each D = 1..=3 digits. The 1–3 digit bound
+        // is the DOCUMENTED shared limit with the TS collector's API_BUCKET_CLAUDE_RE
+        // (`\d{1,3}`) — keep both in sync so a future version can't pass one + 400 the
+        // other. (Current Claude versions are single-digit; 3 digits is ample headroom.)
         if let Some(rest) = s.strip_prefix("claude-") {
             let parts: Vec<&str> = rest.split('-').collect();
+            let digits_1_3 =
+                |p: &str| (1..=3).contains(&p.len()) && p.chars().all(|c| c.is_ascii_digit());
             if parts.len() == 3
                 && matches!(parts[0], "opus" | "sonnet" | "haiku")
-                && parts[1].parse::<u32>().is_ok()
-                && parts[2].parse::<u32>().is_ok()
+                && digits_1_3(parts[1])
+                && digits_1_3(parts[2])
             {
                 return true;
             }
@@ -1469,6 +1474,14 @@ mod benchmark_share {
             if !is_valid_api_model_bucket(bucket) {
                 anyhow::bail!("refusing to share: model_bucket has unexpected value {bucket:?}");
             }
+            // family must be the one DERIVED from the (public, coarsened) bucket —
+            // a valid-but-mismatched pair (e.g. family "gpt" + bucket "o3-mini") is
+            // rejected. Uses only the bucket already in the payload, never raw input.
+            if fam != api_model_family(bucket) {
+                anyhow::bail!(
+                    "refusing to share: model_family {fam:?} is inconsistent with model_bucket {bucket:?}"
+                );
+            }
             if size != "api" {
                 anyhow::bail!("refusing to share: api model_size_bucket must be \"api\"");
             }
@@ -1483,6 +1496,12 @@ mod benchmark_share {
             }
             if bucket != "other" && !SUMMARIZER_FAMILIES.contains(&bucket) {
                 anyhow::bail!("refusing to share: model_bucket has unexpected value {bucket:?}");
+            }
+            // local family + bucket are the SAME coarsened ollama family — enforce it.
+            if fam != bucket {
+                anyhow::bail!(
+                    "refusing to share: local model_family {fam:?} must equal model_bucket {bucket:?}"
+                );
             }
             check_enum_in(size, BENCHMARK_SIZE_BUCKETS, "model_size_bucket")?;
             if provider_style != "none" || provider_route != "none" {
@@ -1793,6 +1812,44 @@ mod benchmark_share {
                 Value::String("openrouter".to_owned()),
             );
             assert!(guard_benchmark_content_free(&bad_local).is_err());
+        }
+
+        #[test]
+        fn benchmark_guard_rejects_family_bucket_mismatch() {
+            // LOCAL: family must equal bucket (both the same coarsened ollama family).
+            let lp = build_benchmark_payload(&input(), "0.1".to_owned(), "2026-06-08".to_owned());
+            let mut local_mismatch = serde_json::to_value(&lp).unwrap();
+            local_mismatch.as_object_mut().unwrap().insert(
+                "model_bucket".to_owned(),
+                Value::String("llama3.1".to_owned()),
+            );
+            assert!(
+                guard_benchmark_content_free(&local_mismatch).is_err(),
+                "local family=qwen3.5 + bucket=llama3.1 must be rejected"
+            );
+
+            // API: family must be the one DERIVED from the bucket. Each pair is
+            // individually valid but inconsistent → reject.
+            let ap =
+                build_benchmark_payload(&api_input(), "0.2".to_owned(), "2026-06-14".to_owned());
+            let mismatches = [
+                ("qwen3", "llama-3.1-8b"),
+                ("claude-haiku", "gpt-4.1-mini"),
+                ("gpt", "o3-mini"),
+                ("gemma-3", "qwen3-32b"),
+            ];
+            for (fam, bucket) in mismatches {
+                let mut v = serde_json::to_value(&ap).unwrap();
+                {
+                    let o = v.as_object_mut().unwrap();
+                    o.insert("model_family".to_owned(), Value::String(fam.to_owned()));
+                    o.insert("model_bucket".to_owned(), Value::String(bucket.to_owned()));
+                }
+                assert!(
+                    guard_benchmark_content_free(&v).is_err(),
+                    "api family={fam:?} + bucket={bucket:?} must be rejected"
+                );
+            }
         }
     }
 } // mod benchmark_share

@@ -185,6 +185,47 @@ describe("validateBenchmarkPayload", () => {
     expect(validateBenchmarkPayload({ ...localBenchmark(), benchmark_scope: "full_corpus", slice_count_bucket: "2-4" })).toEqual({ ok: false, error: "inconsistent benchmark_scope/slice_count_bucket" });
     expect(validateBenchmarkPayload({ ...localBenchmark(), benchmark_scope: "partial_corpus", slice_count_bucket: "full" })).toEqual({ ok: false, error: "inconsistent benchmark_scope/slice_count_bucket" });
   });
+
+  // --- model_family ↔ model_bucket consistency ---
+  it("rejects a local row where model_family !== model_bucket", () => {
+    expect(validateBenchmarkPayload({ ...localBenchmark(), model_family: "qwen3.5", model_bucket: "llama3.1" })).toEqual({
+      ok: false,
+      error: "inconsistent model_family/model_bucket",
+    });
+  });
+
+  it("rejects api rows where model_family is not the one derived from model_bucket", () => {
+    const cases: [string, string][] = [
+      ["qwen3", "llama-3.1-8b"],
+      ["claude-haiku", "gpt-4.1-mini"],
+      ["gpt", "o3-mini"],
+      ["gemma-3", "qwen3-32b"],
+    ];
+    for (const [family, bucket] of cases) {
+      // both are individually valid; only the pair is inconsistent.
+      expect(validateBenchmarkPayload({ ...apiBenchmark(), provider_style: "openai", provider_route: "openrouter", model_family: family, model_bucket: bucket }), `${family}/${bucket}`).toEqual({
+        ok: false,
+        error: "inconsistent model_family/model_bucket",
+      });
+    }
+  });
+
+  it("accepts api rows where family matches the derived family", () => {
+    const cases: [string, string][] = [
+      ["claude-haiku", "claude-haiku-4-5"],
+      ["gpt", "gpt-5-mini"],
+      ["o-series", "o3-mini"],
+      ["qwen3", "qwen3-32b"],
+      ["gemma-3", "gemma-3-27b"],
+      ["llama-3.1", "llama-3.1-8b"],
+      ["mistral-small", "mistral-small"],
+      ["deepseek-r1", "deepseek-r1"],
+      ["other", "other"],
+    ];
+    for (const [family, bucket] of cases) {
+      expect(validateBenchmarkPayload({ ...apiBenchmark(), provider_style: "openai", provider_route: "openrouter", model_family: family, model_bucket: bucket }).ok, `${family}/${bucket}`).toBe(true);
+    }
+  });
 });
 
 describe("aggregateBenchmark provider_route", () => {
