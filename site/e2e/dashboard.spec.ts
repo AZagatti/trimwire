@@ -31,6 +31,8 @@ test.describe("/dashboard/ page", () => {
   test("shows the opt-in CTA (command + guide link)", async ({ page }) => {
     const empty = page.locator(".tw-dash-empty");
     await expect(empty.locator(".tw-empty-cmd")).toHaveText("trimwire share stats");
-    await expect(empty.locator("a")).toHaveAttribute("href", "/guides/telemetry/");
+    // The empty-state has two links (the guide + the ?demo preview), so assert the
+    // guide link specifically — a bare `a` locator is a strict-mode violation.
+    await expect(empty.locator('a[href="/guides/telemetry/"]')).toBeVisible();
   });
 });

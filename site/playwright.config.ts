@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * E2E configuration — the trophy tip. Small, focused, non-flaky.
- * Tests run against `npm run build` output served by `npx serve dist --listen 4321`.
+ * Tests run against `npm run build` output served by Astro's own preview server.
  * Because both pages rely on client-side JS (no data-* URL ⟹ EXAMPLE fallback),
  * every spec gets a fully-rendered page without a live collector.
  *
@@ -32,8 +32,10 @@ export default defineConfig({
   ],
 
   webServer: {
-    /* Build is assumed done before test:e2e runs (see package.json script). */
-    command: "npx serve dist --listen 4321 --no-clipboard",
+    /* Build is assumed done before test:e2e runs (see package.json script).
+       Use Astro's own preview server (already a pinned dep) instead of a
+       run-time `npx serve` fetch — reproducible, offline-safe, no extra dep. */
+    command: "npm run preview -- --port 4321",
     url: "http://localhost:4321",
     reuseExistingServer: !process.env.CI,
     stdout: "ignore",

@@ -84,4 +84,4 @@ say "running '$BIN install' (writes config + shell rc)"
 "$BINDIR/$BIN" install
 
 say "done. Reload your shell (exec \$SHELL) then use 'claude' as normal."
-say "  (or run one session without the always-on service: $BIN run claude)"
+say "  (or run one session without the always-on service: $BIN run)"
