@@ -21,8 +21,10 @@ Both **local** (ollama) and **API/provider** models appear here, but they are
 **never ranked head-to-head** — use the **Local / API** filter. API scores are a
 directional cross-check (different context windows, temperatures, pricing), not
 equivalent to local-model scores. API rows are labeled by provider *route*
-(anthropic/openai/openrouter/…), partial-corpus runs are tagged **partial**, and a
-**Failed** column flags provider/call reliability separately from model quality.
+(anthropic/openai/openrouter/…; a single cell that spans routes shows **mixed**),
+and partial-corpus runs are tagged **partial**. (Provider/model **call failures**
+are tracked on the wire but not yet published, so there is no reliability column
+here yet — a run that failed isn't uploaded.)
 
 The leaderboard fills in over time, as each model group crosses the k-anonymity
 threshold; until then it shows an honest empty-state (try the `?demo` view to

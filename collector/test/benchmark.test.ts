@@ -149,6 +149,56 @@ describe("validateBenchmarkPayload", () => {
     expect(validateBenchmarkPayload({ ...apiBenchmark(), model_bucket: "claude-haiku" })).toEqual({ ok: false, error: "bad model_bucket" }); // missing version
     expect(validateBenchmarkPayload({ ...apiBenchmark(), model_bucket: "gpt-this-is-way-too-long-and-weird" })).toEqual({ ok: false, error: "bad model_bucket" });
   });
+
+  // --- OpenRouter open-model families preserved (not collapsed to "other") ---
+  it("accepts open-model api families/buckets with size variants", () => {
+    const cases = [
+      ["qwen3", "qwen3-32b"],
+      ["qwen3", "qwen3-4b"],
+      ["gemma-3", "gemma-3-27b"],
+      ["llama-3.1", "llama-3.1-8b"],
+      ["mistral-small", "mistral-small"],
+      ["qwen2.5", "qwen2.5-7b"],
+    ];
+    for (const [family, bucket] of cases) {
+      const p = { ...apiBenchmark(), provider_style: "openai", provider_route: "openrouter", model_family: family, model_bucket: bucket };
+      expect(validateBenchmarkPayload(p).ok, `${family}/${bucket}`).toBe(true);
+    }
+  });
+
+  it("rejects a size on a no-size base + an unknown open family", () => {
+    expect(validateBenchmarkPayload({ ...apiBenchmark(), provider_style: "openai", provider_route: "openrouter", model_family: "mistral-small", model_bucket: "mistral-small-22b" })).toEqual({ ok: false, error: "bad model_bucket" });
+    expect(validateBenchmarkPayload({ ...apiBenchmark(), provider_style: "openai", provider_route: "openrouter", model_family: "frobnicate", model_bucket: "frobnicate-9b" })).toEqual({ ok: false, error: "bad model_family" });
+  });
+
+  // --- cross-field consistency (Point 1) ---
+  it("rejects api row with provider_route=none", () => {
+    expect(validateBenchmarkPayload({ ...apiBenchmark(), provider_route: "none" })).toEqual({ ok: false, error: "bad provider_route" });
+  });
+
+  it("rejects inconsistent failed_slice_count/error_kind", () => {
+    expect(validateBenchmarkPayload({ ...localBenchmark(), failed_slice_count: "0", error_kind: "timeout" })).toEqual({ ok: false, error: "inconsistent failed_slice_count/error_kind" });
+    expect(validateBenchmarkPayload({ ...localBenchmark(), failed_slice_count: "1", error_kind: "none" })).toEqual({ ok: false, error: "inconsistent failed_slice_count/error_kind" });
+  });
+
+  it("rejects inconsistent benchmark_scope/slice_count_bucket", () => {
+    expect(validateBenchmarkPayload({ ...localBenchmark(), benchmark_scope: "full_corpus", slice_count_bucket: "2-4" })).toEqual({ ok: false, error: "inconsistent benchmark_scope/slice_count_bucket" });
+    expect(validateBenchmarkPayload({ ...localBenchmark(), benchmark_scope: "partial_corpus", slice_count_bucket: "full" })).toEqual({ ok: false, error: "inconsistent benchmark_scope/slice_count_bucket" });
+  });
+});
+
+describe("aggregateBenchmark provider_route", () => {
+  it("reports a single route when the group agrees, else 'mixed'", () => {
+    const api = (route: string): BenchmarkRow =>
+      brow({ backend: "api", provider_style: "anthropic", provider_route: route, model_family: "claude-haiku", model_bucket: "claude-haiku-4-5", model_size_bucket: "api" });
+    // all anthropic
+    const single = aggregateBenchmark([api("anthropic"), api("anthropic"), api("anthropic")], 3);
+    expect(single.models[0].provider_route).toBe("anthropic");
+    // same model via anthropic + openrouter → one cell, route "mixed"
+    const mixed = aggregateBenchmark([api("anthropic"), api("openrouter"), api("anthropic")], 3);
+    expect(mixed.models).toHaveLength(1);
+    expect(mixed.models[0].provider_route).toBe("mixed");
+  });
 });
 
 function brow(over: Partial<BenchmarkRow> = {}): BenchmarkRow {

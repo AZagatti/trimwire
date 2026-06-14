@@ -230,6 +230,13 @@ as a *directional* ranking, not an authoritative one. **Local and API rows are
 never combined into one ranking** (different `backend` ⟹ different group), and
 partial-corpus rows are kept apart from full-corpus rows.
 
+`provider_route` is **display metadata, not part of the group key** — the same real
+model via Anthropic vs OpenRouter is one leaderboard cell (the dashboard shows the
+route, or `mixed` if a cell spans routes). `failed_slice_count` + `error_kind` are
+defined + validated on the wire but **reserved**: rows whose run had a provider/model
+call failure are not uploaded yet (no error-reporting route exists), so the published
+dataset has no failure rows and the site shows no reliability column for now.
+
 ## k-anonymity & how the dashboard is computed
 
 - **Grouping key (quasi-identifier):**

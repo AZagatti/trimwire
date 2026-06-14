@@ -980,7 +980,10 @@ mod benchmark_share {
         "auth_or_config",
         "other",
     ];
-    /// Broad API model families (the closed set the api `model_family` is coarsened to).
+    /// Broad API model families coarsened from the real model id (claude tiers +
+    /// the openai families + "other"). OPEN families (qwen/llama/…) are an
+    /// additional recognized set — see `OPEN_FAMILY_BASES` + `is_valid_api_family`.
+    /// A provider NAME (anthropic/openai/openrouter) is never a valid family.
     const API_FAMILIES: &[&str] = &[
         "claude-opus",
         "claude-sonnet",
@@ -989,6 +992,129 @@ mod benchmark_share {
         "o-series",
         "other",
     ];
+
+    /// Normalized OPEN-model family bases (api `model_family` for non-claude/openai
+    /// models, so OpenRouter rows for qwen/llama/gemma/mistral/… stay distinct, not
+    /// collapsed to "other"). MIRRORS `OPEN_FAMILY_BASES` in collector/src/validate.ts.
+    const OPEN_FAMILY_BASES: &[&str] = &[
+        "qwen",
+        "qwen2",
+        "qwen2.5",
+        "qwen3",
+        "qwen3.5",
+        "llama",
+        "llama-2",
+        "llama-3",
+        "llama-3.1",
+        "llama-3.2",
+        "llama-3.3",
+        "gemma",
+        "gemma-2",
+        "gemma-3",
+        "phi",
+        "phi-3",
+        "phi-4",
+        "granite",
+        "granite-3",
+        "granite-3.1",
+        "mistral",
+        "mistral-small",
+        "mistral-medium",
+        "mistral-large",
+        "mistral-nemo",
+        "mixtral",
+        "deepseek",
+        "deepseek-v2",
+        "deepseek-v3",
+        "deepseek-r1",
+    ];
+
+    /// Bases whose bucket NEVER carries a `-<N>b` size (they already name a variant).
+    const NO_SIZE_BASES: &[&str] = &[
+        "mistral-small",
+        "mistral-medium",
+        "mistral-large",
+        "mistral-nemo",
+        "mixtral",
+        "deepseek-v2",
+        "deepseek-v3",
+        "deepseek-r1",
+    ];
+
+    /// (id prefix → normalized base), MOST-SPECIFIC FIRST so `qwen3.5` wins over
+    /// `qwen3` over `qwen`. Both dashed + undashed spellings handled.
+    const OPEN_FAMILY_PREFIXES: &[(&str, &str)] = &[
+        ("qwen3.5", "qwen3.5"),
+        ("qwen-3.5", "qwen3.5"),
+        ("qwen2.5", "qwen2.5"),
+        ("qwen-2.5", "qwen2.5"),
+        ("qwen3", "qwen3"),
+        ("qwen-3", "qwen3"),
+        ("qwen2", "qwen2"),
+        ("qwen-2", "qwen2"),
+        ("qwen", "qwen"),
+        ("llama-3.3", "llama-3.3"),
+        ("llama3.3", "llama-3.3"),
+        ("llama-3.2", "llama-3.2"),
+        ("llama3.2", "llama-3.2"),
+        ("llama-3.1", "llama-3.1"),
+        ("llama3.1", "llama-3.1"),
+        ("llama-3", "llama-3"),
+        ("llama3", "llama-3"),
+        ("llama-2", "llama-2"),
+        ("llama2", "llama-2"),
+        ("llama", "llama"),
+        ("gemma-3", "gemma-3"),
+        ("gemma3", "gemma-3"),
+        ("gemma-2", "gemma-2"),
+        ("gemma2", "gemma-2"),
+        ("gemma", "gemma"),
+        ("phi-4", "phi-4"),
+        ("phi4", "phi-4"),
+        ("phi-3", "phi-3"),
+        ("phi3", "phi-3"),
+        ("phi", "phi"),
+        ("granite-3.1", "granite-3.1"),
+        ("granite3.1", "granite-3.1"),
+        ("granite-3", "granite-3"),
+        ("granite3", "granite-3"),
+        ("granite", "granite"),
+        ("mixtral", "mixtral"),
+        ("mistral-small", "mistral-small"),
+        ("mistral-medium", "mistral-medium"),
+        ("mistral-large", "mistral-large"),
+        ("mistral-nemo", "mistral-nemo"),
+        ("mistral", "mistral"),
+        ("deepseek-r1", "deepseek-r1"),
+        ("deepseek-v3", "deepseek-v3"),
+        ("deepseek-v2", "deepseek-v2"),
+        ("deepseek", "deepseek"),
+    ];
+
+    /// True iff `s` is a recognized api `model_family` (closed + open sets).
+    fn is_valid_api_family(s: &str) -> bool {
+        API_FAMILIES.contains(&s) || OPEN_FAMILY_BASES.contains(&s)
+    }
+
+    /// A coarse param-size token: digits (one optional dot) + `b`, e.g. `32b`, `3.8b`.
+    fn is_size_token(seg: &str) -> bool {
+        match seg.strip_suffix('b') {
+            Some(num) => {
+                !num.is_empty()
+                    && num.len() <= 5
+                    && num.chars().all(|c| c.is_ascii_digit() || c == '.')
+                    && num.chars().any(|c| c.is_ascii_digit())
+            }
+            None => false,
+        }
+    }
+
+    /// Extract the first param-size token from a model id (scans `-`/`:` segments).
+    fn extract_size(m: &str) -> Option<String> {
+        m.split(['-', ':'])
+            .find(|s| is_size_token(s))
+            .map(str::to_owned)
+    }
 
     /// Aggregated, content-free inputs `benchmark.rs` hands to the share layer (one
     /// per benchmarked model). No prose, no per-slice detail, no raw URLs/ids — only
@@ -1119,6 +1245,21 @@ mod benchmark_share {
                 }
             }
         }
+        // OPEN families (qwen/llama/gemma/mistral/phi/granite/deepseek/mixtral),
+        // typically via OpenRouter (`vendor/` already stripped). Build the bucket
+        // from a recognized base + the param size — dropping dates/finetune/instruct
+        // suffixes so no arbitrary string leaks.
+        for (prefix, base) in OPEN_FAMILY_PREFIXES {
+            if m.starts_with(prefix) {
+                if NO_SIZE_BASES.contains(base) {
+                    return (*base).to_owned();
+                }
+                return match extract_size(m) {
+                    Some(size) => format!("{base}-{size}"),
+                    None => (*base).to_owned(),
+                };
+            }
+        }
         "other".to_owned()
     }
 
@@ -1137,6 +1278,14 @@ mod benchmark_share {
         }
         if bucket.len() >= 2 && bucket.starts_with('o') && bucket.as_bytes()[1].is_ascii_digit() {
             return "o-series".to_owned();
+        }
+        // OPEN: bucket is "{base}" or "{base}-{N}b" — strip a trailing size to the base.
+        let base = match bucket.rsplit_once('-') {
+            Some((head, tail)) if is_size_token(tail) => head,
+            _ => bucket,
+        };
+        if OPEN_FAMILY_BASES.contains(&base) {
+            return base.to_owned();
         }
         "other".to_owned()
     }
@@ -1231,7 +1380,17 @@ mod benchmark_share {
                 Some("mini") => parts.next().is_none(),
                 Some(_) => false,
             };
-            return num_ok && variant_ok;
+            if num_ok && variant_ok {
+                return true;
+            }
+        }
+        // OPEN: "{base}" or "{base}-{N}b" for a recognized base (size only when allowed).
+        let (base, has_size) = match s.rsplit_once('-') {
+            Some((head, tail)) if is_size_token(tail) => (head, true),
+            _ => (s, false),
+        };
+        if OPEN_FAMILY_BASES.contains(&base) {
+            return !(has_size && NO_SIZE_BASES.contains(&base));
         }
         false
     }
@@ -1300,18 +1459,22 @@ mod benchmark_share {
         let fam = get_str("model_family")?;
         let bucket = get_str("model_bucket")?;
         let size = get_str("model_size_bucket")?;
+        let provider_style = get_str("provider_style")?;
+        let provider_route = get_str("provider_route")?;
         if backend == "api" {
-            check_enum_in(fam, API_FAMILIES, "model_family")?;
+            // family/bucket derived from the REAL model — a provider name is invalid.
+            if !is_valid_api_family(fam) {
+                anyhow::bail!("refusing to share: model_family has unexpected value {fam:?}");
+            }
             if !is_valid_api_model_bucket(bucket) {
                 anyhow::bail!("refusing to share: model_bucket has unexpected value {bucket:?}");
             }
-            // provider name as family/bucket is invalid for benchmark rows.
             if size != "api" {
                 anyhow::bail!("refusing to share: api model_size_bucket must be \"api\"");
             }
-            // local-only providers must be "none"; api rows carry a real style.
-            if get_str("provider_style")? == "none" {
-                anyhow::bail!("refusing to share: api row missing provider_style");
+            // an api row carries a real style + route ("none" is local-only).
+            if provider_style == "none" || provider_route == "none" {
+                anyhow::bail!("refusing to share: api row must have a real provider_style + route");
             }
         } else {
             // local: family == bucket, an ollama family or "other".
@@ -1322,11 +1485,22 @@ mod benchmark_share {
                 anyhow::bail!("refusing to share: model_bucket has unexpected value {bucket:?}");
             }
             check_enum_in(size, BENCHMARK_SIZE_BUCKETS, "model_size_bucket")?;
-            if get_str("provider_style")? != "none" || get_str("provider_route")? != "none" {
+            if provider_style != "none" || provider_route != "none" {
                 anyhow::bail!(
                     "refusing to share: local row must have provider_style/route \"none\""
                 );
             }
+        }
+        // Cross-field consistency (fail closed even for hand-crafted payloads):
+        let failed = get_str("failed_slice_count")?;
+        let error_kind = get_str("error_kind")?;
+        if (failed == "0") != (error_kind == "none") {
+            anyhow::bail!("refusing to share: failed_slice_count/error_kind are inconsistent");
+        }
+        let scope = get_str("benchmark_scope")?;
+        let slice_count = get_str("slice_count_bucket")?;
+        if (scope == "full_corpus") != (slice_count == "full") {
+            anyhow::bail!("refusing to share: benchmark_scope/slice_count_bucket are inconsistent");
         }
         for field in ["retention_bucket", "compression_bucket"] {
             let n = obj
@@ -1558,6 +1732,67 @@ mod benchmark_share {
                 Value::String("3-4b".to_owned()),
             );
             assert!(guard_benchmark_content_free(&bad_size).is_err());
+        }
+
+        #[test]
+        fn api_open_model_buckets_preserve_family_and_size() {
+            // OpenRouter-style vendor prefixes stripped; family + size preserved;
+            // instruct/it/date suffixes dropped. NOT collapsed to "other".
+            let cases = [
+                ("qwen/qwen3-32b", "qwen3-32b", "qwen3"),
+                ("qwen/qwen3-4b", "qwen3-4b", "qwen3"),
+                ("google/gemma-3-27b-it", "gemma-3-27b", "gemma-3"),
+                (
+                    "meta-llama/llama-3.1-8b-instruct",
+                    "llama-3.1-8b",
+                    "llama-3.1",
+                ),
+                (
+                    "mistralai/mistral-small-2501",
+                    "mistral-small",
+                    "mistral-small",
+                ),
+                ("qwen/qwen2.5-7b-instruct", "qwen2.5-7b", "qwen2.5"),
+            ];
+            for (model, want_bucket, want_family) in cases {
+                let mut i = api_input();
+                i.model = model;
+                i.provider_style = "openai";
+                i.provider_route = "openrouter";
+                let p = build_benchmark_payload(&i, "0.2".to_owned(), "2026-06-14".to_owned());
+                assert_eq!(p.model_bucket, want_bucket, "bucket for {model}");
+                assert_eq!(p.model_family, want_family, "family for {model}");
+                let v = serde_json::to_value(&p).unwrap();
+                guard_benchmark_content_free(&v)
+                    .unwrap_or_else(|e| panic!("{model} should pass: {e}"));
+            }
+        }
+
+        #[test]
+        fn benchmark_guard_enforces_cross_field_consistency() {
+            let p =
+                build_benchmark_payload(&api_input(), "0.2".to_owned(), "2026-06-14".to_owned());
+            let tweak = |k: &str, val: &str| {
+                let mut v = serde_json::to_value(&p).unwrap();
+                v.as_object_mut()
+                    .unwrap()
+                    .insert(k.to_owned(), Value::String(val.to_owned()));
+                v
+            };
+            // failed_slice_count=0 but error_kind != none → reject
+            assert!(guard_benchmark_content_free(&tweak("error_kind", "timeout")).is_err());
+            // benchmark_scope=full_corpus but slice_count_bucket != full → reject
+            assert!(guard_benchmark_content_free(&tweak("slice_count_bucket", "2-4")).is_err());
+            // api row with provider_route=none → reject
+            assert!(guard_benchmark_content_free(&tweak("provider_route", "none")).is_err());
+            // local row carrying a provider_route → reject
+            let lp = build_benchmark_payload(&input(), "0.1".to_owned(), "2026-06-08".to_owned());
+            let mut bad_local = serde_json::to_value(&lp).unwrap();
+            bad_local.as_object_mut().unwrap().insert(
+                "provider_route".to_owned(),
+                Value::String("openrouter".to_owned()),
+            );
+            assert!(guard_benchmark_content_free(&bad_local).is_err());
         }
     }
 } // mod benchmark_share

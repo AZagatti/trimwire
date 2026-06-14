@@ -376,10 +376,12 @@ export function aggregateBenchmark(rows: BenchmarkRow[], k: number): BenchmarkAg
       group.reduce((acc, r) => acc + sel(r), 0) / n;
     const pctTrue = (sel: (r: BenchmarkRow) => boolean) =>
       round1((group.filter(sel).length / n) * 100);
-    // Most-common provider_route in the group (the key already fixes backend).
-    const routeCounts = new Map<string, number>();
-    for (const r of group) routeCounts.set(r.provider_route, (routeCounts.get(r.provider_route) ?? 0) + 1);
-    const provider_route = [...routeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    // provider_route is display metadata, NOT part of the group key — the same
+    // real model via Anthropic vs OpenRouter is ONE leaderboard cell. So report a
+    // single route only when the whole group agrees; otherwise "mixed" (never a
+    // misleading single route for a multi-route cell).
+    const routes = new Set(group.map((r) => r.provider_route));
+    const provider_route = routes.size === 1 ? [...routes][0] : "mixed";
 
     models.push({
       backend: first.backend,

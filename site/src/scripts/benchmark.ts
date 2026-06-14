@@ -84,7 +84,9 @@ const COLS: Col[] = [
   { key: "avg_compression", label: "Compression", get: (r) => num(r.avg_compression), dir: "desc", cell: "bar", hint: "% the summary shrank the excerpt" },
   { key: "usable_pct", label: "Usable", get: (r) => num(r.usable_pct), dir: "desc", cell: "bar", hint: "% of runs that produced a usable summary" },
   { key: "fcs", label: "FCS", get: fcs, dir: "desc", cell: "fcs", hint: "Faithful-compression score = retention × compression (higher = better)" },
-  { key: "failed_rate", label: "Failed", get: (r) => num(r.failed_rate), dir: "asc", cell: "falsedone", hint: "% of runs with a provider/model CALL failure — a reliability signal, not model quality" },
+  // NOTE: failed_slice_count/error_kind are collected on the wire but failed rows
+  // are NOT uploaded yet (reserved for a future error-reporting route), so there is
+  // deliberately no "Failed" column — the public dataset has no failure rows.
   { key: "contributors", label: "N", get: (r) => num(r.contributors), dir: "desc", cell: "num", hint: "uploaded rows (identity-free, so not necessarily distinct people)" },
 ];
 
@@ -241,11 +243,7 @@ function renderTable(host: HTMLElement, status: HTMLElement, state: State, reren
             const flag = document.createElement("span");
             flag.className = "twb-flag";
             flag.setAttribute("role", "img");
-            const what =
-              c.key === "failed_rate"
-                ? "provider/model call failure rate — a reliability signal, not model quality"
-                : "false-done rate — disqualifying";
-            flag.setAttribute("aria-label", `warning: non-zero ${what}`);
+            flag.setAttribute("aria-label", "warning: non-zero false-done rate — disqualifying");
             flag.textContent = "⚑ ";
             td.append(flag);
           }
@@ -281,8 +279,7 @@ function renderTable(host: HTMLElement, status: HTMLElement, state: State, reren
     `k=${state.k ?? "?"} · ${state.suppressed_groups ?? 0} hidden as too small. ` +
     "Backend separates local (ollama) from api (cloud) — NOT directly comparable. " +
     "FCS = retention × compression (higher = better); Usable = % producing a usable summary; " +
-    "⚑ = disqualifying false-done; Failed = provider/model call failures (reliability, not quality); " +
-    "'partial' = fewer corpus slices scored.";
+    "⚑ = disqualifying false-done; 'partial' = fewer corpus slices scored.";
 }
 
 /** Build the search box + family filter chips ONCE (so the search input keeps

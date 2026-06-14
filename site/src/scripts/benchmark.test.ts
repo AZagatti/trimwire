@@ -30,7 +30,7 @@ describe("benchmark leaderboard", () => {
     const root = host();
     mount(root, EXAMPLE);
     expect(root.querySelectorAll("tbody tr")).toHaveLength(EXAMPLE.models!.length);
-    expect(root.querySelectorAll("thead th")).toHaveLength(9);
+    expect(root.querySelectorAll("thead th")).toHaveLength(8);
     const fcsCells = [...root.querySelectorAll("td.twb-fcs")].map((c) => Number(c.textContent));
     expect(fcsCells[0]).toBe(Math.max(...fcsCells));
   });

@@ -387,20 +387,45 @@ const SLICE_COUNT_BUCKETS = ["1", "2-4", "full"];
 const ERROR_KINDS = [
   "none", "timeout", "http_status", "malformed", "empty", "unreachable", "auth_or_config", "other",
 ];
-/** Broad API model families (the closed set api `model_family` is coarsened to). */
+/** Broad API model families coarsened from the real model id (claude tiers +
+ *  openai families + "other"). OPEN families are an additional recognized set.
+ *  MIRRORS `API_FAMILIES` in src/cli/share.rs. */
 const API_FAMILIES = ["claude-opus", "claude-sonnet", "claude-haiku", "gpt", "o-series", "other"];
+/** Normalized OPEN-model family bases (qwen/llama/gemma/mistral/…) so OpenRouter
+ *  rows stay distinguishable, not collapsed to "other". MIRRORS `OPEN_FAMILY_BASES`
+ *  in src/cli/share.rs. */
+const OPEN_FAMILY_BASES = [
+  "qwen", "qwen2", "qwen2.5", "qwen3", "qwen3.5", "llama", "llama-2", "llama-3", "llama-3.1",
+  "llama-3.2", "llama-3.3", "gemma", "gemma-2", "gemma-3", "phi", "phi-3", "phi-4", "granite",
+  "granite-3", "granite-3.1", "mistral", "mistral-small", "mistral-medium", "mistral-large",
+  "mistral-nemo", "mixtral", "deepseek", "deepseek-v2", "deepseek-v3", "deepseek-r1",
+];
+/** Bases whose bucket never carries a `-<N>b` size (they already name a variant). */
+const NO_SIZE_BASES = new Set([
+  "mistral-small", "mistral-medium", "mistral-large", "mistral-nemo", "mixtral",
+  "deepseek-v2", "deepseek-v3", "deepseek-r1",
+]);
+/** A coarse param-size token: digits (one optional dot) + `b`, e.g. `32b`, `3.8b`. */
+const SIZE_TOKEN_RE = /^\d+(\.\d+)?b$/;
+function isValidApiFamily(s: string): boolean {
+  return API_FAMILIES.includes(s) || OPEN_FAMILY_BASES.includes(s);
+}
 /** Shape checks for an api `model_bucket` (low-cardinality public model id).
  *  MIRRORS `is_valid_api_model_bucket` in src/cli/share.rs. */
 const API_BUCKET_CLAUDE_RE = /^claude-(opus|sonnet|haiku)-\d{1,3}-\d{1,3}$/;
 const API_BUCKET_GPT_RE = /^gpt-[a-z0-9.]{1,8}(-(mini|nano|turbo))?$/;
 const API_BUCKET_O_RE = /^o[1-9](-mini)?$/;
 function isValidApiModelBucket(s: string): boolean {
-  return (
-    s === "other" ||
-    API_BUCKET_CLAUDE_RE.test(s) ||
-    API_BUCKET_GPT_RE.test(s) ||
-    API_BUCKET_O_RE.test(s)
-  );
+  if (s === "other" || API_BUCKET_CLAUDE_RE.test(s) || API_BUCKET_GPT_RE.test(s) || API_BUCKET_O_RE.test(s)) {
+    return true;
+  }
+  // OPEN: "{base}" or "{base}-{N}b" for a recognized base (size only when allowed).
+  const dash = s.lastIndexOf("-");
+  if (dash > 0 && SIZE_TOKEN_RE.test(s.slice(dash + 1))) {
+    const base = s.slice(0, dash);
+    return OPEN_FAMILY_BASES.includes(base) && !NO_SIZE_BASES.has(base);
+  }
+  return OPEN_FAMILY_BASES.includes(s);
 }
 /** A benchmark row's `model_size_bucket` — a SUBSET of SUMMARIZER_SIZE_BUCKETS.
  *  A benchmarked model always has a real size tier (or "unknown"), never "none"
@@ -520,11 +545,12 @@ export function validateBenchmarkPayload(body: unknown): BenchmarkValidateResult
   }
   if (backend === "api") {
     // model_family/bucket derived from the real model — provider names rejected.
-    if (!API_FAMILIES.includes(mf)) return { ok: false, error: "bad model_family" };
+    if (!isValidApiFamily(mf)) return { ok: false, error: "bad model_family" };
     if (!isValidApiModelBucket(bucket)) return { ok: false, error: "bad model_bucket" };
     if (size !== "api") return { ok: false, error: "bad model_size_bucket" };
-    // an api row carries a real style; "none" is local-only.
+    // an api row carries a real style + route; "none" is local-only.
     if (body.provider_style === "none") return { ok: false, error: "bad provider_style" };
+    if (body.provider_route === "none") return { ok: false, error: "bad provider_route" };
   } else {
     // local: a LOCAL-model family (never a provider name), family == bucket-tier.
     if (mf !== "other" && !BENCHMARK_FAMILIES.includes(mf)) {
@@ -539,6 +565,13 @@ export function validateBenchmarkPayload(body: unknown): BenchmarkValidateResult
     if (body.provider_style !== "none" || body.provider_route !== "none") {
       return { ok: false, error: "bad provider for local row" };
     }
+  }
+  // Cross-field consistency (fail closed even for hand-crafted payloads).
+  if ((body.failed_slice_count === "0") !== (body.error_kind === "none")) {
+    return { ok: false, error: "inconsistent failed_slice_count/error_kind" };
+  }
+  if ((body.benchmark_scope === "full_corpus") !== (body.slice_count_bucket === "full")) {
+    return { ok: false, error: "inconsistent benchmark_scope/slice_count_bucket" };
   }
   if (!intInRange(body.retention_bucket, 0, 100, 10)) {
     return { ok: false, error: "bad retention_bucket" };
