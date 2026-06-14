@@ -31,7 +31,7 @@
 //! a user see how their own model behaves on the same kind of slice the
 //! proxy summarizes, with every component shown so nothing hides behind one number.
 //!
-//! Composite `FCS = retention × reduction × 100` (the council-vetted multiplicative
+//! Composite `FCS = retention × compression × 100` (the council-vetted multiplicative
 //! form already in `benchmark/model_bench.sh`: a verbatim copy OR a fact-dropper
 //! both score ~0), behind a **false-done safety gate** — any unsupported completion
 //! claim, or any slice that produced no usable summary, drops the model to the
@@ -193,12 +193,14 @@ struct ModelScore {
     backend: String,
     /// `total_kept / total_needles` across all slices (0..1).
     retention: f64,
-    /// `1 − Σout/Σin` across all slices (0..1).
+    /// Summary **compression** = `1 − Σout/Σin` across all slices (0..1). (Named
+    /// `reduction` here for historical reasons; the public/UI term is "compression",
+    /// distinct from the request-byte *reduction* trimwire reports in `stats`.)
     reduction: f64,
     false_done_total: usize,
     /// % of slices that produced a usable summary.
     usable_pct: f64,
-    /// `retention × reduction × 100`, BEFORE the safety gate.
+    /// `retention × compression × 100`, BEFORE the safety gate.
     fcs: f64,
     /// Safety gate: any false-done OR any unusable slice → bottom tier.
     gated: bool,

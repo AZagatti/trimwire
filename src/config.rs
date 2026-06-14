@@ -36,11 +36,13 @@ pub struct Config {
     /// OPT-IN summarizer. Default engine is `model-free` (no summarizer). Never
     /// load-bearing, never seeded by a profile. See `docs/SUMMARIZER.md`.
     pub summarizer: SummarizerConfig,
-    /// OPT-IN anonymous telemetry (`trimwire share stats`). Off by default:
-    /// `endpoint` is empty, so `share` has nowhere to send and refuses to
-    /// upload. There is intentionally **no default endpoint** — the maintainer
-    /// sets one only once a collector + privacy policy exist. The payload is
-    /// content-free and bucketed client-side; see `docs/TELEMETRY.md`.
+    /// OPT-IN anonymous telemetry (`trimwire share stats` / `share benchmark`).
+    /// Off by default: the binary ships built-in community endpoints
+    /// (`api.trimwire.dev`), but nothing uploads without explicit consent —
+    /// `share enable` (persisted) or a one-shot `--yes`; otherwise the command
+    /// dry-runs. `[share] endpoint` / `benchmark_endpoint` override the built-ins
+    /// for self-hosting. The payload is content-free and bucketed client-side;
+    /// see `docs/TELEMETRY.md`.
     pub share: ShareConfig,
 }
 

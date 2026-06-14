@@ -36,18 +36,19 @@ make phase0    # auto-creates a venv + installs pytest on first run
 the Python invariant suite that the Rust strategies will mirror. If
 both pass, the workspace is healthy.
 
-To resume, find the next-up step in `DEVELOPMENT.md` "Phase 1" and start
-there. Each step lists acceptance criteria — when those pass, commit and
-move on.
+To resume, check **ai-memory** first (auto-loaded; it holds the current state and
+next steps). Phases 1 + 2 are complete and shipped — `DEVELOPMENT.md` is now
+historical. For the remaining backlog/build sequence see `internal/BACKLOG-SCORED.md`.
 
 
 ## Project state
 
 trimwire is a Rust HTTP gateway for Claude Code context pruning.
 
-> **⚠️ v0.1.0 — FIRST public release (tagged 2026-06-11).** The install base is young
-> and the surface is intentionally unstable until v1.0, but real users + on-disk
-> configs/ledgers now exist, so don't *silently* break them:
+> **⚠️ v0.2.x — released + live (v0.1.0 was 2026-06-11; current crate 0.2.2, a
+> v0.2.3 release PR is open).** The install base is young and the surface is
+> intentionally unstable until v1.0, but real users + on-disk configs/ledgers
+> now exist, so don't *silently* break them:
 > - **Additive changes** (new optional config key, new subcommand): no back-compat work.
 > - **Structural breaks** (rename/remove a required config key or CLI command, change
 >   the ledger schema): add a migration shim OR a clear error pointing to the new form,
@@ -228,7 +229,7 @@ These are the maintainer's standing expectations. Follow them by default; they a
 - **Verify subagent claims against the real code/data** — they overclaim; the orchestrator (you) is the check (catch "data not available at call-site", false precision, stale assumptions).
 - **Real sessions:** never operate on the live `~/.claude` transcripts — **copy them to a working dir and work on the copies** (`benchmark/reconstruct_session.py` on copies → bodies).
 - **Result-impacting code changes ship WITH regression/smoke tests**; strategy/prompt changes go through the **harm gate** (`tests/harm.rs` + the false-done detector + blind real-slice gut-read) and need maintainer greenlight before merge.
-- **Never push or tag** — the maintainer pushes + releases manually (release-plz handles version/tag/crates.io on their push). Commit on `main`. Commit trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
+- **Default: don't push or tag.** Commit on `main`. Push only when the maintainer **explicitly asks** and local checks are green (fmt/clippy/test/doc + any affected collector/site checks). Even then: **never merge the release-plz release PR** — leave it open for maintainer review (release-plz handles version/tag/crates.io + the binary build once *they* merge it). Never create tags by hand. Commit trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 - **Priority order: CODE > docs/DX.** A skill is doc-like (not a code item). API-provider/portability is after the tool is peak. See `internal/BACKLOG-SCORED.md` BUILD SEQUENCE.
 - **Docs source = context7.** Before writing/reviewing code against any library or framework (Astro/Starlight/Vite for the site, Cloudflare Workers/D1 for the collector, clap/hyper/tokio/rusqlite for the binary), consult the `context7` skill rather than training data — and instruct subagents to do the same.
 - **Regression & bench sweep:** before a release, after a meaningful change set, or periodically, run the subagent sweep in [`docs/REGRESSION-WORKFLOW.md`](docs/REGRESSION-WORKFLOW.md) — a 6-agent fan-out (build/gate, invariant harnesses, bench regression, parity oracle, docs/memory drift, coverage gaps) reconciled into one scorecard. Mostly offline/deterministic (only `examples/api_harm` needs a provider key). It catches what CI doesn't: savings drift, doc/memory drift, and untested new surface.
@@ -324,9 +325,10 @@ See [`SPIKE.md` §8](SPIKE.md) for the full table.
 - **T4 (tmux restart)** — POC at [`pocs/tier3-restart.sh`](pocs/tier3-restart.sh);
   documented as a reference snippet only.
 
-If you find yourself implementing T2/T3/T4 in the Rust binary,
+If you find yourself implementing T2/T4 in the Rust binary,
 **stop and re-read the spike.** Either the spike needs updating
-(empirical data showed something) or you're scope-creeping.
+(empirical data showed something) or you're scope-creeping. (T1 + T3 already
+ship — see above.)
 
 ## Pre-commit setup
 

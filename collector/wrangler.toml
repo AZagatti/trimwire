@@ -19,8 +19,8 @@ workers_dev = false
 # same Cloudflare account, deploying creates the DNS record and binds the domain
 # automatically — no dashboard step. This also enables the /aggregates.json edge
 # cache and makes CF-Connecting-IP trustworthy for the rate-limiters (both are
-# no-ops / spoofable on a bare *.workers.dev). The client POSTs to
-# https://api.trimwire.dev/ingest; the dashboard reads /aggregates.json.
+# no-ops / spoofable on a bare *.workers.dev). The client POSTs to /ingest +
+# /ingest-benchmark; the site reads /aggregates.json + /benchmarks.json.
 [[routes]]
 pattern = "api.trimwire.dev"
 custom_domain = true

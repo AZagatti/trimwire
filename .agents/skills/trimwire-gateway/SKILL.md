@@ -17,8 +17,9 @@ before opening source.
    [`SPIKE.md` §5](../../../SPIKE.md) (Pairing invariants) — it has the
    pseudocode and the three invariants that every strategy must respect.
 3. **Confirm you're not scope-creeping.** See the tier table in
-   [`SPIKE.md` §8](../../../SPIKE.md) — only T1 (gateway) is built in
-   v0.1. T2/T3/T4 are POCs in `pocs/` or documented recipes only.
+   [`SPIKE.md` §8](../../../SPIKE.md) and AGENTS.md — as of v0.2.x, T1 (gateway)
+   and T3 (`sweep`, `src/cli/sweep.rs`) are shipped Rust code; T2/T4 remain
+   documented recipes only. Don't re-implement what already ships.
 
 ## Task recipes
 

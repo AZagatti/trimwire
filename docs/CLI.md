@@ -45,6 +45,10 @@ Start the gateway service.
 
 Stop the gateway service. Claude Code sends requests directly to Anthropic until you run `trimwire on` again.
 
+### `trimwire run [-- <cmd>…]`
+
+Launch `claude` (with any forwarded args) through a one-shot gateway, without installing the always-on service: trimwire starts the gateway in the background, points the child at it via `ANTHROPIC_BASE_URL`, runs it, then tears the gateway down on exit. Good for trying trimwire once. `--audit FILE` (or `TRIMWIRE_AUDIT=FILE`) writes a metadata-only wire audit (JSONL — shape/counts only, never message content).
+
 ### `trimwire status`
 
 Show whether the gateway is running and serving.

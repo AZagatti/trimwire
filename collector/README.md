@@ -41,11 +41,11 @@ still move the aggregate to a scheduled (cron) Worker that writes
 
 ## Files
 
-- `src/validate.ts` — pure ingest validation (the privacy gate). Unit-tested.
-- `src/aggregate.ts` — pure k-anonymity + l-diversity + intensive aggregation. Unit-tested.
-- `src/index.ts` — the Worker wiring (routes, D1 reads/writes). Run via `wrangler dev`.
-- `schema.sql` — the D1 table + grouping index. Content-free columns only.
-- `wrangler.toml` — **template** (placeholder database id + `K`). Maintainer fills in.
+- `src/validate.ts` — pure ingest validation (the privacy gate), stats + benchmark. Unit-tested.
+- `src/aggregate.ts` — pure k-anonymity + l-diversity + intensive aggregation, stats + benchmark. Unit-tested.
+- `src/index.ts` — the Worker wiring (all 4 routes, D1 reads/writes). Run via `wrangler dev`.
+- `schema.sql` — the D1 tables (`telemetry` + `benchmark`) + grouping indexes. Content-free columns only.
+- `wrangler.toml` — the **canonical deployed config** (real account-scoped, non-secret D1/KV ids + `K`/`BENCH_K`). Forks: replace the ids/bindings with your own.
 
 ## Local development / test
 
