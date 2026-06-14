@@ -57,8 +57,9 @@ above; the always-on service targets Linux/macOS (systemd/launchd).
 
 ```bash
 trimwire install         # config + shell-rc ANTHROPIC_BASE_URL + the always-up service (auto-started)
-exec $SHELL              # pick up the new env, then just use claude as normal
-claude
+exec $SHELL              # pick up the new env
+trimwire doctor          # optional: confirm the gateway is wired + healthy
+claude                   # use claude as normal — trimwire prunes each request
 ```
 
 > **Day one:** zero rows in `trimwire stats` is normal — no traffic has flowed

@@ -6,8 +6,9 @@
 **Start with `trimwire doctor`** — it checks the config + active profile, whether
 the gateway is serving, whether `ANTHROPIC_BASE_URL` points at it, and whether the
 ledger exists, in one shot. `trimwire config show` prints the resolved effective
-config (after the profile + global/project/env merge). For deeper digging, run the
-gateway with `TRIMWIRE_LOG=info trimwire serve` (or `=debug`) and watch its stderr.
+config (after the profile + global/project/env merge). For deeper digging, run a
+foreground session with `TRIMWIRE_LOG=info trimwire run claude` (or `=debug`) and
+watch the gateway's stderr.
 
 ### Claude Code returns connection / TCP errors
 The gateway isn't running, or `ANTHROPIC_BASE_URL` points somewhere nothing is
@@ -24,8 +25,8 @@ Check: is the daemon running (`trimwire status`) and is `ANTHROPIC_BASE_URL`
 actually set in the shell/app you launched `claude` from? Run a `claude` turn,
 then re-check. (Savings can still be 0 on a short text-only session — the
 workhorse strategies need repetition: re-reads, a failed command, old
-screenshots — but rows should appear once requests flow.) Watch the daemon's
-`pruned[...]` stderr line (`TRIMWIRE_LOG=info trimwire serve`) to confirm it's
+screenshots — but rows should appear once requests flow.) Watch the gateway's
+`pruned[...]` stderr line (`TRIMWIRE_LOG=info trimwire run claude`) to confirm it's
 on the wire. Once rows exist, `trimwire recall` lists recorded sessions (newest
 first, content-free) so you can find a session id to pass to `stats --session`.
 
@@ -69,8 +70,8 @@ the gateway's actual savings.
    counts; lower it by setting `trigger_bytes` under `[summarizer]` in
    `~/.config/trimwire.toml` (`trimwire config` opens it).
 5. Any failure silently falls back to model-free pruning by design — the
-   summarizer is never load-bearing. If it fails silently, `TRIMWIRE_LOG=info trimwire serve`
-   will show the reason in stderr.
+   summarizer is never load-bearing. If it fails silently, `TRIMWIRE_LOG=info trimwire run claude`
+   will show the reason in the gateway's stderr.
 
 ## FAQ
 

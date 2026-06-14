@@ -45,10 +45,11 @@ historical. For the remaining backlog/build sequence see `internal/BACKLOG-SCORE
 
 trimwire is a Rust HTTP gateway for Claude Code context pruning.
 
-> **⚠️ v0.2.x — released + live (v0.1.0 was 2026-06-11; current crate 0.2.2, a
-> v0.2.3 release PR is open).** The install base is young and the surface is
-> intentionally unstable until v1.0, but real users + on-disk configs/ledgers
-> now exist, so don't *silently* break them:
+> **⚠️ Released + live** (first public release v0.1.0, 2026-06-11). For the
+> *current* version + release state, check `Cargo.toml`, `CHANGELOG.md`,
+> crates.io, and any open release-plz PR — don't rely on a hardcoded number here.
+> The install base is young and the surface is intentionally unstable until v1.0,
+> but real users + on-disk configs/ledgers now exist, so don't *silently* break them:
 > - **Additive changes** (new optional config key, new subcommand): no back-compat work.
 > - **Structural breaks** (rename/remove a required config key or CLI command, change
 >   the ledger schema): add a migration shim OR a clear error pointing to the new form,

@@ -8,10 +8,12 @@ description: Use when the user asks — inside a Claude Code session — how muc
 trimwire is a local proxy that prunes Claude Code's conversation context on every
 API call. This skill surfaces what it's doing **in-session** by running its
 **safe, local, content-free** CLI commands via the shell and interpreting the
-results. It does **not** write code or change config. Almost everything here only
-reads; the one exception is `trimwire dashboard --out FILE`, which writes a local
-HTML report. Network uploads (`share stats` / `share benchmark`) never happen
-without the user's explicit consent (`share enable` or `--yes`).
+results. It never writes code or edits the pruning config. Most commands here are
+**safe + local + read-only**; the exceptions are narrow: `trimwire dashboard --out
+FILE` writes a local HTML report, and `trimwire share enable`/`disable` flip a
+single consent flag (`[share] enabled`) in the global config — only run those when
+the user explicitly asks to opt in/out. Network uploads (`share stats` /
+`share benchmark`) never happen without that consent (`share enable` or `--yes`).
 
 ## When to use this skill
 
