@@ -65,7 +65,7 @@ Show the savings ledger: bytes pruned, reduction %, estimated tokens, per-strate
 
 | Flag | Description |
 |---|---|
-| `--json` | Emit machine-readable JSON (totals, per-day, per-strategy, estimates) |
+| `--json` | Emit machine-readable JSON (`bytes_saved`, `reduction_pct`, `est_tokens_removed`, `per_day`, `per_strategy`, …) |
 | `-q`, `--quiet` | One-line headline only — for scripts, prompts, and a quick glance |
 | `-v`, `--verbose` | Full response instrumentation and a longer day history |
 | `--session [ID]` | Per-session, per-model cache/token report. Omit the value (`--session`) to show the most recent session. Pass a session id from `trimwire recall` for a specific one. Conflicts with `--since`/`--until` |
@@ -78,7 +78,7 @@ trimwire stats -v                       # full instrumentation and longer day hi
 trimwire stats --session                # most recent session detail
 trimwire stats --session abc123         # a specific session from `trimwire recall`
 trimwire stats --since 2026-06-01       # savings since a date
-trimwire stats --json | jq .totals      # scripting
+trimwire stats --json | jq .reduction_pct   # scripting
 ```
 
 ### `trimwire recall`

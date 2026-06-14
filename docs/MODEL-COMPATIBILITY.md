@@ -6,7 +6,7 @@
 > still N=1** (directional only — see the warnings inline). Treat this as a *starting
 > reference* + a tool to run yourself (`probe --runs`), not authoritative rankings. The
 > **real, aggregated numbers come from opted-in users** via `trimwire share benchmark`
-> and live on the community **[benchmark leaderboard](/benchmark/)** (which fills in
+> and live on the community **[benchmark leaderboard](https://trimwire.dev/benchmark/)** (which fills in
 > over time, once each model group crosses the k-anonymity threshold). Don't read
 > this table as community results.
 

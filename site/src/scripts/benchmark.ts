@@ -66,7 +66,7 @@ const COLS: Col[] = [
   { key: "avg_compression", label: "Compression", get: (r) => num(r.avg_compression), dir: "desc", cell: "bar", hint: "% the summary shrank the excerpt" },
   { key: "usable_pct", label: "Usable", get: (r) => num(r.usable_pct), dir: "desc", cell: "bar", hint: "% of runs that produced a usable summary" },
   { key: "fcs", label: "FCS", get: fcs, dir: "desc", cell: "fcs", hint: "Faithful-compression score = retention × compression (higher = better)" },
-  { key: "contributors", label: "N", get: (r) => num(r.contributors), dir: "desc", cell: "num", hint: "contributors" },
+  { key: "contributors", label: "N", get: (r) => num(r.contributors), dir: "desc", cell: "num", hint: "uploaded rows (identity-free, so not necessarily distinct people)" },
 ];
 
 interface State {

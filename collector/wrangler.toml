@@ -1,7 +1,8 @@
 # trimwire telemetry collector — Cloudflare Worker config.
 #
-# INERT: this file is a TEMPLATE. The maintainer fills in the real account /
-# database id and deploys. Nothing here points at a live resource.
+# This is the DEPLOYED config: it carries the real (account-scoped, non-secret)
+# D1/KV ids and is live at api.trimwire.dev. The repo CI does NOT auto-deploy —
+# the maintainer runs `wrangler deploy` by hand. Forks: swap in your own ids.
 
 name = "trimwire-telemetry"
 main = "src/index.ts"

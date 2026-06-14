@@ -44,11 +44,12 @@ platform-specific binary on first build. In a fully offline/sandboxed build that
 download fails (non-fatal — the rest of the site builds fine, search just has no
 index); on Cloudflare Pages or any networked CI it works normally.
 
-## Maintainer-owned (intentionally not wired here)
+## Deploy / config
 
-- **`PUBLIC_AGGREGATES_URL`** — set this to the deployed collector's
-  `/aggregates.json` (a Cloudflare Pages build env var) once the collector is
-  live. Until then the dashboard previews sample data.
-- **Domain + deploy** — the real domain, the Cloudflare Pages project, and
-  go-live are the maintainer's call. `astro.config.mjs` `site:` is a placeholder.
+- **`PUBLIC_AGGREGATES_URL` / `PUBLIC_BENCHMARK_URL`** — wired in `.env` to the
+  live collector (`https://api.trimwire.dev/aggregates.json` and
+  `/benchmarks.json`). The dashboard + leaderboard fetch these at runtime and show
+  an honest empty-state until a cohort crosses the k-anonymity threshold.
+- **Domain + deploy** — live at `trimwire.dev` via Cloudflare Workers Builds
+  (auto-deploys on push to `main`); `astro.config.mjs` `site:` is `trimwire.dev`.
 - **Branding** — palette lives in `src/styles/custom.css`; no logo is shipped.

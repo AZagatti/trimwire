@@ -1,32 +1,34 @@
-# collector/ — trimwire telemetry collector (inert reference)
+# collector/ — trimwire telemetry collector
 
-A Cloudflare **Worker + D1** that receives the opt-in, content-free payload from
-`trimwire share stats`, stores one coarse row per upload, and serves a
-**k-anonymous, aggregate-only** JSON for the public dashboard. The payload
-contract is `docs/TELEMETRY.md`.
+A Cloudflare **Worker + D1** that receives the opt-in, content-free payloads from
+`trimwire share stats` (community stats) and `trimwire share benchmark` (the
+model-quality leaderboard), stores one coarse row per upload, and serves
+**k-anonymous, aggregate-only** JSON for the public dashboard + leaderboard. The
+payload contract is `docs/TELEMETRY.md`.
 
-> **This repo does not deploy anything.** Everything here is inert until a
-> maintainer wires it up. There is no live endpoint, no account, no domain. The
-> Rust client (`trimwire share stats`) is likewise off until its `[share]
-> endpoint` is set. Nothing phones home on its own.
+> **Deployed at `api.trimwire.dev`.** The repo CI does NOT auto-deploy — the
+> maintainer runs `wrangler deploy` by hand (see "Deploy" below). The Rust client
+> only uploads on explicit opt-in (`trimwire share enable` / `--yes`); nothing
+> phones home on its own. Forks: swap in your own account/D1/KV ids.
 
 ## What it does
 
 ```
-trimwire share stats ──POST /ingest──▶ Worker (the only public surface)
-                                           ├─ per-IP daily rate-limit (REQUIRED — fail-closed)
-                                           ├─ size cap + validatePayload()  (mirror of the
-                                           │   client's content-free guarantee; rejects any
-                                           │   extra key / out-of-set value / unknown strategy,
-                                           │   an implausible strategy_share sum, or dup fires)
-                                           ├─ never logs or stores the client IP
-                                           └─ INSERT one coarse row → D1 (never internet-exposed)
+trimwire share stats     ──POST /ingest──────────▶ Worker (the only public surface)
+trimwire share benchmark ──POST /ingest-benchmark─▶   ├─ per-IP daily rate-limit (REQUIRED — fail-closed)
+                                                      ├─ size cap + validate*()  (mirror of the
+                                                      │   client's content-free guarantee; rejects any
+                                                      │   extra key / out-of-set value / unknown strategy,
+                                                      │   an implausible strategy_share sum, or dup fires)
+                                                      ├─ never logs or stores the client IP
+                                                      └─ INSERT one coarse row → D1 (never internet-exposed)
 
-GET /aggregates.json ──▶ aggregate(rows, K)   [edge-cached ~10 min via Cache API]
+GET /aggregates.json ──▶ aggregate(rows, K=10)       [edge-cached ~10 min via Cache API]
+GET /benchmarks.json ──▶ aggregateBenchmark(rows, BENCH_K=5)
                            ├─ re-sanitize each row on read (legacy/bad row can't skew)
                            ├─ GROUP BY the quasi-identifier key
                            ├─ SUPPRESS groups with < K contributors (k-anonymity)
-                           ├─ l-diversity gate (>=3 distinct) on marginal distributions
+                           ├─ l-diversity gate (>=3 distinct) on marginal distributions (stats)
                            └─ INTENSIVE metrics only (means/shares/distributions, never sums)
 ```
 
@@ -94,7 +96,7 @@ curl -s localhost:8787/aggregates.json   # (sparse until a group reaches K)
 `npm test` is the fast privacy-critical gate and needs nothing external. The
 `wrangler` steps are optional and only needed to drive the live HTTP path.
 
-## Maintainer deploy (NOT done here)
+## Deploy (reference — already done for api.trimwire.dev; steps for a fork/redeploy)
 
 1. `wrangler d1 create trimwire-telemetry` → paste the printed `database_id` into
    `wrangler.toml`.
@@ -118,8 +120,9 @@ curl -s localhost:8787/aggregates.json   # (sparse until a group reaches K)
    publish it in the docs) **only after** writing a privacy policy.
 7. Optionally raise `K` / `MAX_PER_DAY` in `wrangler.toml` as the user base grows.
 
-The endpoint URL, domain, privacy policy, and "go live with real data" are
-deliberately the maintainer's call — see `docs/TELEMETRY.md` → "Maintainer-owned".
+For the canonical instance this is all done (live at `api.trimwire.dev`, schema
+includes both the `telemetry` and `benchmark` tables, privacy policy published).
+These steps are the reference for a fork or a redeploy — see `docs/TELEMETRY.md`.
 
 ## Pre-deploy security checklist (v3 council review)
 

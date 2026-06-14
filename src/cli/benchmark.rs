@@ -760,10 +760,12 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
     }
 
     if endpoint.is_empty() {
+        // Only reachable if a self-hoster blanks both [share] benchmark_endpoint
+        // and the built-in const (which ships pointing at api.trimwire.dev).
         println!(
             "\n  No benchmark collector endpoint configured ([share] benchmark_endpoint = \"\"),\n\
-             \x20  so this was a DRY RUN — nothing was sent. The maintainer publishes the\n\
-             \x20  endpoint once a community benchmark collector is deployed."
+             \x20  so this was a DRY RUN — nothing was sent. Set [share] benchmark_endpoint to\n\
+             \x20  a collector URL to enable uploads."
         );
         return Ok(());
     }

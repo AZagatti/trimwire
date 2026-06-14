@@ -7,7 +7,7 @@ receives security patches.
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | ✅ |
+| 0.2.x   | ✅ |
 
 ## Reporting a vulnerability
 
@@ -56,8 +56,9 @@ What trimwire **does NOT** do:
   exception: it sends a bucketed, content-free aggregate to a collector endpoint
   you have consented to — never prompt/file/command content. Off until you
   explicitly enable it. The stats collector is deployed at
-  `https://api.trimwire.dev/ingest`; the benchmark endpoint is not yet deployed.
-  See `docs/TELEMETRY.md` for the exact payload.
+  `https://api.trimwire.dev/ingest` and the benchmark collector at
+  `https://api.trimwire.dev/ingest-benchmark`. See `docs/TELEMETRY.md` for the
+  exact payload.
 - It does not modify the system prompt or any header that would change
   client identity from Anthropic's perspective.
 - It does not persist API request/response bodies anywhere (the SQLite

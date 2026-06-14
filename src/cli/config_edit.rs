@@ -70,8 +70,8 @@ pub fn config_show(json: bool) -> Result<()> {
         "# [share] — telemetry is opt-in and off by default. An empty [share] section is normal."
     );
     println!(
-        "# Run `trimwire share enable` to opt in (the collector URL is a built-in default, \
-         empty until the maintainer deploys it)."
+        "# Run `trimwire share enable` to opt in (the collector URL is a built-in default \
+         pointing at the live api.trimwire.dev; override [share] endpoint to self-host)."
     );
     println!(
         "# `trimwire share stats` does a dry-run and shows what would be sent until you enable."

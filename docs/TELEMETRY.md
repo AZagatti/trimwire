@@ -172,7 +172,7 @@ from production telemetry indefinitely. (Consistent with the project's standing
 ## Benchmark sharing (`trimwire share benchmark`)
 
 A **separate**, opt-in payload to a **separate** benchmark collector route
-(`/ingest-benchmark`) and dataset (the [model-benchmark page](/benchmark/), not
+(`/ingest-benchmark`) and dataset (the [model-benchmark page](https://trimwire.dev/benchmark/), not
 the stats dashboard). It is
 the one place a *directional* quality signal is shared, and it stays content-free
 because the model summarizes a **bundled synthetic corpus**, never your session.

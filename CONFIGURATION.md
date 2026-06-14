@@ -361,9 +361,10 @@ confirmation. `--force` bypasses the once-per-day throttle.
 
 The built-in community stats collector URL ships in the binary and points at
 `https://api.trimwire.dev/ingest`. `[share] endpoint` exists as an override for
-self-hosting or testing; it is not the normal path. The benchmark endpoint
-(`[share] benchmark_endpoint`) is not yet deployed — `trimwire share benchmark`
-dry-runs until configured.
+self-hosting or testing; it is not the normal path. The benchmark collector
+ships the same way (built-in URL `https://api.trimwire.dev/ingest-benchmark`,
+overridable via `[share] benchmark_endpoint`); `trimwire share benchmark` uploads
+only with `--yes`, otherwise it dry-runs.
 
 The payload is coarse, bucketed, and anonymized client-side; it never contains
 prompts, code, paths, ids, IPs, or raw counts. See

@@ -1,11 +1,13 @@
 // trimwire telemetry collector — Cloudflare Worker.
 //
 // The ONLY public surface in front of D1 (the database is never internet-
-// exposed). Two routes:
-//   POST /ingest          validate a content-free payload, store one row.
-//   GET  /aggregates.json compute the k-anonymous, intensive-only dashboard JSON.
+// exposed). Four routes:
+//   POST /ingest            validate a content-free stats payload, store one row.
+//   GET  /aggregates.json   compute the k-anonymous, intensive-only dashboard JSON.
+//   POST /ingest-benchmark  validate a content-free benchmark row, store it.
+//   GET  /benchmarks.json   compute the k-anonymous model-quality leaderboard.
 //
-// INERT BY DEFAULT: nothing is deployed by this repo. The maintainer owns the
+// The repo does NOT auto-deploy: the maintainer owns the
 // Cloudflare account, `wrangler deploy`, the real endpoint URL, the domain, and
 // the privacy policy (see collector/README.md + docs/TELEMETRY.md). The Worker
 // never logs or stores client IPs (the optional rate-limiter uses a salted hash

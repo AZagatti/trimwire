@@ -76,8 +76,8 @@ trimwire share benchmark --model qwen3.5:4b --yes  # uploads it to the community
 ```
 
 `share benchmark` contributes an **anonymous, content-free** row to the community
-[model-benchmark page](/benchmark/): your model's family + coarse size tier (never
-the raw tag), bucketed retention/reduction, a capped false-done count, and whether
+[model-benchmark page](https://trimwire.dev/benchmark/): your model's family + coarse size tier (never
+the raw tag), bucketed retention/compression, a capped false-done count, and whether
 it produced usable summaries — nothing else. It is **off by default**: without
 `--yes` it only prints what it *would* send (a dry run). See
 [Telemetry](TELEMETRY.md) for the exact payload.
