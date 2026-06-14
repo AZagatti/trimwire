@@ -1677,6 +1677,19 @@ mod benchmark_share {
                 .insert("backend".to_owned(), Value::String("cloud".to_owned()));
             assert!(guard_benchmark_content_free(&bad_backend).is_err());
 
+            // an `api-dry-run` placeholder must never validate as a real payload:
+            // dry-run rows (an API model requested without --yes) made no provider
+            // calls, so they carry no real data and must be fail-closed rejected.
+            let mut dry_run = serde_json::to_value(&p).unwrap();
+            dry_run.as_object_mut().unwrap().insert(
+                "backend".to_owned(),
+                Value::String("api-dry-run".to_owned()),
+            );
+            assert!(
+                guard_benchmark_content_free(&dry_run).is_err(),
+                "api-dry-run is not a valid wire backend"
+            );
+
             // a retention bucket that isn't a 10pp step
             let mut bad_ret = serde_json::to_value(&p).unwrap();
             bad_ret

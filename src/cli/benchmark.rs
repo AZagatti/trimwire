@@ -245,6 +245,20 @@ struct ModelScore {
     slices: Vec<SliceScore>,
 }
 
+/// The single authoritative predicate for whether a benchmark row may leave this
+/// machine. A row is uploadable only when it represents **real, clean** data:
+///   - not an `api-dry-run` placeholder (an API model requested without `--yes`,
+///     for which NO provider calls were made — there is nothing real to share), and
+///   - every scored slice succeeded (no failed slices; a failure conflates a weak
+///     model with a broken provider/config/network and is never uploaded yet).
+///
+/// `run_share` routes non-uploadable rows to distinct human-readable notices and
+/// `continue`s before any payload is built/printed/posted. This function exists so
+/// that invariant is one line, asserted before the post, and unit-testable.
+fn is_uploadable_row(r: &ModelScore) -> bool {
+    r.backend != "api-dry-run" && r.slices.iter().all(|s| s.error.is_none())
+}
+
 fn aggregate(model: String, backend: &str, slices: Vec<SliceScore>) -> ModelScore {
     let total_kept: usize = slices.iter().map(|s| s.kept).sum();
     let total_needles: usize = slices.iter().map(|s| s.total).sum();
@@ -822,6 +836,13 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
             );
             continue;
         }
+        // Both skip branches above are exactly `!is_uploadable_row`: a dry-run
+        // placeholder, or any failed slice. Assert it so the two stay in lockstep
+        // with the predicate — nothing past this point may be a placeholder/failure.
+        debug_assert!(
+            is_uploadable_row(r),
+            "non-uploadable row reached the payload builder"
+        );
         let model = if is_api {
             r.provider_model.as_deref().unwrap_or("")
         } else {
@@ -1284,6 +1305,52 @@ mod tests {
         // api-dry-run placeholder
         let m = aggregate("my-provider (DRY RUN)".into(), "api-dry-run", vec![]);
         assert_eq!(m.backend, "api-dry-run");
+    }
+
+    #[test]
+    fn is_uploadable_row_rejects_dry_run_and_failures() {
+        let s = slice("s1", false, &["alpha"], "alpha beta gamma delta epsilon");
+
+        // Clean local row: real data, no failed slices → uploadable.
+        let clean_local = aggregate(
+            "qwen3.5:4b".into(),
+            "local",
+            vec![score_summary(&s, "alpha")],
+        );
+        assert!(
+            is_uploadable_row(&clean_local),
+            "a clean local row with no failed slices is uploadable"
+        );
+
+        // Clean api row → uploadable (backend "api", not the placeholder).
+        let clean_api = aggregate(
+            "my-provider".into(),
+            "api",
+            vec![score_summary(&s, "alpha")],
+        );
+        assert!(
+            is_uploadable_row(&clean_api),
+            "a clean api row is uploadable"
+        );
+
+        // api-dry-run placeholder (no calls made) → NEVER uploadable, even with an
+        // empty slice set that would otherwise pass the all-clean check.
+        let dry = aggregate("my-provider (DRY RUN)".into(), "api-dry-run", vec![]);
+        assert!(
+            !is_uploadable_row(&dry),
+            "an api-dry-run placeholder is never uploadable"
+        );
+
+        // A row with any failed slice → not uploadable (provider/config failure).
+        let failed = aggregate(
+            "down".into(),
+            "api",
+            vec![errored_score(&s, &CompactorError::Timeout)],
+        );
+        assert!(
+            !is_uploadable_row(&failed),
+            "a row with a failed slice is not uploadable"
+        );
     }
 
     #[test]

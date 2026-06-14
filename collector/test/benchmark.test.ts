@@ -80,6 +80,13 @@ describe("validateBenchmarkPayload", () => {
     expect(validateBenchmarkPayload({ ...localBenchmark(), error_kind: "explode" })).toEqual({ ok: false, error: "bad error_kind" });
   });
 
+  it("rejects an api-dry-run backend (placeholder rows are never real data)", () => {
+    // An API model requested without --yes yields a display-only dry-run placeholder
+    // (no provider calls made). The CLI never uploads it; the collector also refuses
+    // it fail-closed so it can never enter /benchmarks.json or D1 by any path.
+    expect(validateBenchmarkPayload({ ...apiBenchmark(), backend: "api-dry-run" })).toEqual({ ok: false, error: "bad backend" });
+  });
+
   it("rejects a non-bucketed retention (must be a 10pp step)", () => {
     expect(validateBenchmarkPayload({ ...localBenchmark(), retention_bucket: 95 })).toEqual({
       ok: false,
