@@ -128,7 +128,7 @@ pub fn off() -> Result<()> {
                 "    • `unset ANTHROPIC_BASE_URL` to send Claude Code straight to Anthropic in this shell"
             );
             println!(
-                "  (`trimwire uninstall` removes the rc export entirely; new shells inherit the rc until then.)"
+                "  (`trimwire uninstall` removes the service but leaves the rc block — it prints the exact lines to delete by hand.)"
             );
         }
         Err(e) => {

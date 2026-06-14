@@ -147,17 +147,17 @@ cargo binstall trimwire
 # wire trimwire into Claude Code (idempotent, safe to re-run)
 trimwire install
 exec $SHELL            # pick up the new ANTHROPIC_BASE_URL
-trimwire doctor        # optional: confirm the gateway is healthy, then use `claude` as normal
+trimwire doctor        # optional: confirm config + gateway health + wiring
 
-# check the setup, then watch the savings
-trimwire doctor        # config + gateway health + ANTHROPIC_BASE_URL wiring
+# now use `claude` as normal — then watch the savings:
 trimwire stats         # bytes pruned, reduction %, ~tokens, per-strategy breakdown
 trimwire stats --since 2026-06-01   # savings within a UTC date window
 ```
 
 Optional: `trimwire completions <shell>` for tab-completion, `trimwire man` for
 man pages. On systemd / launchd, `trimwire install` starts an always-up service;
-`trimwire uninstall` reverses everything.
+`trimwire uninstall` removes it (the one-line shell-rc export is left for you to
+delete — it prints the exact lines).
 
 ---
 
