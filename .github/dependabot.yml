@@ -38,3 +38,31 @@ updates:
       # the "MSRV 1.85" job into a stable build (PR #22). These two pins are managed
       # by hand; never let Dependabot touch them.
       - dependency-name: "dtolnay/rust-toolchain"
+
+  # The two Node projects (docs site + telemetry collector) were previously
+  # unwatched. Each has its own package-lock.json, so they get their own entry.
+  - package-ecosystem: npm
+    directory: "/site"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: scope
+    groups:
+      site-dev-deps:
+        dependency-type: development
+
+  - package-ecosystem: npm
+    directory: "/collector"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: scope
+    groups:
+      collector-dev-deps:
+        dependency-type: development
