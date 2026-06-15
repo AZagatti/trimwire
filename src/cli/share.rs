@@ -267,7 +267,13 @@ pub(super) fn version_bucket() -> String {
 /// This is low-cardinality (few model versions in the wild) and content-free
 /// (no dated build suffix that could fingerprint early adopters of a new version).
 fn model_family(raw: Option<&str>) -> String {
-    let m = raw.unwrap_or("").to_ascii_lowercase();
+    let lower = raw.unwrap_or("").to_ascii_lowercase();
+    // Drop a trailing runtime marker Claude Code appends to the model id, e.g. the
+    // 1M-context auto-bump `claude-opus-4-8[1m]`. It is NOT part of the model
+    // version, and left in place it makes the minor segment (`8[1m]`) fail to parse
+    // → the model is miscoarsened to "other" (silently under-counting it in
+    // telemetry). Everything from the first `[` on is stripped.
+    let m = lower.split('[').next().unwrap_or("");
     // Match `claude-(opus|sonnet|haiku)-<major>-<minor>` and drop any trailing `-YYYYMMDD`.
     // We parse manually to stay dependency-free (no regex crate).
     for tier in ["opus", "sonnet", "haiku"] {
@@ -2797,6 +2803,13 @@ api_key_env = "ANTHROPIC_API_KEY"
         assert_eq!(
             model_family(Some("claude-haiku-3-5-20241022")),
             "claude-haiku-3-5"
+        );
+        // Claude Code's 1M-context runtime marker must be stripped, not break the
+        // minor-version parse (regression: `[1m]` → miscoarsened to "other").
+        assert_eq!(model_family(Some("claude-opus-4-8[1m]")), "claude-opus-4-8");
+        assert_eq!(
+            model_family(Some("claude-sonnet-4-6[1m]")),
+            "claude-sonnet-4-6"
         );
         // Non-Claude model → other.
         assert_eq!(model_family(Some("gpt-4o")), "other");
