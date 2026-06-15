@@ -248,6 +248,33 @@ pub fn effective_char_budget(s: &crate::config::SummarizerConfig) -> usize {
     }
 }
 
+/// Slice budget when the caller has ALREADY resolved which engine will run for
+/// THIS invocation (e.g. `summarizer probe --model <tag|provider-id>`), as opposed
+/// to [`effective_char_budget`], which *infers* the engine from the config's
+/// `engine`/`fallback` chain. The probe `--model` can name a local tag even when
+/// the configured engine is `model-free` or an API provider, so the budget must
+/// follow the resolved target — not the config — or a local model gets probed at
+/// the much larger API budget and fails spuriously.
+///
+/// Precedence (matches [`effective_char_budget`], plus the local/API split):
+/// an explicit `--bytes` wins, then a config `slice_char_budget` override, else the
+/// resolved engine's natural default (local: num_ctx-derived ~60 KB; API: 128 KB).
+pub fn target_char_budget(
+    is_local: bool,
+    local_max_num_ctx: u64,
+    explicit_bytes: Option<usize>,
+    config_override: Option<usize>,
+) -> usize {
+    if let Some(b) = explicit_bytes.or(config_override) {
+        return b;
+    }
+    if is_local {
+        local_char_budget(local_max_num_ctx)
+    } else {
+        API_SLICE_CHAR_BUDGET
+    }
+}
+
 /// Phase 2: skip the model entirely when the candidate slice is mostly bulky
 /// tool_result OUTPUT — the deterministic strategies already prune that, so a prose
 /// summary can't beat model-free pruning (`summary_is_smaller` would reject it). The
@@ -1291,6 +1318,43 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(effective_char_budget(&s), API_SLICE_CHAR_BUDGET);
+    }
+
+    #[test]
+    fn target_char_budget_follows_resolved_target_not_config() {
+        let max_ctx = SummarizerConfig::default().local.max_num_ctx;
+        let local = local_char_budget(max_ctx);
+        assert!(
+            local < API_SLICE_CHAR_BUDGET,
+            "local budget must be smaller than the API budget"
+        );
+
+        // THE BUG: a local tag (is_local=true) must get the LOCAL budget even though
+        // the configured engine could be model-free/API. Before the fix this returned
+        // API_SLICE_CHAR_BUDGET and probed local models at ~128 KB (false FAIL).
+        assert_eq!(target_char_budget(true, max_ctx, None, None), local);
+        // A provider id (is_local=false) gets the large API budget.
+        assert_eq!(
+            target_char_budget(false, max_ctx, None, None),
+            API_SLICE_CHAR_BUDGET
+        );
+
+        // Precedence: explicit --bytes wins for both kinds.
+        assert_eq!(
+            target_char_budget(true, max_ctx, Some(99_999), None),
+            99_999
+        );
+        assert_eq!(
+            target_char_budget(false, max_ctx, Some(99_999), None),
+            99_999
+        );
+        // ...then a config slice_char_budget override (when no --bytes).
+        assert_eq!(target_char_budget(true, max_ctx, None, Some(7_777)), 7_777);
+        // --bytes beats the config override.
+        assert_eq!(
+            target_char_budget(false, max_ctx, Some(99_999), Some(7_777)),
+            99_999
+        );
     }
 
     #[test]

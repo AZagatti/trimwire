@@ -1155,7 +1155,7 @@ pub fn summarizer_probe(
     concurrency: usize,
     yes: bool,
 ) -> Result<()> {
-    use trimwire::summarizer::{self, build_prompt, effective_char_budget, probe};
+    use trimwire::summarizer::{self, build_prompt, probe};
 
     const THRESHOLD: f64 = 0.90;
     let runs = runs.max(1);
@@ -1172,24 +1172,11 @@ pub fn summarizer_probe(
         );
     }
 
-    let budget = bytes.unwrap_or_else(|| effective_char_budget(s));
-    let slice = probe::build_probe_slice(budget);
-
-    // Is the target a configured API provider?
+    // Resolve the engine ONCE (owned, so it can be cloned into concurrent tasks)
+    // BEFORE picking the budget: a `--model <local-tag>` must use the LOCAL
+    // num_ctx budget even when the configured engine is `model-free`/API, or the
+    // local model is probed at the larger API budget and fails spuriously.
     let provider = s.providers.iter().find(|p| p.id == target).cloned();
-
-    println!("trimwire summarizer probe\n");
-    println!(
-        "  target={target}  slice={} chars (~{} KB)  turns={}  facts={}  runs={runs}",
-        slice.slice_text.len(),
-        slice.slice_text.len() / 1024,
-        slice.n_turns,
-        probe::PROBE_FACTS.len(),
-    );
-
-    let prompt = build_prompt(&slice.slice_text);
-
-    // Resolve the engine ONCE (owned, so it can be cloned into concurrent tasks).
     let engine = if let Some(p) = provider {
         ProbeEngine::Api(p)
     } else {
@@ -1199,6 +1186,26 @@ pub fn summarizer_probe(
         }
         ProbeEngine::Local(local, s.timeout_secs)
     };
+    let is_local = matches!(engine, ProbeEngine::Local(..));
+
+    // Budget follows the RESOLVED target (not the config engine):
+    // --bytes > config slice_char_budget > the engine's natural default
+    // (local ≈ num_ctx-derived ~60 KB; API 128 KB).
+    let budget =
+        summarizer::target_char_budget(is_local, s.local.max_num_ctx, bytes, s.slice_char_budget);
+    let slice = probe::build_probe_slice(budget);
+
+    println!("trimwire summarizer probe\n");
+    println!(
+        "  target={target}  engine={}  slice={} chars (~{} KB)  turns={}  facts={}  runs={runs}",
+        if is_local { "local" } else { "api" },
+        slice.slice_text.len(),
+        slice.slice_text.len() / 1024,
+        slice.n_turns,
+        probe::PROBE_FACTS.len(),
+    );
+
+    let prompt = build_prompt(&slice.slice_text);
 
     // Dry-run gate + banner.
     match &engine {
@@ -1276,7 +1283,7 @@ pub fn summarizer_probe(
 
     // runs > 1: distribution. `--concurrency` parallelizes API runs; the LOCAL engine
     // is forced serial (one GPU/model — concurrent calls would contend/OOM).
-    let is_local = matches!(engine, ProbeEngine::Local(..));
+    // (`is_local` was resolved above when picking the budget.)
     let eff_conc = if is_local { 1 } else { concurrency.max(1) };
     if is_local && concurrency > 1 {
         eprintln!(
