@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3](https://github.com/AZagatti/trimwire/compare/v0.2.2...v0.2.3) - 2026-06-15
+
+### Added
+
+- *(benchmark)* enforce model_family ↔ model_bucket consistency (fail-closed)
+- *(benchmark)* tighten cross-field validation + preserve open-model families
+- *(benchmark)* support provider/API benchmark sharing (backend-aware)
+
+### Fixed
+
+- 3 remaining run/uninstall doc-vs-source leftovers
+
+### Other
+
+- *(benchmark)* lock down the api-dry-run never-uploaded invariant
+- final v0.2.3 audit fixes (off/run/ToS/consent accuracy)
+- fix `trimwire run` usage, off/uninstall claims, install trust order
+- tighten consent/release-state wording + keep serve internal
+- align agent guidance + CLI docs with v0.2.3 reality
+- *(install)* label curl|sh as Linux/macOS only, document Windows
+- correct post-v0.2.2 stale "not deployed / inert" claims
+- reject nonsensical model_size_bucket/family at the collector
+
 ## [0.2.2](https://github.com/AZagatti/trimwire/compare/v0.2.1...v0.2.2) - 2026-06-13
 
 ### Other
