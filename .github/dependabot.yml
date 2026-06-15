@@ -30,3 +30,11 @@ updates:
     open-pull-requests-limit: 3
     commit-message:
       prefix: "ci"
+    ignore:
+      # dtolnay/rust-toolchain selects the Rust toolchain from the git ref it is
+      # pinned to: the `stable` branch (29eef336…) and the `1.85.0` branch
+      # (c93f4f9c…) carry DIFFERENT action.yml. Dependabot doesn't model that and
+      # bumps the MSRV `1.85.0` pin to the newest `stable` commit, silently turning
+      # the "MSRV 1.85" job into a stable build (PR #22). These two pins are managed
+      # by hand; never let Dependabot touch them.
+      - dependency-name: "dtolnay/rust-toolchain"
