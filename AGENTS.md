@@ -234,6 +234,7 @@ These are the maintainer's standing expectations. Follow them by default; they a
 - **Priority order: CODE > docs/DX.** A skill is doc-like (not a code item). API-provider/portability is after the tool is peak. See `internal/BACKLOG-SCORED.md` BUILD SEQUENCE.
 - **Docs source = context7.** Before writing/reviewing code against any library or framework (Astro/Starlight/Vite for the site, Cloudflare Workers/D1 for the collector, clap/hyper/tokio/rusqlite for the binary), consult the `context7` skill rather than training data — and instruct subagents to do the same.
 - **Regression & bench sweep:** before a release, after a meaningful change set, or periodically, run the subagent sweep in [`docs/REGRESSION-WORKFLOW.md`](docs/REGRESSION-WORKFLOW.md) — a 6-agent fan-out (build/gate, invariant harnesses, bench regression, parity oracle, docs/memory drift, coverage gaps) reconciled into one scorecard. Mostly offline/deterministic (only `examples/api_harm` needs a provider key). It catches what CI doesn't: savings drift, doc/memory drift, and untested new surface.
+- **Testing strategy & CI gates:** [`docs/TESTING.md`](docs/TESTING.md) — what is tested where (Rust harm/efficiency/parity/CLI-e2e, collector pure-logic + HTTP-gate via vitest-pool-workers, site Testing Trophy), which workflow gates each layer, and the researched deferred backlog (nextest, rstest, proptest, …).
 
 ## Execution rules
 

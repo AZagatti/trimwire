@@ -2,42 +2,12 @@ import { describe, it, expect } from "vitest";
 import { validateBenchmarkPayload } from "../src/validate";
 import { aggregateBenchmark } from "../src/aggregate";
 import type { BenchmarkRow } from "../src/validate";
+import { validBenchmark, validApiBenchmark } from "./fixtures";
 
-function localBenchmark() {
-  return {
-    schema_version: 1,
-    sent_day: "2026-06-14",
-    trimwire_version: "0.2",
-    corpus_version: "1",
-    backend: "local",
-    provider_style: "none",
-    provider_route: "none",
-    model_family: "qwen3.5",
-    model_bucket: "qwen3.5",
-    model_size_bucket: "3-4b",
-    retention_bucket: 100,
-    compression_bucket: 50,
-    false_done_count: "0",
-    produced_usable_summary: true,
-    benchmark_scope: "full_corpus",
-    slice_count_bucket: "full",
-    failed_slice_count: "0",
-    error_kind: "none",
-    os_family: "linux",
-  };
-}
-
-function apiBenchmark() {
-  return {
-    ...localBenchmark(),
-    backend: "api",
-    provider_style: "anthropic",
-    provider_route: "anthropic",
-    model_family: "claude-haiku",
-    model_bucket: "claude-haiku-4-5",
-    model_size_bucket: "api",
-  };
-}
+// Local aliases keep the existing test bodies unchanged while the canonical
+// shapes live in ./fixtures (shared with the route + aggregate tests).
+const localBenchmark = validBenchmark;
+const apiBenchmark = validApiBenchmark;
 
 describe("validateBenchmarkPayload", () => {
   it("accepts a well-formed LOCAL row", () => {

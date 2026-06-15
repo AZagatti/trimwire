@@ -4,42 +4,11 @@ import {
   sanitizeStrategyShare,
   sanitizeStrategiesFired,
 } from "../src/validate";
+import { validTelemetry } from "./fixtures";
 
-function goodPayload() {
-  return {
-    schema_version: 1,
-    sent_day: "2026-06-06",
-    trimwire_version: "0.1",
-    harness: "claude-code",
-    // §3.3: model_family is now tier + major.minor (no closed enum, shape check)
-    model_family: "claude-opus-4-5",
-    profile: "default",
-    summarizer_backend: "off",
-    summarizer_family: "none",
-    conversation_length_bucket: "50-200",
-    reduction_pct_bucket: 40,
-    cache_hit_pct_bucket: 70,
-    cache_stability_bucket: 9,
-    bytes_saved_bucket: "1mb-10mb",
-    strategy_share: { bloat_cap: 60, sliding_window: 30, stale_reads: 10 },
-    reprune_enabled: true,
-    simhash_enabled: false,
-    accumulator_enabled: false,
-    os_family: "linux",
-    native_compaction_rate_bucket: 20,
-    strategies_fired: ["bloat_cap", "sliding_window", "stale_reads"],
-    summarizer_size_bucket: "none",
-    strategy_any_fired_pct_bucket: 60,
-    summarizer_accept_rate_bucket: "none",
-    summarizer_trigger_rate_bucket: 0,
-    // §3.4: max session length bucket (same scheme as conversation_length_bucket)
-    max_session_length_bucket: "50-200",
-    // §3.1: day-scoped dedup token (64 lowercase hex chars)
-    dedup_token: "a".repeat(64),
-    // §8C/Q4: which engine actually won after fallback cascade
-    summarizer_backend_won: "off",
-  };
-}
+// Canonical valid shape lives in ./fixtures (shared with the route tests);
+// aliased here so the existing test bodies read unchanged.
+const goodPayload = validTelemetry;
 
 describe("validatePayload", () => {
   it("accepts a well-formed payload", () => {

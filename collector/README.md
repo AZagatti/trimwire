@@ -43,7 +43,7 @@ still move the aggregate to a scheduled (cron) Worker that writes
 
 - `src/validate.ts` — pure ingest validation (the privacy gate), stats + benchmark. Unit-tested.
 - `src/aggregate.ts` — pure k-anonymity + l-diversity + intensive aggregation, stats + benchmark. Unit-tested.
-- `src/index.ts` — the Worker wiring (all 4 routes, D1 reads/writes). Run via `wrangler dev`.
+- `src/index.ts` — the Worker wiring (all 4 routes, D1 reads/writes). Tested in the real `workerd` runtime via `npm run test:routes` (and exercisable by hand with `wrangler dev`).
 - `schema.sql` — the D1 tables (`telemetry` + `benchmark`) + grouping indexes. Content-free columns only.
 - `wrangler.toml` — the **canonical deployed config** (real account-scoped, non-secret D1/KV ids + `K`/`BENCH_K`). Forks: replace the ids/bindings with your own.
 
@@ -52,7 +52,9 @@ still move the aggregate to a scheduled (cron) Worker that writes
 ```sh
 cd collector
 npm install
-npm test        # pure-logic tests (validate + aggregate) — no Cloudflare account needed
+npm test         # pure-logic tests (validate + aggregate + benchmark) — no Cloudflare account
+npm run test:routes  # HTTP-gate tests: routing + D1 + k-anon enforcement, in real workerd
+npm run test:all     # both of the above
 npm run typecheck
 
 # exercise the Worker end-to-end locally (needs the wrangler CLI):
@@ -93,8 +95,11 @@ curl -s -X POST localhost:8787/ingest -H 'content-type: application/json' \
 curl -s localhost:8787/aggregates.json   # (sparse until a group reaches K)
 ```
 
-`npm test` is the fast privacy-critical gate and needs nothing external. The
-`wrangler` steps are optional and only needed to drive the live HTTP path.
+`npm test` is the fast privacy-critical gate and needs nothing external.
+`npm run test:routes` adds the HTTP-boundary coverage (it downloads/runs `workerd`
+via vitest-pool-workers; still no Cloudflare account). Both run in CI on any
+change under `collector/**` (`.github/workflows/collector.yml`). The interactive
+`wrangler dev` steps below are optional, for driving the live HTTP path by hand.
 
 ## Deploy (reference — already done for api.trimwire.dev; steps for a fork/redeploy)
 

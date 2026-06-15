@@ -80,6 +80,10 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full table. Highlights:
 
 ## Testing
 
+See [`docs/TESTING.md`](docs/TESTING.md) for the whole-project strategy (Rust +
+collector + site), which CI workflow gates what, and the researched backlog. In
+short:
+
 - **Unit tests** live in the same file as the code they test, in a
   `#[cfg(test)] mod tests { ... }` block.
 - **Snapshot tests** for mutation strategies use

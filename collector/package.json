@@ -6,11 +6,14 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "test:routes": "vitest run --config vitest.workers.config.ts",
+    "test:all": "npm run test && npm run test:routes",
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev",
     "db:init:local": "wrangler d1 execute trimwire-telemetry --local --file=./schema.sql"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.15",
     "@cloudflare/workers-types": "^4.20260612.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8",

@@ -1,10 +1,22 @@
 name: Site
 
-# Runs only when a PR touches the docs site. The "trophy": static type-check →
+# Runs when a change touches the docs site. The "trophy": static type-check →
 # unit/integration tests (vitest + happy-dom) → build → E2E (Playwright) →
 # Lighthouse audit (perf / a11y / best-practices / seo).
+#
+# On a PR: the full trophy runs. On a direct push to main (how hardening commits
+# land here): only the cheap, fast tier (typecheck + vitest + build) runs — the
+# `test` job has no event guard, while `e2e` and `lighthouse` are gated to PRs
+# (`if: github.event_name == 'pull_request'`) to keep main pushes cheap. So a
+# direct-to-main site change can no longer skip every gate, but we don't pay for
+# a browser+Lighthouse run on every push.
 on:
   pull_request:
+    paths:
+      - "site/**"
+      - ".github/workflows/site.yml"
+  push:
+    branches: [main]
     paths:
       - "site/**"
       - ".github/workflows/site.yml"
@@ -41,6 +53,8 @@ jobs:
 
   e2e:
     name: E2E tests (Playwright)
+    # PR-only: a full browser run is too costly to repeat on every main push.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -70,6 +84,8 @@ jobs:
 
   lighthouse:
     name: Lighthouse audit
+    # PR-only: perf/a11y budgets are a merge gate, not needed on every main push.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
