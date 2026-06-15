@@ -42,8 +42,19 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: cargo test
-        run: cargo test --no-fail-fast
+      # nextest runs each test in its own process — stronger isolation for the
+      # async/gateway/port-binding integration tests than the default shared-
+      # process runner. It does NOT run doctests, so they get a dedicated step
+      # below (today there are 0 Rust doctests; this guards against a future one
+      # being silently skipped).
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
+        with:
+          tool: nextest
+      - name: cargo nextest run
+        run: cargo nextest run --no-fail-fast
+      - name: cargo test --doc (nextest doesn't run doctests)
+        run: cargo test --doc
 
       - name: cargo build (release)
         run: cargo build --release

@@ -1,10 +1,13 @@
 name: Collector
 
-# Runs only when a PR touches the telemetry collector. The collector validates
+# Runs when a change touches the telemetry collector. The collector validates
 # anonymous, content-free benchmark/telemetry rows (closed enums, k-anonymity,
 # fail-closed guards) — privacy-critical logic that must never silently drift, so
-# its type-check + unit tests gate every change. Pure-logic tests only (no Workers
-# runtime / Cloudflare account needed), so the job is fast.
+# every change is gated by: type-check, the fast pure-logic unit tests (validate +
+# aggregate, no Workers runtime needed), AND the route/integration tests that run
+# the real Worker in workerd via vitest-pool-workers (HTTP boundary: ingest
+# validation, k-anonymity enforcement, security headers). No Cloudflare account
+# needed — workerd is fetched by `npm ci`.
 on:
   pull_request:
     paths:

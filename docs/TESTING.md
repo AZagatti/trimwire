@@ -18,8 +18,11 @@ end-to-end. Everything below runs in CI.
 | CLI e2e | `tests/cli.rs` (Unix) | the built binary: `run` launches claude with env + forwards args + propagates exit, `install` is idempotent, `doctor`/`stats`/`config`/`summarizer setup` behave |
 | Cross-platform smoke | `ci.yml` matrix | daemon binds a port on linux/macOS/windows; binary-size budget |
 
-Gated by `.github/workflows/ci.yml` (fmt, clippy `-D warnings`, test, doc, package,
-MSRV, cargo-deny/audit, parity, cross-platform) on every PR **and** push to `main`.
+Gated by `.github/workflows/ci.yml` (fmt, clippy `-D warnings`, `cargo nextest run`
++ `cargo test --doc`, doc, package, MSRV, cargo-deny/audit, parity, cross-platform)
+on every PR **and** push to `main`. The runner is `cargo nextest` for per-test
+process isolation (matters for the gateway/port-binding integration tests);
+because nextest doesn't run doctests, `cargo test --doc` runs alongside it.
 
 ## Collector (Cloudflare Worker — the telemetry privacy gate)
 
@@ -52,14 +55,12 @@ what happy-dom can't see (CSSOM, focus, accessibility). Chromium-only on purpose
 ## Deferred (researched, not yet adopted — pick up by value)
 
 Reviewed against current Rust-testing practice and Kent C. Dodds' Testing Trophy.
-None are blockers; ordered by payoff:
+None are blockers; ordered by payoff (`cargo nextest` — #1 below — is now adopted):
 
-1. `cargo nextest` as the CI runner — per-test process isolation for the
-   port-binding/async tests; one-line change.
-2. `rstest` `#[case]` for the profile-parameterized loops (already a dev-dep).
-3. `proptest` for a pruning invariant (e.g. pure-pruning output ⊆ input) — design
+1. `rstest` `#[case]` for the profile-parameterized loops (already a dev-dep).
+2. `proptest` for a pruning invariant (e.g. pure-pruning output ⊆ input) — design
    the invariant carefully; summarizer mode *replaces* content, so "subsequence"
    only holds for non-summarizing strategies.
-4. One Playwright screenshot per dashboard page (CSS-regression net that axe +
+3. One Playwright screenshot per dashboard page (CSS-regression net that axe +
    Lighthouse miss).
-5. `insta` redaction filters once any snapshot starts carrying timestamps/ids.
+4. `insta` redaction filters once any snapshot starts carrying timestamps/ids.
