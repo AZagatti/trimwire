@@ -488,6 +488,55 @@ fn finish(root: Value, original_bytes: usize, final_bytes: usize) -> BodyOutcome
     }
 }
 
+/// Structural equality of two message arrays that IGNORES `cache_control` markers.
+///
+/// Anthropic's prompt-cache breakpoint (`cache_control`) moves forward each turn,
+/// toggling on/off blocks INSIDE the checkpoint prefix. That is transport cache
+/// metadata, not a history rewrite — but a byte-exact `==` treats it as a prefix
+/// change, forcing a re-checkpoint EVERY turn. That defeats stable replay and (via
+/// `prefix_changed`) clears the cached summary so it never reaches the wire — the
+/// reason accepted summaries were never applied in live Claude Code sessions
+/// (manual-test F10). Comparing with `cache_control` ignored keeps `append_only`
+/// stable across cache churn, while any REAL content change (text / tool_use /
+/// tool_result / role / other keys) still differs and forces a re-checkpoint.
+///
+/// Wire-safety: this governs only the stability DECISION. The replayed output is
+/// built from the live `messages` (with their current `cache_control` intact) — we
+/// never strip `cache_control` from the bytes sent upstream.
+fn messages_eq_ignoring_cache_control(a: &[Value], b: &[Value]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(x, y)| value_eq_ignoring_cache_control(x, y))
+}
+
+fn value_eq_ignoring_cache_control(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Object(am), Value::Object(bm)) => {
+            let live = |m: &serde_json::Map<String, Value>| {
+                m.keys().filter(|k| k.as_str() != "cache_control").count()
+            };
+            if live(am) != live(bm) {
+                return false;
+            }
+            am.iter()
+                .filter(|(k, _)| k.as_str() != "cache_control")
+                .all(|(k, av)| {
+                    bm.get(k)
+                        .is_some_and(|bv| value_eq_ignoring_cache_control(av, bv))
+                })
+        }
+        (Value::Array(aa), Value::Array(ba)) => {
+            aa.len() == ba.len()
+                && aa
+                    .iter()
+                    .zip(ba)
+                    .all(|(x, y)| value_eq_ignoring_cache_control(x, y))
+        }
+        _ => a == b,
+    }
+}
+
 /// Stateful equivalent of [`strategies::apply_to_body`]. Reuses the last
 /// checkpoint's decisions while the conversation is an append-only extension of
 /// it (cache-stable); otherwise — cold, tail grew past `threshold`, or the prefix
@@ -519,12 +568,17 @@ pub fn stable_apply_to_body(
     let len = messages.len();
 
     // Append-only iff initialized, not shrunk, and the checkpoint prefix is
-    // unchanged (the compaction guard). The structural `PartialEq` short-circuits
-    // on the first differing block and never re-serializes — the bulk of the
-    // long-session hot-path saving. Any failure → full re-checkpoint.
+    // unchanged (the compaction guard). The comparison ignores `cache_control`
+    // markers (transport cache metadata Anthropic moves every turn — F10) so cache
+    // churn doesn't masquerade as a history rewrite; any real content change still
+    // differs. Short-circuits on the first differing block and never re-serializes —
+    // the bulk of the long-session hot-path saving. Any failure → full re-checkpoint.
     let append_only = state.initialized
         && len >= state.checkpoint_len
-        && messages[..state.checkpoint_len] == state.checkpoint_prefix[..];
+        && messages_eq_ignoring_cache_control(
+            &messages[..state.checkpoint_len],
+            &state.checkpoint_prefix,
+        );
     let grew = len.saturating_sub(state.checkpoint_len);
 
     if append_only && grew <= threshold {
@@ -1353,6 +1407,131 @@ mod tests {
         assert!(
             s.contains("\"u0\""),
             "model-free output retains the un-summarized turns"
+        );
+    }
+
+    // ---- F10: cache_control must not defeat append_only / summary replay ----
+
+    #[test]
+    fn eq_ignoring_cache_control_true_when_only_marker_moves() {
+        // Same content; the cache_control breakpoint moved from block A to block B.
+        let a = json!([
+            {"role":"assistant","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral"}}]},
+            {"role":"user","content":[{"type":"text","text":"yo"}]},
+        ]);
+        let b = json!([
+            {"role":"assistant","content":[{"type":"text","text":"hi"}]},
+            {"role":"user","content":[{"type":"text","text":"yo","cache_control":{"type":"ephemeral"}}]},
+        ]);
+        assert!(messages_eq_ignoring_cache_control(
+            a.as_array().unwrap(),
+            b.as_array().unwrap()
+        ));
+    }
+
+    #[test]
+    fn eq_ignoring_cache_control_false_on_real_content_change() {
+        let a = json!([{"role":"user","content":[{"type":"text","text":"hi"}]}]);
+        let b = json!([{"role":"user","content":[{"type":"text","text":"HELLO"}]}]);
+        assert!(!messages_eq_ignoring_cache_control(
+            a.as_array().unwrap(),
+            b.as_array().unwrap()
+        ));
+    }
+
+    #[test]
+    fn eq_ignoring_cache_control_handles_nested_marker_on_tool_result() {
+        // cache_control deep inside a tool_result content block must be ignored.
+        let a = json!([{"role":"user","content":[
+            {"type":"tool_result","tool_use_id":"u0","content":"out","cache_control":{"type":"ephemeral"}}
+        ]}]);
+        let b = json!([{"role":"user","content":[
+            {"type":"tool_result","tool_use_id":"u0","content":"out"}
+        ]}]);
+        assert!(messages_eq_ignoring_cache_control(
+            a.as_array().unwrap(),
+            b.as_array().unwrap()
+        ));
+        // ...but a different tool_use_id (real change) is still caught.
+        let c = json!([{"role":"user","content":[
+            {"type":"tool_result","tool_use_id":"DIFFERENT","content":"out"}
+        ]}]);
+        assert!(!messages_eq_ignoring_cache_control(
+            a.as_array().unwrap(),
+            c.as_array().unwrap()
+        ));
+    }
+
+    #[test]
+    fn eq_ignoring_cache_control_false_on_asymmetric_real_key() {
+        // One side swaps cache_control for a DIFFERENT real key — count guard catches it.
+        let a = json!([{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral"}}]}]);
+        let b = json!([{"role":"user","content":[{"type":"text","text":"hi","extra":"v"}]}]);
+        assert!(!messages_eq_ignoring_cache_control(
+            a.as_array().unwrap(),
+            b.as_array().unwrap()
+        ));
+    }
+
+    /// F10 positive: when the ONLY prefix delta is a moved/toggled `cache_control`
+    /// marker, `append_only` must hold so the stable branch runs and the cached
+    /// summary still splices onto the wire.
+    #[test]
+    fn moved_cache_control_in_prefix_keeps_summary_splicing() {
+        use crate::summarizer::slice::SummaryDecision;
+        let cfg = cfg();
+        let mut st = PruneState::default();
+        let body0 = body_at(3); // 6 messages
+        let _ = stable_apply_to_body(&body0, &cfg, &mut st, 8); // checkpoint
+        assert!(st.is_initialized());
+
+        // Cache a valid summary over an OLD turn pair [0,2).
+        let msgs0 = messages_of(&body0);
+        st.set_summary(SummaryDecision::new(&msgs0, 0, 2, "SUMMARY_OF_OLD").unwrap());
+
+        // Next turn: identical content, but Anthropic's cache breakpoint moved —
+        // add a cache_control marker to the last prefix block. Metadata only.
+        let mut root1: Value = serde_json::from_slice(&body0).unwrap();
+        root1["messages"][5]["content"][0]["cache_control"] = json!({"type":"ephemeral"});
+        let body1 = serde_json::to_vec(&root1).unwrap();
+
+        let out = stable_apply_to_body(&body1, &cfg, &mut st, 8);
+        let s = String::from_utf8(bytes_of(&out, &body1)).unwrap();
+        assert!(
+            s.contains("SUMMARY_OF_OLD"),
+            "summary must splice despite a moved cache_control marker (F10)"
+        );
+        assert_eq!(
+            st.summary_segment_count(),
+            1,
+            "a cache_control-only delta must NOT clear the cached summary"
+        );
+    }
+
+    /// F10 negative: a REAL content change inside the prefix must still force a
+    /// re-checkpoint (append_only=false) and drop the now-stale summary.
+    #[test]
+    fn real_content_change_in_prefix_forces_recheckpoint() {
+        use crate::summarizer::slice::SummaryDecision;
+        let cfg = cfg();
+        let mut st = PruneState::default();
+        let body0 = body_at(3);
+        let _ = stable_apply_to_body(&body0, &cfg, &mut st, 8);
+
+        let msgs0 = messages_of(&body0);
+        st.set_summary(SummaryDecision::new(&msgs0, 0, 2, "SUMMARY").unwrap());
+        assert_eq!(st.summary_segment_count(), 1);
+
+        // Mutate real tool_result content in the prefix (not cache_control).
+        let mut root1: Value = serde_json::from_slice(&body0).unwrap();
+        root1["messages"][5]["content"][0]["content"] = json!("MUTATED_RESULT");
+        let body1 = serde_json::to_vec(&root1).unwrap();
+        let _ = stable_apply_to_body(&body1, &cfg, &mut st, 8);
+
+        assert_eq!(
+            st.summary_segment_count(),
+            0,
+            "a real content change must force re-checkpoint and drop the stale summary"
         );
     }
 }
