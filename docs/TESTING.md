@@ -11,7 +11,7 @@ end-to-end. Everything below runs in CI.
 |-------|-------|----------------|
 | Unit | `src/**` (`#[test]`, ~600) | each strategy/transform in isolation |
 | Parity oracle | `tests/phase0/*` + `make phase0` | the Rust port matches the Python reference, byte-for-byte, on committed fixtures |
-| Harm gate | `tests/harm.rs`, `tests/false_done_gate.rs` | no profile drops a unique-dependency / recent fact (lower bound on safety) |
+| Harm gate | `tests/harm.rs`, `tests/false_done_gate.rs` | both safety directions: `harm.rs` — no profile drops a unique-dependency / recent fact (lower bound on retention); `false_done_gate.rs` — no summary injects a false completion ("tests passed" / "committed") the source slice doesn't support, while honest hedged phrasing still passes |
 | Efficiency | `tests/integration.rs` | aggressive profiles **actually shrink** the body (`gateway_prunes_*`, `image_strip_shrinks_*`) — the upper-bound complement to the harm gate |
 | Gateway integration | `tests/integration.rs` (wiremock) | real HTTP in → pruned, orphan-free, smaller body out |
 | Snapshots | `insta` (`tests/snapshots/`) | stable structural output; serialize via `BTreeMap`, never `HashMap` order |

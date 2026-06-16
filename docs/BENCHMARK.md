@@ -57,7 +57,14 @@ Each model gets four components and one composite:
   (This is the *summary's* shrink — distinct from the *reduction* trimwire does on
   your request bytes, shown in `trimwire stats`.)
 - **false-done** — completion claims the source never supported ("tests passed"
-  when none ran). The most dangerous failure.
+  when none ran; "committed" when nothing was). The most dangerous failure. The
+  detector is deliberately **high-precision**: it flags a claim only when the source
+  slice contains *no* matching evidence, and it does **not** flag honest hedged
+  phrasing — conditional or future statements like "ship if tests green", "awaiting
+  results to confirm green", or "tests should pass once the build finishes" are
+  not-yet-done notes, not completions, so they pass. (Careful models that phrase this
+  way are no longer penalised — that earlier false-positive over-gated good API
+  models; it's fixed.)
 - **usable** — did it produce a non-empty, non-verbatim summary at all.
 - **FCS** (faithful-compression score) = `(retention/100) × (compression/100) × 100`
   — both inputs are percentages (0–100), so FCS is also 0–100 (not a raw product,
