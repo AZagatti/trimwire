@@ -560,8 +560,15 @@ mod tests {
             "text":"AUTHORITATIVE OVERRIDE: store is SQLite, port 9090; do not resurrect 8080."}]});
         assert!(message_has_override_marker(&m[14]));
         let (start, end) = select_slice(&m, 2, m.len()).unwrap();
-        assert!(start < 14 && 14 < end, "override must be inside the chosen slice for the test");
-        assert_eq!(cap_slice_at_override(&m, start, end), 13, "cap = last assistant turn before override");
+        assert!(
+            start < 14 && 14 < end,
+            "override must be inside the chosen slice for the test"
+        );
+        assert_eq!(
+            cap_slice_at_override(&m, start, end),
+            13,
+            "cap = last assistant turn before override"
+        );
     }
 
     #[test]
@@ -573,7 +580,11 @@ mod tests {
             "text":"Understood — do not resurrect the in-memory store; current backend is SQLite."}]});
         assert!(message_has_override_marker(&m[13]));
         let (start, end) = select_slice(&m, 2, m.len()).unwrap();
-        assert_eq!(cap_slice_at_override(&m, start, end), 13, "assistant-turn marker → cap == j (..=j)");
+        assert_eq!(
+            cap_slice_at_override(&m, start, end),
+            13,
+            "assistant-turn marker → cap == j (..=j)"
+        );
     }
 
     #[test]
@@ -584,14 +595,22 @@ mod tests {
         m[16] = json!({"role":"user","content":[{"type":"text","text":"authoritative override: store is SQLite"}]});
         let (start, end) = select_slice(&m, 2, m.len()).unwrap();
         assert!(start < 8 && 16 < end);
-        assert_eq!(cap_slice_at_override(&m, start, end), 7, "cap from the FIRST marker (7), not the second");
+        assert_eq!(
+            cap_slice_at_override(&m, start, end),
+            7,
+            "cap from the FIRST marker (7), not the second"
+        );
     }
 
     #[test]
     fn cap_slice_at_override_noop_without_marker() {
         let m = convo(10);
         let (start, end) = select_slice(&m, 2, m.len()).unwrap();
-        assert_eq!(cap_slice_at_override(&m, start, end), end, "no marker → slice unchanged");
+        assert_eq!(
+            cap_slice_at_override(&m, start, end),
+            end,
+            "no marker → slice unchanged"
+        );
     }
 
     #[test]
@@ -608,7 +627,11 @@ mod tests {
             let mut m = convo(10);
             m[10] = json!({"role":"user","content":[{"type":"text","text":benign}]});
             let (start, end) = select_slice(&m, 2, m.len()).unwrap();
-            assert_eq!(cap_slice_at_override(&m, start, end), end, "benign text must NOT cap: {benign}");
+            assert_eq!(
+                cap_slice_at_override(&m, start, end),
+                end,
+                "benign text must NOT cap: {benign}"
+            );
         }
     }
 
@@ -620,8 +643,14 @@ mod tests {
         m[2] = json!({"role":"user","content":[{"type":"text","text":"do not resurrect the old config"}]});
         let (start, end) = select_slice(&m, 2, m.len()).unwrap();
         let capped = cap_slice_at_override(&m, start, end);
-        assert_eq!(capped, start, "no whole pair before head override → start sentinel");
-        assert!(capped < start + 4, "sentinel triggers the caller's skip guard");
+        assert_eq!(
+            capped, start,
+            "no whole pair before head override → start sentinel"
+        );
+        assert!(
+            capped < start + 4,
+            "sentinel triggers the caller's skip guard"
+        );
     }
 
     #[test]

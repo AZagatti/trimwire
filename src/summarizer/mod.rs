@@ -732,12 +732,17 @@ pub fn maybe_spawn_summarization(
             let used = capped_end >= start + 4;
             let preserved_msgs = end - capped_end;
             let preserved_bytes = crate::strategies::serialized_len(&messages[capped_end..end]);
-            let marker_msg = (start..end).find(|&i| slice::message_has_override_marker(&messages[i]));
+            let marker_msg =
+                (start..end).find(|&i| slice::message_has_override_marker(&messages[i]));
             tracing::info!(
                 orig_end = end,
                 capped_end,
                 marker_msg,
-                outcome = if used { "capped-and-used" } else { "capped-and-skipped" },
+                outcome = if used {
+                    "capped-and-used"
+                } else {
+                    "capped-and-skipped"
+                },
                 preserved_msgs,
                 preserved_bytes,
                 "trimwire: B1 override-protection — slice capped before supersession marker (override kept verbatim)"
