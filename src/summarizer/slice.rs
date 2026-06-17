@@ -121,7 +121,19 @@ pub fn apply_summaries(
     // Validate ordering + non-overlap + bounds + EVERY anchor before touching `out`.
     let mut prev_end = 0usize;
     for d in chain {
-        if d.start < prev_end || d.end > out.len() || !anchor_matches(original, d) {
+        let order_ok = d.start >= prev_end;
+        let bounds_ok = d.end <= out.len();
+        let anchor_ok = anchor_matches(original, d);
+        if !order_ok || !bounds_ok || !anchor_ok {
+            tracing::debug!(
+                start = d.start,
+                end = d.end,
+                out_len = out.len(),
+                order_ok,
+                bounds_ok,
+                anchor_ok,
+                "trimwire: apply_summaries rejected a segment"
+            );
             return false;
         }
         prev_end = d.end;
