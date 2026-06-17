@@ -450,6 +450,11 @@ fn replay_decisions(messages: &[Value], state: &PruneState) -> Option<(Vec<Value
     if !state.summary.is_empty() {
         let mut out = messages.to_vec();
         let spliced = crate::summarizer::slice::apply_summaries(&mut out, messages, &state.summary);
+        tracing::debug!(
+            segments = state.summary.len(),
+            spliced,
+            "trimwire: replay summary splice attempt"
+        );
         if spliced {
             let overwrote = apply_decisions(&mut out, state);
             let removed = apply_thinking_removals(&mut out, state);
@@ -510,6 +515,45 @@ fn messages_eq_ignoring_cache_control(a: &[Value], b: &[Value]) -> bool {
             .all(|(x, y)| value_eq_ignoring_cache_control(x, y))
 }
 
+/// Anthropic treats a message `content` of `"text"` and `[{"type":"text","text":"text"}]`
+/// as equivalent, and Claude Code RE-RENDERS a user turn between the two shapes as it moves
+/// from the CURRENT turn (block-list form) to history (bare-string form). That cosmetic flip
+/// is not a history rewrite, but a byte-exact compare reads it as a prefix change — forcing a
+/// re-checkpoint that (via `prefix_changed`) CLEARS the cached summary so it never reaches the
+/// wire (the same failure class as `cache_control` churn / F10, found on the no-deterministic-
+/// prune geometry). Canonicalizing a bare string to its single-text-block equivalent keeps
+/// `append_only` stable across the flip; any REAL content change (different text, extra blocks,
+/// non-text block) still differs. Like the `cache_control` handling, this governs ONLY the
+/// stability DECISION — the wire bytes are always rebuilt from live `messages`.
+fn content_eq_ignoring_cosmetic(a: &Value, b: &Value) -> bool {
+    // Only the string-vs-block shape flip is special-cased; everything else compares
+    // structurally (ignoring cache_control) so genuine content changes still differ.
+    if matches!(a, Value::String(_)) || matches!(b, Value::String(_)) {
+        if let (Some(ta), Some(tb)) = (content_as_text(a), content_as_text(b)) {
+            return ta == tb;
+        }
+    }
+    value_eq_ignoring_cache_control(a, b)
+}
+
+/// A message `content` rendered as either a bare string `S` or a single text block
+/// `[{ "type":"text", "text":S }]` (cache_control, if present, is irrelevant to text
+/// identity). Returns `S` for those two shapes, `None` for anything else.
+fn content_as_text(v: &Value) -> Option<&str> {
+    match v {
+        Value::String(s) => Some(s.as_str()),
+        Value::Array(arr) if arr.len() == 1 => {
+            let blk = arr.first()?;
+            if blk.get("type").and_then(Value::as_str) == Some("text") {
+                blk.get("text").and_then(Value::as_str)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 fn value_eq_ignoring_cache_control(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Object(am), Value::Object(bm)) => {
@@ -519,11 +563,21 @@ fn value_eq_ignoring_cache_control(a: &Value, b: &Value) -> bool {
             if live(am) != live(bm) {
                 return false;
             }
+            // The current→history string/block shape flip happens on TOP-LEVEL message
+            // `content` (objects with a `role`). Scope the shape-insensitive compare to those;
+            // a nested `content` (e.g. a `tool_result` block) and all other keys compare
+            // structurally so genuine changes there still differ.
+            let is_message = am.contains_key("role");
             am.iter()
                 .filter(|(k, _)| k.as_str() != "cache_control")
                 .all(|(k, av)| {
-                    bm.get(k)
-                        .is_some_and(|bv| value_eq_ignoring_cache_control(av, bv))
+                    bm.get(k).is_some_and(|bv| {
+                        if k == "content" && is_message {
+                            content_eq_ignoring_cosmetic(av, bv)
+                        } else {
+                            value_eq_ignoring_cache_control(av, bv)
+                        }
+                    })
                 })
         }
         (Value::Array(aa), Value::Array(ba)) => {
@@ -580,6 +634,17 @@ pub fn stable_apply_to_body(
             &state.checkpoint_prefix,
         );
     let grew = len.saturating_sub(state.checkpoint_len);
+
+    tracing::debug!(
+        initialized = state.initialized,
+        len,
+        checkpoint_len = state.checkpoint_len,
+        grew,
+        threshold,
+        append_only,
+        summary_segments = state.summary.len(),
+        "trimwire: reprune branch decision"
+    );
 
     if append_only && grew <= threshold {
         // STABLE: replay the checkpoint's decisions + thinking removals (+ the
@@ -1532,6 +1597,182 @@ mod tests {
             st.summary_segment_count(),
             0,
             "a real content change must force re-checkpoint and drop the stale summary"
+        );
+    }
+
+    /// Six plain-TEXT messages (no tool blocks) → the deterministic strategies prune
+    /// nothing, so the warmup is an `Unchanged` checkpoint — the exact "no-deterministic-
+    /// prune" geometry that exposed the splice bug.
+    fn text_body() -> Vec<u8> {
+        serde_json::to_vec(&json!({
+            "model":"claude","system":[{"type":"text","text":"sys"}],
+            "messages":[
+                {"role":"assistant","content":[{"type":"text","text":"a0 ................"}]},
+                {"role":"user","content":[{"type":"text","text":"u0 ................"}]},
+                {"role":"assistant","content":[{"type":"text","text":"a1 ................"}]},
+                {"role":"user","content":[{"type":"text","text":"u1 the boundary turn"}]},
+                {"role":"assistant","content":[{"type":"text","text":"a2 ................"}]},
+                {"role":"user","content":[{"type":"text","text":"u2 ................"}]},
+            ]
+        }))
+        .unwrap()
+    }
+
+    /// REGRESSION (fix/summary-splice-no-op-checkpoint): an async summary installed after
+    /// an `Unchanged` (no-deterministic-prune) warmup must still SPLICE on the next
+    /// append-only turn when a prefix user turn is re-rendered from a single text block to
+    /// a bare string (Claude Code's current→history normalization). Pre-fix this cosmetic
+    /// flip made `append_only=false` → `prefix_changed` → the summary was CLEARED every turn
+    /// and never reached the wire (`in == sent`).
+    #[test]
+    fn summary_splices_after_unchanged_warmup_despite_content_shape_flip() {
+        use crate::summarizer::slice::SummaryDecision;
+        let cfg = cfg();
+        let mut st = PruneState::default();
+        let body0 = text_body();
+        let out0 = stable_apply_to_body(&body0, &cfg, &mut st, 8);
+        assert!(
+            matches!(out0, BodyOutcome::Unchanged),
+            "pure-text warmup prunes nothing (Unchanged) — the bug geometry"
+        );
+        assert!(
+            st.is_initialized(),
+            "an Unchanged warmup must still record a checkpoint"
+        );
+
+        // Async install: summarize the OLD pair [0,2).
+        let msgs0 = messages_of(&body0);
+        st.set_summary(SummaryDecision::new(&msgs0, 0, 2, "SUMMARY_OF_OLD").unwrap());
+        assert_eq!(st.summary_segment_count(), 1);
+
+        // Next turn: identical history EXCEPT the boundary user turn (idx 3) is now a bare
+        // string instead of a single text block. Cosmetic only (same text).
+        let mut root1: Value = serde_json::from_slice(&body0).unwrap();
+        let txt = root1["messages"][3]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        root1["messages"][3]["content"] = json!(txt);
+        let body1 = serde_json::to_vec(&root1).unwrap();
+
+        let out = stable_apply_to_body(&body1, &cfg, &mut st, 8);
+        assert!(
+            matches!(out, BodyOutcome::Mutated { .. }),
+            "spliced body must be Mutated (sent < in), not Unchanged"
+        );
+        let s = String::from_utf8(bytes_of(&out, &body1)).unwrap();
+        assert!(
+            s.contains("SUMMARY_OF_OLD"),
+            "summary must splice despite the content string/block shape flip"
+        );
+        assert_eq!(
+            st.summary_segment_count(),
+            1,
+            "a cosmetic shape flip must NOT clear the cached summary"
+        );
+    }
+
+    /// NEGATIVE: the shape-flip leniency must not mask a REAL text change — a different
+    /// string in the prefix must still force a re-checkpoint and drop the stale summary.
+    #[test]
+    fn content_shape_flip_with_different_text_still_busts() {
+        use crate::summarizer::slice::SummaryDecision;
+        let cfg = cfg();
+        let mut st = PruneState::default();
+        let body0 = text_body();
+        let _ = stable_apply_to_body(&body0, &cfg, &mut st, 8);
+        let msgs0 = messages_of(&body0);
+        st.set_summary(SummaryDecision::new(&msgs0, 0, 2, "SUMMARY").unwrap());
+        assert_eq!(st.summary_segment_count(), 1);
+
+        let mut root1: Value = serde_json::from_slice(&body0).unwrap();
+        root1["messages"][3]["content"] = json!("DIFFERENT TEXT ENTIRELY");
+        let body1 = serde_json::to_vec(&root1).unwrap();
+        let _ = stable_apply_to_body(&body1, &cfg, &mut st, 8);
+        assert_eq!(
+            st.summary_segment_count(),
+            0,
+            "a real text change (not just a shape flip) must re-checkpoint and drop the summary"
+        );
+    }
+
+    /// Direct unit test of the prefix-stability comparator's shape-insensitivity.
+    #[test]
+    fn prefix_compare_treats_string_and_single_text_block_as_equal() {
+        let block = json!([{"role":"user","content":[{"type":"text","text":"hi"}]}]);
+        let strg = json!([{"role":"user","content":"hi"}]);
+        let block = block.as_array().unwrap();
+        let strg = strg.as_array().unwrap();
+        assert!(
+            messages_eq_ignoring_cache_control(block, strg),
+            "block-list and bare-string content with the same text are equal"
+        );
+        // block WITH cache_control vs bare string (same text) — still equal (cc ignored).
+        let block_cc = json!([{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral"}}]}]);
+        assert!(
+            messages_eq_ignoring_cache_control(block_cc.as_array().unwrap(), strg),
+            "cache_control on the block must not defeat the shape-insensitive compare"
+        );
+        // different text still differs.
+        let strg2 = json!([{"role":"user","content":"bye"}]);
+        assert!(
+            !messages_eq_ignoring_cache_control(block, strg2.as_array().unwrap()),
+            "different text must still differ"
+        );
+        // a bare string vs a MULTI-block content is a genuine difference.
+        let multi = json!([{"role":"user","content":[{"type":"text","text":"hi"},{"type":"text","text":"x"}]}]);
+        assert!(
+            !messages_eq_ignoring_cache_control(strg, multi.as_array().unwrap()),
+            "string vs multi-block content must differ"
+        );
+        // SCOPE: the shape-insensitivity is for TOP-LEVEL message content only. A nested
+        // object WITHOUT a `role` (e.g. a tool_result block) keeps structural comparison.
+        let tr_str = json!([{"type":"tool_result","tool_use_id":"u0","content":"hi"}]);
+        let tr_blk = json!([{"type":"tool_result","tool_use_id":"u0","content":[{"type":"text","text":"hi"}]}]);
+        assert!(
+            !messages_eq_ignoring_cache_control(
+                tr_str.as_array().unwrap(),
+                tr_blk.as_array().unwrap()
+            ),
+            "nested (non-message) content must NOT get the message-content shape leniency"
+        );
+    }
+
+    /// Intersection of the F10 cache_control fix and this shape-flip fix: a checkpoint built
+    /// with a cache_control-bearing single text block, then a next turn that presents the SAME
+    /// text as a bare string with cache_control gone. Both are cosmetic — the summary must splice.
+    #[test]
+    fn summary_splices_when_cache_control_drops_and_content_flips_to_string() {
+        use crate::summarizer::slice::SummaryDecision;
+        let cfg = cfg();
+        let mut st = PruneState::default();
+        let mut root0: Value = serde_json::from_slice(&text_body()).unwrap();
+        root0["messages"][3]["content"][0]["cache_control"] = json!({"type":"ephemeral"});
+        let body0 = serde_json::to_vec(&root0).unwrap();
+        let _ = stable_apply_to_body(&body0, &cfg, &mut st, 8);
+        let msgs0 = messages_of(&body0);
+        st.set_summary(SummaryDecision::new(&msgs0, 0, 2, "SUMMARY_CC").unwrap());
+        assert_eq!(st.summary_segment_count(), 1);
+
+        // Next turn: same text, but the block collapsed to a bare string AND cache_control gone.
+        let mut root1: Value = serde_json::from_slice(&text_body()).unwrap();
+        let txt = root1["messages"][3]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        root1["messages"][3]["content"] = json!(txt);
+        let body1 = serde_json::to_vec(&root1).unwrap();
+
+        let out = stable_apply_to_body(&body1, &cfg, &mut st, 8);
+        let s = String::from_utf8(bytes_of(&out, &body1)).unwrap();
+        assert!(
+            s.contains("SUMMARY_CC"),
+            "summary must splice when cache_control drops AND content flips to a bare string"
+        );
+        assert_eq!(
+            st.summary_segment_count(),
+            1,
+            "the combined cosmetic change must not clear the cached summary"
         );
     }
 }
