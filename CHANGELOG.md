@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4](https://github.com/AZagatti/trimwire/compare/v0.2.3...v0.2.4) - 2026-06-17
+
+### Fixed
+
+- *(reprune)* ignore cache_control in the append_only stability check
+- *(summarizer)* false-done gate no longer flags honest hedged phrasing
+- *(share)* strip the [1m] context marker before coarsening model_family
+- *(summarizer)* probe budget follows the --model target, not the config engine
+
+### Other
+
+- *(changelog)* drop the manual [Unreleased] F10 entry
+- *(changelog)* document F10 fix + Phase 4 validation
+
 ## [0.2.3](https://github.com/AZagatti/trimwire/compare/v0.2.2...v0.2.3) - 2026-06-15
 
 ### Added
