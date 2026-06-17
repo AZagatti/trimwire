@@ -601,6 +601,13 @@ pub async fn preview_summary(
     else {
         return Ok(None);
     };
+    // B1 override-protection — MUST mirror the gateway live path (maybe_spawn_summarization): cap the
+    // slice before the first supersession marker so preview reports the SAME slice the gateway would
+    // summarize (and never spends a paid call on content the gateway would keep verbatim).
+    let end = slice::cap_slice_at_override(messages, start, end);
+    if end < start + 4 {
+        return Ok(None);
+    }
     // Apply the same slice-size cap the production gateway uses (avoids silent
     // prompt-head truncation by narrowing the start forward if needed).
     let mut start = slice::cap_slice_start(
@@ -715,6 +722,31 @@ pub fn maybe_spawn_summarization(
         else {
             return;
         };
+        // B1 OVERRIDE PROTECTION (O12 safety mitigation): never summarize an authoritative
+        // correction — cap the slice to end before the first supersession marker so the override
+        // turn stays VERBATIM on the wire and supersedes whatever the SEG records. Deterministic;
+        // does not rely on the summarizer recognizing the override (O12 proved it does not).
+        let capped_end = slice::cap_slice_at_override(messages, start, end);
+        if capped_end != end {
+            // content-free B1 telemetry: indices, byte/message counts, and the cap outcome only.
+            let used = capped_end >= start + 4;
+            let preserved_msgs = end - capped_end;
+            let preserved_bytes = crate::strategies::serialized_len(&messages[capped_end..end]);
+            let marker_msg = (start..end).find(|&i| slice::message_has_override_marker(&messages[i]));
+            tracing::info!(
+                orig_end = end,
+                capped_end,
+                marker_msg,
+                outcome = if used { "capped-and-used" } else { "capped-and-skipped" },
+                preserved_msgs,
+                preserved_bytes,
+                "trimwire: B1 override-protection — slice capped before supersession marker (override kept verbatim)"
+            );
+        }
+        let end = capped_end;
+        if end < start + 4 {
+            return;
+        }
         // Phase 2.5a: narrow the start forward so the serialized slice fits the
         // num_ctx budget (summarize the most-recent old turns; the oldest stay
         // model-free-pruned) — prevents silent prompt-head truncation.
@@ -3250,5 +3282,51 @@ mod tests {
             "a session too short for a slice must return None without calling the model"
         );
         server.verify().await; // confirm no HTTP call was made
+    }
+
+    #[tokio::test]
+    async fn preview_summary_applies_override_protection_like_the_gateway() {
+        // LIVE/PREVIEW PARITY: an override marker at the slice head caps to the `start` sentinel, so
+        // preview must return None WITHOUT calling the model — exactly as maybe_spawn_summarization
+        // skips. Without the B1 cap in preview, it would summarize the slice and hit the model; the
+        // mock (expect 0) catches that regression.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/chat"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"content": "should not be called"},
+                "done": true
+            })))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let mut cfg = crate::config::profile_baseline("default");
+        cfg.summarizer = SummarizerConfig {
+            engine: "local".to_owned(),
+            trigger_bytes: 10,
+            keep_recent_turns: 2,
+            timeout_secs: 5,
+            local: crate::config::SummarizerLocalConfig {
+                endpoint: server.uri(),
+                model: "qwen3.5:4b".to_owned(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // prose_convo(8) gives select_slice a valid (1, 13) slice; put an override marker at the slice
+        // head (user@2) so cap_slice_at_override returns the `start` sentinel → preview skips (None).
+        let mut messages = prose_convo(8);
+        messages[2] = serde_json::json!({"role":"user","content":[{"type":"text",
+            "text":"AUTHORITATIVE OVERRIDE: do not resurrect the old plan; current ground truth is X."}]});
+        let result = preview_summary(&messages, &cfg)
+            .await
+            .expect("preview_summary must not error");
+        assert!(
+            result.is_none(),
+            "preview must apply B1 override-protection (cap → skip) like the gateway"
+        );
+        server.verify().await; // zero model calls → the cap fired before run_cascade
     }
 }
