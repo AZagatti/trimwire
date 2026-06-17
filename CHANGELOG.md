@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- *(reprune)* fixed stable replay for local/provider summaries in live Claude Code sessions. Per-turn Anthropic `cache_control` marker churn had made the checkpoint-prefix comparison look non-append-only, so accepted summaries were computed but not applied on the wire. The append-only comparison now ignores `cache_control` only for checkpoint stability; outgoing requests still carry `cache_control` unchanged. Validated by Phase 4 cognitive checks across local, model-free, and provider GLM-5.2 modes with no measurable trimwire-attributable degradation on the fixture.
-
 ## [0.2.3](https://github.com/AZagatti/trimwire/compare/v0.2.2...v0.2.3) - 2026-06-15
 
 ### Added
