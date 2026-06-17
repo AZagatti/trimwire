@@ -202,6 +202,80 @@ pub fn select_slice(
     Some((slice_start, slice_end))
 }
 
+/// High-precision supersession/correction markers (matched case-insensitively). A slice turn carrying
+/// any of these is an authoritative correction the summarizer must NOT compress away — O12 showed both
+/// the local (qwen3.5:4b) and provider (GLM-5.2) summaries dropped a one-time override in favor of
+/// repeated stale facts. [`cap_slice_at_override`] keeps such turns VERBATIM on the wire.
+///
+/// Deliberately PHRASE-level coined phrases, not broad single words: bare `obsolete` false-positived on
+/// benign prose ("obsolete columns" in a migrations explainer) and over-protected ~28 KB; bare
+/// `supersedes` is similarly common ("the new schema supersedes the old"); `correction:` collides with
+/// git commit messages ("correction: fix typo"), shell/log `tool_result` lines, and code-review prose
+/// ("correction: the index is 0-based"). All three are dropped. Re-add only with a scoped, high-confidence
+/// phrase + a benign-usage no-cap test, never a bare common word.
+pub const OVERRIDE_MARKERS: &[&str] = &[
+    "authoritative override",
+    "current ground truth",
+    "do not resurrect",
+];
+
+/// True if any text or tool_result content of `m` contains an [`OVERRIDE_MARKERS`] phrase
+/// (case-insensitive; `to_ascii_lowercase` leaves multibyte UTF-8 untouched, so no false match/panic).
+/// `tool_use` INPUT blocks are intentionally NOT scanned: a correction/override is a human/assistant
+/// *statement* (user text, or a tool_result the agent read), not a tool-call argument — scanning
+/// command/edit bodies would protect turns on incidental matches inside code or commands.
+pub fn message_has_override_marker(m: &Value) -> bool {
+    fn has(s: &str) -> bool {
+        let l = s.to_ascii_lowercase();
+        OVERRIDE_MARKERS.iter().any(|mk| l.contains(mk))
+    }
+    match m.get("content") {
+        Some(Value::String(s)) => has(s),
+        Some(Value::Array(blocks)) => blocks.iter().any(|b| {
+            match b.get("type").and_then(Value::as_str) {
+                Some("text") => b.get("text").and_then(Value::as_str).is_some_and(has),
+                Some("tool_result") => match b.get("content") {
+                    Some(Value::String(s)) => has(s),
+                    Some(v) => has(&v.to_string()),
+                    None => false,
+                },
+                // tool_use input (commands / edit bodies) intentionally NOT scanned — see doc above.
+                _ => false,
+            }
+        }),
+        _ => false,
+    }
+}
+
+/// B1 OVERRIDE PROTECTION (O12 safety mitigation): given a chosen slice `[start, end)`, if any
+/// message carries a supersession marker, cap `end` to the largest assistant-turn start `i` with
+/// `start < i <= j` (j = first marker message), so the override turn AND everything after it stay
+/// VERBATIM on the wire — the protected correction then supersedes whatever the summary records.
+/// Returns the original `end` when there is no marker; otherwise the capped end.
+///
+/// CONTRACT: the return is the index to summarize UP TO, but it may be `< start + 4` — including the
+/// `start` fallback (an empty-slice sentinel) when no whole `[assistant,user]` pair precedes the marker.
+/// Callers MUST treat any value `< start + 4` as "skip summarization → leave the region verbatim" and
+/// must NEVER summarize `[start, return)` without that guard (this is why both call sites re-check
+/// `end < start + 4`). Snapping to an assistant index keeps whole pairs, matching [`select_slice`].
+/// Deterministic and model-independent: it does NOT rely on the summarizer recognizing the override
+/// (which O12 proved it does not).
+pub fn cap_slice_at_override(messages: &[Value], start: usize, end: usize) -> usize {
+    let Some(j) = (start..end).find(|&i| message_has_override_marker(&messages[i])) else {
+        return end;
+    };
+    (start + 1..=j)
+        .rev()
+        .find(|&i| {
+            messages
+                .get(i)
+                .and_then(|m| m.get("role"))
+                .and_then(Value::as_str)
+                == Some("assistant")
+        })
+        .unwrap_or(start)
+}
+
 /// Count the eligible assistant-turn START positions a *density-aware* slice
 /// selector could choose among. `select_slice` always starts at the first
 /// assistant turn (the widest slice); a density-aware variant would instead pick
@@ -473,6 +547,110 @@ mod tests {
             ]}));
         }
         m
+    }
+
+    // --- B1 override-protection (O12 safety mitigation) ---
+    // convo(10): user@0, assistant@1,3,..,19, user@2,4,..,20. select_slice(_,2,len) = (1, 17).
+    #[test]
+    fn cap_slice_at_override_excludes_and_protects_override_turn() {
+        // repeated stale (benign) + a later authoritative override (a USER turn @14): cap to the last
+        // assistant-turn START before it (13) → the override turn is EXCLUDED, stays verbatim.
+        let mut m = convo(10);
+        m[14] = json!({"role":"user","content":[{"type":"text",
+            "text":"AUTHORITATIVE OVERRIDE: store is SQLite, port 9090; do not resurrect 8080."}]});
+        assert!(message_has_override_marker(&m[14]));
+        let (start, end) = select_slice(&m, 2, m.len()).unwrap();
+        assert!(
+            start < 14 && 14 < end,
+            "override must be inside the chosen slice for the test"
+        );
+        assert_eq!(
+            cap_slice_at_override(&m, start, end),
+            13,
+            "cap = last assistant turn before override"
+        );
+    }
+
+    #[test]
+    fn cap_slice_at_override_marker_on_assistant_turn_returns_j() {
+        // Marker carried by an ASSISTANT turn @13 (agent restates the override). The inclusive upper
+        // bound `..=j` must return j itself (an assistant index) so the marker turn is excluded.
+        let mut m = convo(10);
+        m[13] = json!({"role":"assistant","content":[{"type":"text",
+            "text":"Understood — do not resurrect the in-memory store; current backend is SQLite."}]});
+        assert!(message_has_override_marker(&m[13]));
+        let (start, end) = select_slice(&m, 2, m.len()).unwrap();
+        assert_eq!(
+            cap_slice_at_override(&m, start, end),
+            13,
+            "assistant-turn marker → cap == j (..=j)"
+        );
+    }
+
+    #[test]
+    fn cap_slice_at_override_first_marker_wins() {
+        // Two markers; the cap is computed from the FIRST (proves .find, not .rfind).
+        let mut m = convo(10);
+        m[8] = json!({"role":"user","content":[{"type":"text","text":"current ground truth: port is 9090"}]});
+        m[16] = json!({"role":"user","content":[{"type":"text","text":"authoritative override: store is SQLite"}]});
+        let (start, end) = select_slice(&m, 2, m.len()).unwrap();
+        assert!(start < 8 && 16 < end);
+        assert_eq!(
+            cap_slice_at_override(&m, start, end),
+            7,
+            "cap from the FIRST marker (7), not the second"
+        );
+    }
+
+    #[test]
+    fn cap_slice_at_override_noop_without_marker() {
+        let m = convo(10);
+        let (start, end) = select_slice(&m, 2, m.len()).unwrap();
+        assert_eq!(
+            cap_slice_at_override(&m, start, end),
+            end,
+            "no marker → slice unchanged"
+        );
+    }
+
+    #[test]
+    fn cap_slice_at_override_no_false_positive_on_dropped_words() {
+        // Precision: bare 'obsolete' / 'supersedes' / 'correction:' are NOT markers — they collide
+        // with benign prose, git commit messages, and tool/log output. None may cap the slice.
+        for benign in [
+            "note: the migration deprecates obsolete columns in the legacy table",
+            "the new event-sourced schema supersedes the old CRUD design",
+            "correction: fix typo in the readme",
+            "correction: the index is 0-based, not 1-based",
+            "git log: a1b2c3 correction: align table headers (tool output line)",
+        ] {
+            let mut m = convo(10);
+            m[10] = json!({"role":"user","content":[{"type":"text","text":benign}]});
+            let (start, end) = select_slice(&m, 2, m.len()).unwrap();
+            assert_eq!(
+                cap_slice_at_override(&m, start, end),
+                end,
+                "benign text must NOT cap: {benign}"
+            );
+        }
+    }
+
+    #[test]
+    fn cap_slice_at_override_returns_start_sentinel_when_override_is_earliest() {
+        // override at the slice head (no whole pair before it) → returns the `start` sentinel → the
+        // caller's `< start + 4` guard skips summarization, leaving the region verbatim.
+        let mut m = convo(10);
+        m[2] = json!({"role":"user","content":[{"type":"text","text":"do not resurrect the old config"}]});
+        let (start, end) = select_slice(&m, 2, m.len()).unwrap();
+        let capped = cap_slice_at_override(&m, start, end);
+        assert_eq!(
+            capped, start,
+            "no whole pair before head override → start sentinel"
+        );
+        assert!(
+            capped < start + 4,
+            "sentinel triggers the caller's skip guard"
+        );
     }
 
     #[test]
