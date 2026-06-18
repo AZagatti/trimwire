@@ -43,7 +43,11 @@ else
 fi
 
 tarball="${BIN}-${triple}.tar.gz"
-url="https://github.com/${REPO}/releases/latest/download/${tarball}"
+# Default: the latest GitHub release. Overridable ONLY for testing (e.g. a local
+# file:// artifact dir in scripts/install-smoke.sh) — users never set this, so the
+# default install path is byte-for-byte unchanged.
+base_url="${TRIMWIRE_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/latest/download}"
+url="${base_url}/${tarball}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

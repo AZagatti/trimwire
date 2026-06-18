@@ -75,15 +75,17 @@ jobs:
           bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           ./actionlint
 
-      - name: shellcheck install.sh
+      - name: shellcheck installer scripts
         run: |
           sh -n scripts/install.sh
-          if command -v shellcheck >/dev/null 2>&1; then
-            shellcheck scripts/install.sh
-          else
+          bash -n scripts/install-smoke.sh
+          if ! command -v shellcheck >/dev/null 2>&1; then
             sudo apt-get update -qq && sudo apt-get install -y shellcheck
-            shellcheck scripts/install.sh
           fi
+          shellcheck scripts/install.sh scripts/install-smoke.sh
+
+      - name: install.sh end-to-end smoke (local artifact, no network)
+        run: TRIMWIRE_SMOKE_BIN="$PWD/target/release/trimwire" bash scripts/install-smoke.sh
 
   msrv:
     name: MSRV (1.85)
