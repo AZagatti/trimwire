@@ -641,6 +641,52 @@ mod tests {
     }
 
     #[test]
+    fn subagent_agent_and_task_exempt_by_default() {
+        // Drift fix: the PRODUCTION default exempt_tools must cover BOTH subagent tool
+        // names — `Task` AND the drifted `Agent` — so subagent results (findings/blocker
+        // lists) are not middle-trimmed; ordinary large `Bash` and unrelated tools still
+        // trim (no accidental broad exemption). Uses the real BloatCapConfig::default()
+        // exempt list; only thresholds are tweaked for test-sized payloads.
+        let base = BloatCapConfig {
+            enabled: true,
+            threshold_bytes: 50,
+            head_bytes: 8,
+            tail_bytes: 8,
+            keep_recent_turns: 4,
+            ..BloatCapConfig::default()
+        };
+        let renamed = |name: &str| {
+            let mut msgs = session(10, 100);
+            for m in msgs.iter_mut() {
+                if let Some(c) = m.get_mut("content").and_then(Value::as_array_mut) {
+                    for b in c {
+                        if b.get("type").and_then(Value::as_str) == Some("tool_use") {
+                            b["name"] = json!(name);
+                        }
+                    }
+                }
+            }
+            msgs
+        };
+        for exempt in ["Agent", "Task", "Edit", "Write", "MultiEdit"] {
+            let mut m = renamed(exempt);
+            let s = apply(&mut m, &base).unwrap();
+            assert_eq!(
+                s.stubbed, 0,
+                "{exempt} must be exempt from bloat_cap by default"
+            );
+        }
+        for trimmed in ["Bash", "Glob", "WebFetch"] {
+            let mut m = renamed(trimmed);
+            let s = apply(&mut m, &base).unwrap();
+            assert!(
+                s.stubbed > 0,
+                "{trimmed} must still be trimmed (not exempt)"
+            );
+        }
+    }
+
+    #[test]
     fn deterministic() {
         let mut a = session(10, 100);
         let mut b = session(10, 100);
