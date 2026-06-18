@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/AZagatti/trimwire/compare/v0.2.4...v0.3.0) - 2026-06-18
+
+### Added
+
+- *(stale_reads)* lower default page_min_bytes 32KB to 16KB for recoverability ([#28](https://github.com/AZagatti/trimwire/pull/28))
+
+### Fixed
+
+- fix trimwire read-heavy live compression gaps ([#27](https://github.com/AZagatti/trimwire/pull/27))
+- *(reprune)* splice cached summary across the content string/block shape flip ([#26](https://github.com/AZagatti/trimwire/pull/26))
+
+### Other
+
+- Protect override-marked turns from summarization ([#24](https://github.com/AZagatti/trimwire/pull/24))
+
 ## [0.2.4](https://github.com/AZagatti/trimwire/compare/v0.2.3...v0.2.4) - 2026-06-17
 
 ### Fixed
