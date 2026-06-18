@@ -834,13 +834,21 @@ pub fn profile_baseline(name: &str) -> Config {
             // Elide file Read *results* superseded by a later Write/Edit/re-Read of
             // the same path (cache-safe overwrite). Authored Write/Edit inputs are
             // never collapsed — eliding them corrupted real sessions (§13A).
-            // Plus DEMAND-PAGE old large current-view Reads (>8KB, past keep_recent):
+            // Plus DEMAND-PAGE old large current-view Reads (>16KB, past keep_recent):
             // replaced with a re-read marker; the model self-heals (CC returns fresh).
             s.stale_reads.enabled = true;
-            // 32KB: page only GENUINELY-huge old reads (whole-file dumps) — sparing
-            // typical source files, so the model rarely loses a current view it's
-            // actively using (review: 8KB pages normal files → silent competence risk).
-            s.stale_reads.page_min_bytes = 32_768;
+            // 16KB chosen for RECOVERABILITY, not savings. An old single-view Read in
+            // the 16-32KB band was otherwise bloat_cap-trimmed (head/tail kept, middle
+            // SILENTLY dropped) → a buried fact became a confident wrong answer. Routing
+            // it through demand-page instead removes ALL content, so the model must
+            // re-read (Phase 3C live A/B: Sonnet-low confident-misleading 6/9 → 1/9,
+            // recovery 1/9 → 8/9; Haiku 7/15 → 15/15; over-paging negligible; savings
+            // unchanged-to-slightly-higher). 8KB is intentionally NOT the default: the
+            // 8-16KB band carries the prior "pages normal files the model is actively
+            // using → silent competence risk" concern and was not validated here.
+            // Bounded by keep_recent (recent reads never paged) and the §13B
+            // repeated-read guard (a path Read >1× is never paged → no read-spiral).
+            s.stale_reads.page_min_bytes = 16_384;
             s.stale_reads.keep_recent_turns = 4;
             // thinking_strip is now cache-stable (reprune replays removals; live
             // run confirmed 92% cache-hit), API-safe, and the biggest single mass
@@ -1339,6 +1347,18 @@ mod tests {
         assert!(default.strategies.stale_input_cap.enabled);
         assert_eq!(default.strategies.stale_input_cap.keep_recent_turns, 2);
         assert!(default.strategies.stale_reads.enabled);
+        // Phase 3C: demand-page threshold lowered 32KB→16KB for recoverability (route
+        // old single-view 16-32KB Reads through demand-page, not silent bloat_cap trim).
+        // 16384 (not 8192 — the 8-16KB band was not validated and carries the prior
+        // competence-risk concern).
+        assert_eq!(
+            default.strategies.stale_reads.page_min_bytes, 16_384,
+            "default stale_reads.page_min_bytes must be 16KB (Phase 3C recoverability); not 32KB, not 8KB"
+        );
+        assert_eq!(
+            default.strategies.stale_reads.keep_recent_turns, 4,
+            "default demand-page must keep recent reads protected (keep_recent=4)"
+        );
         assert!(default.reprune.enabled);
         // "Read coverage gap" fix: Read is AGE-GATED (exempt only while recent),
         // authoring tools stay exempt at every age, and the byte-based re-checkpoint
