@@ -362,7 +362,13 @@ impl Default for FailedInputPurgeConfig {
         Self {
             enabled: false,
             keep_recent_turns: 4,
-            exempt_tools: Vec::new(),
+            // SUBAGENT tools exempt: never elide a FAILED subagent call's input (the
+            // sub-task prompt) — the model needs to see what the sub-task was, and a
+            // retry may re-emit it (loop-safety). `Task` and `Agent` are both
+            // subagent-launch names (the name drifted across CC versions). Authoring
+            // tools (Write/Edit/MultiEdit/NotebookEdit) are already a hard floor in
+            // apply_counted, so only the subagent names are listed here.
+            exempt_tools: ["Task", "Agent"].iter().map(|s| (*s).to_owned()).collect(),
         }
     }
 }
@@ -1304,6 +1310,18 @@ mod tests {
         assert!(default.strategies.cross_turn_dedup.enabled);
         assert!(default.strategies.failed_input_purge.enabled);
         assert_eq!(default.strategies.failed_input_purge.keep_recent_turns, 2);
+        // Subagent tools (Task + Agent) exempt from failed_input_purge too — a failed
+        // subagent call's prompt must not be elided (same drift fix as the other strategies).
+        for t in ["Task", "Agent"] {
+            assert!(
+                default
+                    .strategies
+                    .failed_input_purge
+                    .exempt_tools
+                    .contains(&t.to_owned()),
+                "default must exempt {t} from failed_input_purge"
+            );
+        }
         assert!(default.strategies.bloat_cap.enabled);
         assert_eq!(default.strategies.bloat_cap.threshold_bytes, 4_096);
         assert_eq!(default.strategies.bloat_cap.keep_recent_turns, 2);
