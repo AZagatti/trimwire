@@ -382,10 +382,18 @@ impl Default for StaleInputCapConfig {
             // NotebookEdit authors cell source (`new_source`) — same class. These four
             // authoring tools are ALSO an unconditional hard floor (strategies::
             // AUTHORING_TOOLS); listing them here keeps the visible config honest.
-            exempt_tools: ["Task", "Write", "Edit", "MultiEdit", "NotebookEdit"]
-                .iter()
-                .map(|s| (*s).to_owned())
-                .collect(),
+            // `Task`+`Agent` = subagent tools (name drifted across CC versions); both listed.
+            exempt_tools: [
+                "Task",
+                "Agent",
+                "Write",
+                "Edit",
+                "MultiEdit",
+                "NotebookEdit",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect(),
         }
     }
 }
@@ -398,12 +406,15 @@ impl Default for BloatCapConfig {
             head_bytes: 2_048,
             tail_bytes: 2_048,
             keep_recent_turns: 4,
-            // File-AUTHORING/Task results are load-bearing — never trim them at any
-            // age (eliding them corrupts real sessions, §13A). `Read` is NOT here:
-            // it's age-gated below (exempt while recent, trimmed once old) so large
-            // OLD file reads — the dominant untrimmed mass in read-heavy sessions —
-            // finally get capped (the "Read coverage gap" the live canaries exposed).
-            exempt_tools: ["Edit", "Write", "MultiEdit", "Task"]
+            // File-AUTHORING + SUBAGENT results are load-bearing — never trim them at
+            // any age (eliding them corrupts real sessions, §13A). `Task` AND `Agent`
+            // are both subagent-launch tool names (the name drifted Task→Agent across
+            // Claude Code versions); list both so subagent findings (blocker lists,
+            // per-file analysis) aren't middle-trimmed. `Read` is NOT here: it's
+            // age-gated below (exempt while recent, trimmed once old) so large OLD file
+            // reads — the dominant untrimmed mass in read-heavy sessions — finally get
+            // capped (the "Read coverage gap" the live canaries exposed).
+            exempt_tools: ["Edit", "Write", "MultiEdit", "Task", "Agent"]
                 .iter()
                 .map(|s| (*s).to_owned())
                 .collect(),
@@ -424,7 +435,8 @@ impl Default for SlidingWindowConfig {
             keep_recent_turns: 4,
             denylist_tools: Vec::new(),
             // SPIKE.md §4: these are "never mutate" across all strategies.
-            exempt_tools: ["Read", "Edit", "Write", "MultiEdit", "Task"]
+            // `Task`+`Agent` = subagent tools (name drifted across CC versions); both listed.
+            exempt_tools: ["Read", "Edit", "Write", "MultiEdit", "Task", "Agent"]
                 .iter()
                 .map(|s| (*s).to_owned())
                 .collect(),
@@ -795,7 +807,7 @@ pub fn profile_baseline(name: &str) -> Config {
     match name {
         "gentle" => {
             s.cross_turn_dedup.enabled = true;
-            s.cross_turn_dedup.exempt_tools = vec!["Task".to_owned()];
+            s.cross_turn_dedup.exempt_tools = vec!["Task".to_owned(), "Agent".to_owned()]; // Task+Agent = subagent tools (name drift)
             s.failed_input_purge.enabled = true;
             // Conservative bloat_cap: still trims truly bloated results (>32 KB)
             // but leaves normal tool output alone. Keep recent 6 turns for safety.
@@ -821,7 +833,7 @@ pub fn profile_baseline(name: &str) -> Config {
         // "default" and any unknown name → aggressive: all eight cache-safe strategies on.
         _ => {
             s.cross_turn_dedup.enabled = true;
-            s.cross_turn_dedup.exempt_tools = vec!["Task".to_owned()];
+            s.cross_turn_dedup.exempt_tools = vec!["Task".to_owned(), "Agent".to_owned()]; // Task+Agent = subagent tools (name drift)
             s.failed_input_purge.enabled = true;
             s.failed_input_purge.keep_recent_turns = 2;
             s.bloat_cap.enabled = true;
@@ -1379,7 +1391,10 @@ mod tests {
                 .contains(&"Read".to_owned()),
             "default must NOT exempt Read at every age (it is age-gated)"
         );
-        for t in ["Edit", "Write", "MultiEdit", "Task"] {
+        // `Agent` joins `Task`: both are subagent-launch tool names (the name drifted
+        // Task→Agent across CC versions) — subagent results must stay exempt so their
+        // findings aren't middle-trimmed (NONREAD-BLOAT-MANUAL-INSPECTION-2026-06-18).
+        for t in ["Edit", "Write", "MultiEdit", "Task", "Agent"] {
             assert!(
                 default
                     .strategies
@@ -1393,15 +1408,17 @@ mod tests {
             default.reprune.recheckpoint_result_bytes, 131_072,
             "default must enable the byte-based re-checkpoint at 128 KB"
         );
-        // Task is in cross_turn_dedup.exempt_tools.
-        assert!(
-            default
-                .strategies
-                .cross_turn_dedup
-                .exempt_tools
-                .contains(&"Task".to_owned()),
-            "default must exempt Task from cross_turn_dedup"
-        );
+        // Task + Agent (subagent tools) are in cross_turn_dedup.exempt_tools.
+        for t in ["Task", "Agent"] {
+            assert!(
+                default
+                    .strategies
+                    .cross_turn_dedup
+                    .exempt_tools
+                    .contains(&t.to_owned()),
+                "default must exempt {t} from cross_turn_dedup"
+            );
+        }
 
         // "gentle": dedup + purge + conservative bloat_cap + thinking_strip
         // (conservative window); the aggressive levers (window/image/stale_*) stay OFF.
