@@ -197,6 +197,68 @@ mod tests {
         );
     }
 
+    /// Drift fix: the PRODUCTION default exempt_tools must preserve a FAILED subagent
+    /// call's bulky input (the sub-task prompt) for BOTH subagent names (Task + Agent);
+    /// ordinary failed tools (Bash) still get their bulk elided; no broad exemption.
+    #[test]
+    fn subagent_task_and_agent_failed_inputs_exempt_by_default() {
+        // one OLD failed call of `name` carrying a bulky `field`, then recent padding.
+        let mk = |name: &str, field: &str| {
+            let mut msgs = Vec::new();
+            msgs.push(json!({"role": "user", "content": [{"type": "text", "text": "go"}]}));
+            msgs.push(json!({"role": "assistant", "content": [
+                {"type": "tool_use", "id": "sub0", "name": name,
+                 "input": {"description": "t", field: "x".repeat(2000)}}
+            ]}));
+            msgs.push(json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "sub0", "is_error": true,
+                 "content": "error: failed"}
+            ]}));
+            for i in 0..8 {
+                let u = format!("p{i}");
+                msgs.push(json!({"role": "assistant", "content": [
+                    {"type": "tool_use", "id": u, "name": "Bash", "input": {"command": "echo"}}
+                ]}));
+                msgs.push(json!({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": u, "content": "ok"}
+                ]}));
+            }
+            msgs
+        };
+        // Use the REAL default exempt list (now ["Task","Agent"]); tweak only enable/window.
+        let base = FailedInputPurgeConfig {
+            enabled: true,
+            keep_recent_turns: 2,
+            ..FailedInputPurgeConfig::default()
+        };
+        for name in ["Task", "Agent"] {
+            let mut m = mk(name, "prompt");
+            let s = apply(&mut m, &base).unwrap();
+            assert_eq!(
+                s.stubbed, 0,
+                "{name} failed input must be exempt (subagent preservation)"
+            );
+            assert!(
+                m[1]["content"][0]["input"]["prompt"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with('x'),
+                "{name} bulky sub-task prompt kept verbatim"
+            );
+        }
+        // Ordinary non-exempt failed tool (Bash) still gets its bulk elided.
+        let mut mb = mk("Bash", "stdin");
+        let s = apply(&mut mb, &base).unwrap();
+        assert!(s.stubbed >= 1, "ordinary failed Bash input still purged");
+        assert!(
+            mb[1]["content"][0]["input"]["stdin"]
+                .as_str()
+                .unwrap()
+                .starts_with("[trimwire:"),
+            "Bash bulky stdin elided to a marker"
+        );
+    }
+
     /// N turns, each a Bash call; even-indexed ones errored AND carry a bulky
     /// `stdin` (the kind of payload worth eliding). Old errored calls keep their
     /// `command` but lose the bulk; the error text always stays.
