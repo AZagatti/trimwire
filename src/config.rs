@@ -92,6 +92,17 @@ pub struct RepruneConfig {
     /// Re-prune cadence: messages added since the last checkpoint before a full
     /// re-prune (~2× `keep_recent_turns`).
     pub threshold: usize,
+    /// Byte-based re-checkpoint trigger (0 = OFF). Even while the conversation is
+    /// append-only and within `threshold` MESSAGES, force a re-checkpoint once the
+    /// newly-appended tail carries more than this many bytes of `tool_result`
+    /// content — so the deterministic strategies (incl. the age-gated bloat_cap)
+    /// run on the grown history promptly instead of the stable branch freezing big
+    /// new results behind a replay of stale decisions. Fixes the live short-but-
+    /// large session that compressed ~0% (CANARY-01: an empty first checkpoint that
+    /// never re-checkpointed because `grew` stayed ≤ `threshold`). Bounded so
+    /// ordinary small-result growth keeps batching (no extra cache busts); only a
+    /// genuine volume of large new tool output trips it.
+    pub recheckpoint_result_bytes: usize,
     /// Max per-session states kept in memory (oldest evicted past this).
     pub max_sessions: usize,
     /// Evict a session's state after this many seconds idle.
@@ -103,6 +114,7 @@ impl Default for RepruneConfig {
         Self {
             enabled: false,
             threshold: 8,
+            recheckpoint_result_bytes: 0, // OFF by default; the `default` profile turns it on.
             max_sessions: 1024,
             ttl_secs: 3600,
         }
@@ -218,8 +230,21 @@ pub struct BloatCapConfig {
     /// Only trim results older than this many assistant turns (safe: the
     /// model is never deprived of a result it's actively using).
     pub keep_recent_turns: usize,
-    /// Tool-name patterns never trimmed (supports `*`).
+    /// Tool-name patterns never trimmed at ANY age (supports `*`). For the
+    /// file-AUTHORING tools (Write/Edit/MultiEdit) + Task, whose results are
+    /// genuinely load-bearing — eliding them corrupts real sessions (§13A).
     pub exempt_tools: Vec<String>,
+    /// Tool-name patterns exempt ONLY while RECENT (within `keep_recent_turns`);
+    /// once OLD, their oversized results ARE trimmed to head+tail+signal. `Read`
+    /// lives here: a just-read file may be in active use (so recent reads stay
+    /// fully protected), but a large OLD Read `tool_result` is the single biggest
+    /// untrimmed mass in read-heavy sessions — neither bloat_cap (it was exempt at
+    /// every age) nor the summarizer (it skips tool-output-heavy slices) touched
+    /// it, so live read-heavy sessions compressed ~0% (the "Read coverage gap").
+    /// Age-gating it closes that gap; the model re-reads on demand if it still
+    /// needs the old content. Empty = the legacy behaviour (recent-only exemption
+    /// off). Supports `*`.
+    pub exempt_recent_only_tools: Vec<String>,
     /// POC (opt-in, default 0 = OFF): also cap a RECENT `tool_result` — one that
     /// `keep_recent_turns` would normally exempt — if it ALONE exceeds this many
     /// bytes. Justified only at a *catastrophic* threshold where the result can't
@@ -373,11 +398,18 @@ impl Default for BloatCapConfig {
             head_bytes: 2_048,
             tail_bytes: 2_048,
             keep_recent_turns: 4,
-            // File-editing/Task results are load-bearing — never trim them.
-            exempt_tools: ["Read", "Edit", "Write", "MultiEdit", "Task"]
+            // File-AUTHORING/Task results are load-bearing — never trim them at any
+            // age (eliding them corrupts real sessions, §13A). `Read` is NOT here:
+            // it's age-gated below (exempt while recent, trimmed once old) so large
+            // OLD file reads — the dominant untrimmed mass in read-heavy sessions —
+            // finally get capped (the "Read coverage gap" the live canaries exposed).
+            exempt_tools: ["Edit", "Write", "MultiEdit", "Task"]
                 .iter()
                 .map(|s| (*s).to_owned())
                 .collect(),
+            // Read: exempt while RECENT (a just-read file may be in active use),
+            // trimmed to head+tail once OLD (the model re-reads on demand).
+            exempt_recent_only_tools: vec!["Read".to_owned()],
             catastrophic_bytes: 0, // POC: OFF by default (recent results untouched)
             stub_age_turns: 0,     // POC: OFF by default (very-old keep head+tail)
             protected_file_patterns: Vec::new(), // POC: OFF by default (no path protected)
@@ -834,6 +866,17 @@ pub fn profile_baseline(name: &str) -> Config {
             s.image_strip.enabled = true;
             s.image_strip.keep_recent_count = 1;
             c.reprune.enabled = true;
+            // Byte-based re-checkpoint: force a re-prune once the appended tail
+            // carries >128 KB of tool_result content, even within the message
+            // threshold — so a short-but-large read-heavy session re-checkpoints
+            // and the age-gated bloat_cap trims its old reads (the live-canary
+            // short-session 0% gap). 128 KB ≈ TWO large file reads: high enough that
+            // a single big read can't self-trigger a re-checkpoint every turn (which
+            // would defeat reprune's batching), but low enough that a genuinely
+            // read-heavy session re-checkpoints within a couple of turns. Bounded so
+            // ordinary small-result growth keeps batching. Tunable; the live canary
+            // measures the cache impact.
+            c.reprune.recheckpoint_result_bytes = 131_072;
         }
     }
     c
@@ -1297,6 +1340,39 @@ mod tests {
         assert_eq!(default.strategies.stale_input_cap.keep_recent_turns, 2);
         assert!(default.strategies.stale_reads.enabled);
         assert!(default.reprune.enabled);
+        // "Read coverage gap" fix: Read is AGE-GATED (exempt only while recent),
+        // authoring tools stay exempt at every age, and the byte-based re-checkpoint
+        // is on. These are the load-bearing invariants of the fix — pin them.
+        assert!(
+            default
+                .strategies
+                .bloat_cap
+                .exempt_recent_only_tools
+                .contains(&"Read".to_owned()),
+            "default must age-gate Read (recent-only exemption)"
+        );
+        assert!(
+            !default
+                .strategies
+                .bloat_cap
+                .exempt_tools
+                .contains(&"Read".to_owned()),
+            "default must NOT exempt Read at every age (it is age-gated)"
+        );
+        for t in ["Edit", "Write", "MultiEdit", "Task"] {
+            assert!(
+                default
+                    .strategies
+                    .bloat_cap
+                    .exempt_tools
+                    .contains(&t.to_owned()),
+                "default must keep {t} exempt at every age (load-bearing)"
+            );
+        }
+        assert_eq!(
+            default.reprune.recheckpoint_result_bytes, 131_072,
+            "default must enable the byte-based re-checkpoint at 128 KB"
+        );
         // Task is in cross_turn_dedup.exempt_tools.
         assert!(
             default
@@ -1349,6 +1425,12 @@ mod tests {
             "gentle must not enable stale_reads (gentlest touch)"
         );
         assert!(gentle.reprune.enabled);
+        // gentle inherits the age-gate (it doesn't override exempt_tools) but does NOT
+        // enable the byte-based re-checkpoint — it stays the conservative profile.
+        assert_eq!(
+            gentle.reprune.recheckpoint_result_bytes, 0,
+            "gentle must NOT enable the byte-based re-checkpoint (conservative)"
+        );
         assert!(
             gentle
                 .strategies

@@ -96,13 +96,23 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &BloatCapConfig) -> Res
                 .and_then(Value::as_str)
                 .and_then(|id| idx.uses.get(id))
                 .and_then(|&(umi, uci)| messages[umi].get("content")?.as_array()?.get(uci));
-            // Exempt check via the paired tool_use's name.
-            if paired_use
+            // Exempt check via the paired tool_use's name — two tiers:
+            //  - `exempt_tools`: NEVER trimmed at any age (authoring/load-bearing:
+            //    Write/Edit/MultiEdit/Task — eliding their results corrupts sessions).
+            //  - `exempt_recent_only_tools`: exempt ONLY while RECENT (within
+            //    keep_recent_turns). `Read` lives here — recent reads stay protected
+            //    (active use), but an OLD large Read result is trimmed (the "Read
+            //    coverage gap" fix). An unresolvable name matches neither → eligible.
+            if let Some(name) = paired_use
                 .and_then(|u| u.get("name"))
                 .and_then(Value::as_str)
-                .is_some_and(|name| matches_any(&cfg.exempt_tools, name))
             {
-                continue;
+                if matches_any(&cfg.exempt_tools, name) {
+                    continue;
+                }
+                if recent && matches_any(&cfg.exempt_recent_only_tools, name) {
+                    continue;
+                }
             }
             // POC protect-by-path: never trim a result whose paired tool_use
             // targets a protected file path (input.file_path / input.path).
@@ -314,9 +324,10 @@ mod tests {
             tail_bytes: 8,
             keep_recent_turns: keep,
             exempt_tools: exempt.iter().map(|s| (*s).to_owned()).collect(),
-            catastrophic_bytes: 0,               // off unless a test opts in
-            stub_age_turns: 0,                   // off unless a test opts in
-            protected_file_patterns: Vec::new(), // off unless a test opts in
+            exempt_recent_only_tools: Vec::new(), // off unless a test opts in
+            catastrophic_bytes: 0,                // off unless a test opts in
+            stub_age_turns: 0,                    // off unless a test opts in
+            protected_file_patterns: Vec::new(),  // off unless a test opts in
         }
     }
 
@@ -464,6 +475,7 @@ mod tests {
             tail_bytes: 2_048,
             keep_recent_turns: 2,
             exempt_tools: vec![],
+            exempt_recent_only_tools: vec![],
             catastrophic_bytes: 0,
             stub_age_turns: stub_age,
             protected_file_patterns: Vec::new(),
@@ -805,6 +817,144 @@ mod tests {
         assert!(first.stubbed > 0, "first pass must elide");
         let second = apply(&mut msgs, &cfg(100, 4, &[])).unwrap();
         assert_eq!(second.stubbed, 0, "second pass must be a no-op");
+    }
+
+    // ---- Fix #1: age-gated Read exemption (the "Read coverage gap") ----
+
+    /// A session of `tools.len()` turns; turn `i` runs `tools[i]` with a `size`-byte
+    /// result. Each tool_use carries an `input.file_path` so the paired-name lookup
+    /// resolves (mirrors a real Read/Write call shape).
+    fn named_session(tools: &[&str], size: usize) -> Vec<Value> {
+        let mut msgs = Vec::new();
+        for (i, tool) in tools.iter().enumerate() {
+            let uid = format!("u{i}");
+            msgs.push(json!({"role": "user", "content": [{"type": "text", "text": "go"}]}));
+            msgs.push(json!({"role": "assistant", "content": [
+                {"type": "tool_use", "id": uid, "name": *tool, "input": {"file_path": format!("/f{i}")}}
+            ]}));
+            msgs.push(json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": uid, "content": "z".repeat(size)}
+            ]}));
+        }
+        msgs
+    }
+
+    /// The shipped-default age-gate shape: authoring tools NEVER trimmed,
+    /// `Read` exempt only while recent.
+    fn age_gate_cfg(threshold: usize, keep: usize) -> BloatCapConfig {
+        let mut c = cfg(threshold, keep, &["Edit", "Write", "MultiEdit", "Task"]);
+        c.exempt_recent_only_tools = vec!["Read".to_owned()];
+        c
+    }
+
+    #[test]
+    fn age_gated_read_trims_old_keeps_recent() {
+        // 10 Read turns, keep_recent 2 → old Read results trimmed, the most-recent
+        // ones left fully intact (a just-read file may be in active use).
+        let mut msgs = named_session(&["Read"; 10], 100);
+        let stats = apply(&mut msgs, &age_gate_cfg(50, 2)).unwrap();
+        // 10 turns, keep 2: the result lags its tool_use by one message, so turns
+        // 0..=6 are old (7 trimmed) and turns 7,8,9 stay recent (same cutoff math
+        // as `trims_old_oversized_results_keeps_recent`: N - keep - 1 trimmed).
+        assert_eq!(
+            stats.stubbed, 7,
+            "exactly the 7 old Read results are trimmed"
+        );
+        assert!(
+            msgs[2]["content"][0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("[trimwire: trimmed"),
+            "the oldest Read result is trimmed"
+        );
+        // BOTH of the last two reads (turns 8 and 9) are recent → fully intact.
+        assert_eq!(
+            msgs[26]["content"][0]["content"].as_str().unwrap().len(),
+            100,
+            "the second-most-recent Read result is untouched"
+        );
+        assert_eq!(
+            msgs[29]["content"][0]["content"].as_str().unwrap().len(),
+            100,
+            "the most-recent Read result is untouched (recent-only exemption)"
+        );
+        PairingIndex::build(&msgs).validate().unwrap();
+    }
+
+    #[test]
+    fn age_gated_read_recent_within_keep_is_intact() {
+        // keep_recent large enough that EVERY Read turn is recent → none trimmed,
+        // exactly as before the fix (recent reads stay protected).
+        let mut msgs = named_session(&["Read"; 4], 100);
+        let stats = apply(&mut msgs, &age_gate_cfg(50, 8)).unwrap();
+        assert_eq!(stats.stubbed, 0, "all-recent Reads must remain intact");
+        for m in &msgs {
+            if let Some(c) = m["content"][0].get("content").and_then(Value::as_str) {
+                if m["content"][0]["type"] == "tool_result" {
+                    assert_eq!(c.len(), 100, "recent Read result untouched");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn authoring_tools_exempt_at_every_age() {
+        // Write/Edit/MultiEdit/Task results are load-bearing → NEVER trimmed, even
+        // when old and oversized (eliding them corrupts real sessions, §13A).
+        for tool in ["Write", "Edit", "MultiEdit", "Task"] {
+            let mut msgs = named_session(&[tool; 10], 100);
+            let stats = apply(&mut msgs, &age_gate_cfg(50, 2)).unwrap();
+            assert_eq!(stats.stubbed, 0, "{tool} results must never be trimmed");
+        }
+    }
+
+    #[test]
+    fn age_gated_read_array_content_trimmed_when_old() {
+        // An OLD Read whose tool_result content is an ARRAY with a bulky text block
+        // (e.g. structured output) is salvaged via the array path; a RECENT one is
+        // left intact.
+        let big = "z".repeat(2000);
+        let mk = |id: &str| {
+            vec![
+                json!({"role":"user","content":[{"type":"text","text":"go"}]}),
+                json!({"role":"assistant","content":[{"type":"tool_use","id":id,"name":"Read","input":{"file_path":"/f"}}]}),
+                json!({"role":"user","content":[{"type":"tool_result","tool_use_id":id,"content":[
+                    {"type":"text","text": big.clone()}
+                ]}]}),
+            ]
+        };
+        let mut msgs = Vec::new();
+        msgs.extend(mk("old")); // turn 0 — will age out
+        // Pad with recent Bash turns so the array Read is OLD (outside keep=2).
+        for i in 0..6 {
+            let id = format!("b{i}");
+            msgs.push(json!({"role":"user","content":[{"type":"text","text":"go"}]}));
+            msgs.push(json!({"role":"assistant","content":[{"type":"tool_use","id":id,"name":"Bash","input":{"command":"c"}}]}));
+            msgs.push(json!({"role":"user","content":[{"type":"tool_result","tool_use_id":id,"content":"ok"}]}));
+        }
+        let stats = apply(&mut msgs, &age_gate_cfg(100, 2)).unwrap();
+        assert!(stats.stubbed >= 1, "old array-content Read must be trimmed");
+        let inner = msgs[2]["content"][0]["content"][0]["text"]
+            .as_str()
+            .unwrap();
+        assert!(inner.len() < 2000, "the bulky text block shrank");
+        assert!(
+            inner.contains("[trimwire: trimmed"),
+            "array path trimmed in place"
+        );
+        PairingIndex::build(&msgs).validate().unwrap();
+    }
+
+    #[test]
+    fn age_gated_read_idempotent_no_orphans() {
+        // Trimming OLD Reads is idempotent (re-run changes nothing) and never
+        // orphans a tool_use/tool_result pair (string + array shapes).
+        let mut msgs = named_session(&["Read"; 10], 100);
+        let first = apply(&mut msgs, &age_gate_cfg(50, 2)).unwrap();
+        assert!(first.stubbed > 0, "first pass trims old Reads");
+        let second = apply(&mut msgs, &age_gate_cfg(50, 2)).unwrap();
+        assert_eq!(second.stubbed, 0, "idempotent — already trimmed");
+        PairingIndex::build(&msgs).validate().unwrap();
     }
 
     #[test]

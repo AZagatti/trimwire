@@ -697,10 +697,12 @@ mod tests {
         );
     }
 
-    /// StaleReads + BloatCap compose safely on one body. By design they touch
-    /// DISJOINT result types (BloatCap exempts `Read`; StaleReads only elides Read
-    /// results), so a superseded Read and an old bulky Bash result are each handled
-    /// once — no double-stub, no orphan — and the pass is idempotent.
+    /// StaleReads + BloatCap compose safely on one body. They can now BOTH target an
+    /// old Read result (since the "Read coverage gap" fix, bloat_cap age-gates Read
+    /// instead of exempting it outright), but stale_reads runs first and stamps a
+    /// `[trimwire: ` marker, which bloat_cap then skips (marker-idempotency) — so a
+    /// superseded Read and an old bulky Bash result are each handled once, no
+    /// double-stub, no orphan, and the pass is idempotent.
     #[test]
     fn stale_reads_and_bloat_cap_compose_without_orphans() {
         let mut cfg = Config::default();

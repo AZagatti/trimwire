@@ -117,6 +117,13 @@ fn each_corpus_fires_its_intended_strategy() {
         stubbed("thinking_heavy", "thinking_strip") >= 1,
         "thinking_heavy should strip old thinking blocks"
     );
+    // "Read coverage gap" fix: old large Read results are now bloat_capped (Read is
+    // age-gated, not exempt-at-every-age). The existing corpora's reads are all under
+    // bloat_cap's threshold, so this corpus is the integration-level proof of fix #1.
+    assert!(
+        stubbed("read_heavy", "bloat_cap") >= 1,
+        "read_heavy should bloat_cap its old large Read results"
+    );
 }
 
 #[test]

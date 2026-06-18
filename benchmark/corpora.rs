@@ -154,22 +154,28 @@ fn pure_chat_floor() -> Corpus {
     }
 }
 
-/// Many unique large `Read`/`Edit` results. All exempt from bloat_cap and
-/// sliding_window, inputs all distinct → nothing prunes. The common coding
-/// case the headline numbers conveniently omit.
+/// Many unique large file-AUTHORING (`Write`/`Edit`) results. These are
+/// load-bearing and exempt from bloat_cap at EVERY age (eliding them corrupts
+/// sessions), inputs all distinct → nothing prunes. The honest low case the
+/// headline numbers conveniently omit. NB: `Read` is deliberately NOT here —
+/// since the "Read coverage gap" fix, OLD large Read results DO get trimmed
+/// (recent reads stay protected), so a Read-heavy session is no longer a floor.
 fn exempt_heavy() -> Corpus {
     let mut m = Vec::new();
     for i in 0..9 {
-        let id = format!("t_rd_{i}");
+        let id = format!("t_wr_{i}");
         let (name, input) = if i % 2 == 0 {
-            ("Read", json!({"file_path": format!("src/module_{i}.rs")}))
+            (
+                "Write",
+                json!({"file_path": format!("src/module_{i}.rs"), "content": "fn x() {}"}),
+            )
         } else {
             (
                 "Edit",
                 json!({"file_path": format!("src/module_{i}.rs"), "old": "a", "new": "b"}),
             )
         };
-        m.push(assistant_call("Reading the next file.", &id, name, input));
+        m.push(assistant_call("Authoring the next file.", &id, name, input));
         m.push(user_result(
             &id,
             json!(lines(6_000, &format!("file{i}"))),
@@ -178,8 +184,8 @@ fn exempt_heavy() -> Corpus {
     }
     Corpus {
         name: "exempt_heavy",
-        profile: "9 unique Read/Edit results (all exempt, all distinct)",
-        note: "honest low case: protected/unique content → ~nothing to prune",
+        profile: "9 unique Write/Edit results (authoring — exempt at every age, all distinct)",
+        note: "honest low case: load-bearing authoring content → ~nothing to prune",
         body: envelope(m),
     }
 }
@@ -207,6 +213,35 @@ fn unique_bash_spam() -> Corpus {
         name: "unique_bash_spam",
         profile: "12 distinct ~18 KB Bash outputs (nothing repeats)",
         note: "only the oldest results past the recent window get capped",
+        body: envelope(m),
+    }
+}
+
+/// Many *distinct* large `Read` results (distinct paths → no supersession or dedup;
+/// each ~8 KB → over bloat_cap's 4 KB threshold but under stale_reads' 32 KB page
+/// floor, so ONLY bloat_cap can touch them). The OLD ones (past keep_recent) are now
+/// trimmed because `Read` is age-gated (the "Read coverage gap" fix); the recent ones
+/// stay intact. The integration-level proof that fix #1 is wired end-to-end.
+fn read_heavy() -> Corpus {
+    let mut m = Vec::new();
+    for i in 0..10 {
+        let id = format!("t_read_{i}");
+        m.push(assistant_call(
+            "Reading the next file.",
+            &id,
+            "Read",
+            json!({"file_path": format!("src/distinct_module_{i}.rs")}),
+        ));
+        m.push(user_result(
+            &id,
+            json!(lines(8_000, &format!("read{i}"))),
+            false,
+        ));
+    }
+    Corpus {
+        name: "read_heavy",
+        profile: "10 distinct ~8 KB Read results (distinct paths, no dedup/supersession)",
+        note: "old reads bloat_capped now Read is age-gated (coverage-gap fix); recent reads intact",
         body: envelope(m),
     }
 }
@@ -642,6 +677,7 @@ pub fn corpora() -> Vec<Corpus> {
     vec![
         pure_chat_floor(),
         exempt_heavy(),
+        read_heavy(),
         unique_bash_spam(),
         at_the_boundary(),
         repeated_grep(),

@@ -1,5 +1,6 @@
 ---
 source: tests/benchmark.rs
+assertion_line: 538
 expression: attribution_report(&default_install_config())
 ---
 {
@@ -55,7 +56,7 @@ expression: attribution_report(&default_install_config())
   },
   "exempt_heavy": {
     "attribution": [],
-    "in_bytes": 57114,
+    "in_bytes": 57247,
     "reduction_pct": 0.0
   },
   "giant_paste": {
@@ -114,6 +115,16 @@ expression: attribution_report(&default_install_config())
     "attribution": [],
     "in_bytes": 9453,
     "reduction_pct": 0.0
+  },
+  "read_heavy": {
+    "attribution": [
+      {
+        "bytes": 27461,
+        "strategy": "bloat_cap"
+      }
+    ],
+    "in_bytes": 83771,
+    "reduction_pct": 32.8
   },
   "repeated_grep": {
     "attribution": [
