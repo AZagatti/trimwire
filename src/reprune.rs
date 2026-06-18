@@ -493,6 +493,38 @@ fn finish(root: Value, original_bytes: usize, final_bytes: usize) -> BodyOutcome
     }
 }
 
+/// Sum of `tool_result.content` serialized bytes in the appended tail
+/// `messages[from..]`. Drives the byte-based re-checkpoint trigger (fix #2):
+/// large NEW tool_result content is exactly what the age-gated `bloat_cap` can
+/// trim once it ages, so when a genuine volume of it lands we re-checkpoint
+/// promptly instead of freezing it behind the stable replay. Counts only
+/// `tool_result` `content` (string length, or summed `text` blocks for the array
+/// shape) — not structural overhead — so ordinary small-result growth doesn't trip
+/// it. Allocation-free (no serialization) to honour the stable path's no-serialize
+/// design (~14× hot-path saving). `from` is always `≤ messages.len()` here (only
+/// called on the append-only path).
+fn new_tail_result_bytes(messages: &[Value], from: usize) -> usize {
+    messages
+        .iter()
+        .skip(from)
+        .filter_map(|m| m.get("content").and_then(Value::as_array))
+        .flatten()
+        .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
+        .map(|b| match b.get("content") {
+            Some(Value::String(s)) => s.len(),
+            // Array content (the common MCP/structured shape): sum the `text` block
+            // lengths directly. Non-text blocks (images) aren't bloat_cap-trimmable,
+            // so undercounting them is correct — and we avoid serializing on the hot path.
+            Some(Value::Array(arr)) => arr
+                .iter()
+                .filter_map(|blk| blk.get("text").and_then(Value::as_str))
+                .map(str::len)
+                .sum(),
+            _ => 0,
+        })
+        .sum()
+}
+
 /// Structural equality of two message arrays that IGNORES `cache_control` markers.
 ///
 /// Anthropic's prompt-cache breakpoint (`cache_control`) moves forward each turn,
@@ -635,6 +667,20 @@ pub fn stable_apply_to_body(
         );
     let grew = len.saturating_sub(state.checkpoint_len);
 
+    // Fix #2 — byte-based re-checkpoint: even within `grew <= threshold` MESSAGES,
+    // a genuine volume of NEWLY-appended tool_result content forces a re-checkpoint
+    // so the deterministic strategies (incl. the age-gated bloat_cap) run on the
+    // grown history now, instead of the stable branch freezing big new results
+    // behind a replay of stale (possibly empty) decisions — the live short-but-
+    // large session that compressed ~0% (CANARY-01). Bounded by a byte threshold so
+    // ordinary small-result growth keeps batching. OFF when the knob is 0. Only
+    // evaluated on the append-only path (the only one the stable branch governs);
+    // the tail it scans is at most `grew` messages, so it stays cheap.
+    let big_new_tail = cfg.reprune.recheckpoint_result_bytes > 0
+        && append_only
+        && new_tail_result_bytes(messages, state.checkpoint_len)
+            > cfg.reprune.recheckpoint_result_bytes;
+
     tracing::debug!(
         initialized = state.initialized,
         len,
@@ -642,11 +688,12 @@ pub fn stable_apply_to_body(
         grew,
         threshold,
         append_only,
+        big_new_tail,
         summary_segments = state.summary.len(),
         "trimwire: reprune branch decision"
     );
 
-    if append_only && grew <= threshold {
+    if append_only && grew <= threshold && !big_new_tail {
         // STABLE: replay the checkpoint's decisions + thinking removals (+ the
         // cached local-model summary, when the feature is on); newer messages are
         // untouched (their ids/signatures aren't in the recorded sets). Paranoia:
@@ -676,6 +723,27 @@ pub fn stable_apply_to_body(
         // Detect a history rewrite (CC's own compaction) up front: initialized
         // but the prefix no longer matches → any cached summary anchor is stale.
         let prefix_changed = state.initialized && !append_only;
+
+        // Was this re-checkpoint forced ONLY by the byte trigger (we'd otherwise have
+        // stayed STABLE)? A byte-forced re-checkpoint can fire BEFORE any result has
+        // aged past `keep_recent` (e.g. 3 large reads exceed the byte threshold but
+        // none is old enough to trim yet). If such a fire prunes NOTHING, advancing
+        // the checkpoint anyway would burn it and STARVE the later message-count
+        // re-checkpoint that WOULD trim the now-aged content — a live-canary regression
+        // (run B: a short large-read session ended at 0% because the premature fire
+        // reset the checkpoint). So when byte-forced, snapshot the checkpoint state and
+        // roll it back if the prune is a no-op, leaving the tail to keep accumulating.
+        let byte_forced = big_new_tail && append_only && grew <= threshold && !prefix_changed;
+        let rollback = byte_forced.then(|| {
+            (
+                state.checkpoint_len,
+                state.initialized,
+                std::mem::take(&mut state.result_decisions),
+                std::mem::take(&mut state.input_decisions),
+                std::mem::take(&mut state.stripped_thinking),
+                std::mem::take(&mut state.checkpoint_prefix),
+            )
+        });
 
         let mut pruned = messages.clone();
         let fired = match strategies::run(&mut pruned, cfg) {
@@ -725,8 +793,22 @@ pub fn stable_apply_to_body(
             && empty_removed == 0
             && !normalized
         {
+            // No-op re-checkpoint. If it was byte-FORCED, roll the checkpoint state
+            // back (don't advance it on a fire that trimmed nothing) so the tail keeps
+            // accumulating and a later re-checkpoint can still trim once content ages.
+            if let Some((cl, init, results, inputs, thinking, prefix)) = rollback {
+                state.checkpoint_len = cl;
+                state.initialized = init;
+                state.result_decisions = results;
+                state.input_decisions = inputs;
+                state.stripped_thinking = thinking;
+                state.checkpoint_prefix = prefix;
+            }
             return BodyOutcome::Unchanged; // exact-original bytes preserved
         }
+        // A real (non-no-op) re-checkpoint: `rollback`'s snapshot (if any) is dropped
+        // here — we keep the freshly-advanced checkpoint state.
+        drop(rollback);
         // Telemetry: a re-checkpoint MUTATES the prefix → busts the Anthropic prompt
         // cache. Logging `grew` + bytes saved reveals, on real sessions, how often
         // re-checkpoints fire for SMALL savings — the data that would justify (and set
@@ -1247,6 +1329,228 @@ mod tests {
         let v: Value = serde_json::from_slice(bytes).unwrap();
         let msgs = v.get("messages").and_then(Value::as_array).unwrap();
         serde_json::to_vec(&msgs[..k.min(msgs.len())]).unwrap()
+    }
+
+    // ---- Offline repros for the "Read coverage gap" fix (#1 age-gate + #2 byte re-checkpoint) ----
+
+    /// A growing read-heavy session: a `start` user message, then `reads` Read
+    /// turns (each = assistant tool_use + user tool_result of `size` bytes) with
+    /// DISTINCT file paths. `reads == 0` is just the start message (a cold,
+    /// empty-decision checkpoint — the live regime that froze CANARY-01).
+    fn read_session_body(reads: usize, size: usize) -> Vec<u8> {
+        let mut m = vec![json!({"role":"user","content":[{"type":"text","text":"start"}]})];
+        for i in 0..reads {
+            let id = format!("r{i}");
+            m.push(json!({"role":"assistant","content":[
+                {"type":"tool_use","id":id,"name":"Read","input":{"file_path":format!("/f{i}")}}
+            ]}));
+            m.push(json!({"role":"user","content":[
+                {"type":"tool_result","tool_use_id":id,"content":"z".repeat(size)}
+            ]}));
+        }
+        serde_json::to_vec(&json!({
+            "model":"claude","system":[{"type":"text","text":"sys"}],"messages":m
+        }))
+        .unwrap()
+    }
+
+    /// Focused config that isolates the two fixes: reprune on (with the byte-based
+    /// re-checkpoint knob) + the age-gated bloat_cap, everything else off. Small
+    /// head/tail so a trimmed result falls cleanly under threshold (idempotent).
+    fn read_fix_cfg(recheckpoint: usize) -> Config {
+        let mut c = Config::default();
+        c.reprune.enabled = true;
+        c.reprune.recheckpoint_result_bytes = recheckpoint;
+        c.strategies.bloat_cap.enabled = true;
+        c.strategies.bloat_cap.threshold_bytes = 4_096;
+        c.strategies.bloat_cap.head_bytes = 512;
+        c.strategies.bloat_cap.tail_bytes = 512;
+        c.strategies.bloat_cap.keep_recent_turns = 2;
+        c.strategies.bloat_cap.exempt_tools = ["Edit", "Write", "MultiEdit", "Task"]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        c.strategies.bloat_cap.exempt_recent_only_tools = vec!["Read".to_owned()];
+        c
+    }
+
+    /// Repro #6 — short-but-large: an empty first checkpoint, then a few BIG reads
+    /// land within `grew <= threshold` MESSAGES. WITHOUT the byte trigger the stable
+    /// branch replays the empty checkpoint forever (the live ~0%); WITH it the large
+    /// new tail forces a re-checkpoint and the age-gated bloat_cap trims the old read.
+    #[test]
+    fn byte_based_recheckpoint_trims_old_reads_short_session() {
+        let cold = read_session_body(0, 0); // just the 1-msg start
+        let body = read_session_body(4, 24_000); // start + 4 big Read turns (len = 9)
+
+        // --- knob OFF: stays stable, replays the empty checkpoint → 0% (the bug) ---
+        {
+            let cfg = read_fix_cfg(0);
+            let mut state = PruneState::default();
+            let _ = stable_apply_to_body(&cold, &cfg, &mut state, 20);
+            assert_eq!(
+                state.checkpoint_len, 1,
+                "cold checkpoint at the 1-msg start"
+            );
+            let out = stable_apply_to_body(&body, &cfg, &mut state, 20);
+            assert_eq!(
+                state.checkpoint_len, 1,
+                "knob off + grew<=threshold → no re-checkpoint"
+            );
+            assert!(
+                matches!(out, BodyOutcome::Unchanged),
+                "knob off → big new reads pass through untrimmed (the live short-session 0% gap)"
+            );
+        }
+
+        // --- knob ON: the big new tail forces a re-checkpoint + trims the old read ---
+        let cfg = read_fix_cfg(65_536);
+        let mut state = PruneState::default();
+        let _ = stable_apply_to_body(&cold, &cfg, &mut state, 20);
+        assert_eq!(state.checkpoint_len, 1);
+        let out = stable_apply_to_body(&body, &cfg, &mut state, 20);
+        assert!(
+            state.checkpoint_len > 1,
+            "byte-based re-checkpoint fired despite grew<=threshold"
+        );
+        let bytes = bytes_of(&out, &body);
+        assert!(bytes.len() < body.len(), "old reads trimmed → smaller body");
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        let m = v["messages"].as_array().unwrap();
+        assert!(
+            serde_json::to_string(m)
+                .unwrap()
+                .contains("[trimwire: trimmed"),
+            "an OLD Read result was bloat_capped"
+        );
+        assert_eq!(
+            m.last().unwrap()["content"][0]["content"]
+                .as_str()
+                .unwrap()
+                .len(),
+            24_000,
+            "the most-recent read is left intact (recent-only exemption)"
+        );
+        PairingIndex::build(m).validate().unwrap();
+    }
+
+    /// Repro #7 — longer growing session: old reads trimmed, recent reads intact,
+    /// and the pruned prefix stays byte-identical between re-checkpoints (cache holds).
+    #[test]
+    fn long_growing_read_session_trims_old_keeps_recent_cache_stable() {
+        let cfg = read_fix_cfg(65_536); // reads stay under the byte trigger → message cadence governs
+        let mut state = PruneState::default();
+
+        // Cold checkpoint at 20 reads. Old reads trimmed; the most-recent intact.
+        let b20 = read_session_body(20, 8_000);
+        let out20 = bytes_of(&stable_apply_to_body(&b20, &cfg, &mut state, 8), &b20);
+        let cp = state.checkpoint_len;
+        assert!(cp > 0 && state.initialized, "cold call must checkpoint");
+        let v20: Value = serde_json::from_slice(&out20).unwrap();
+        let m20 = v20["messages"].as_array().unwrap();
+        assert!(
+            serde_json::to_string(m20)
+                .unwrap()
+                .contains("[trimwire: trimmed"),
+            "old reads are trimmed at the checkpoint"
+        );
+        assert_eq!(
+            m20.last().unwrap()["content"][0]["content"]
+                .as_str()
+                .unwrap()
+                .len(),
+            8_000,
+            "the most-recent read is intact"
+        );
+
+        // Grow within the message threshold → STABLE: pruned prefix byte-identical.
+        let b22 = read_session_body(22, 8_000);
+        let out22 = bytes_of(&stable_apply_to_body(&b22, &cfg, &mut state, 8), &b22);
+        assert_eq!(
+            state.checkpoint_len, cp,
+            "no re-checkpoint within the message threshold"
+        );
+        assert_eq!(
+            msgs_prefix(&out20, cp),
+            msgs_prefix(&out22, cp),
+            "pruned prefix stays byte-identical between re-checkpoints (cache holds)"
+        );
+
+        // Grow past the threshold → re-checkpoint == the stateless prune.
+        let b30 = read_session_body(30, 8_000);
+        let out30 = bytes_of(&stable_apply_to_body(&b30, &cfg, &mut state, 8), &b30);
+        assert!(
+            state.checkpoint_len > cp,
+            "tail past threshold forces a re-checkpoint"
+        );
+        let stateless30 = bytes_of(&strategies::apply_to_body(&b30, &cfg), &b30);
+        assert_eq!(
+            out30, stateless30,
+            "a re-checkpoint equals the stateless prune"
+        );
+        let v30: Value = serde_json::from_slice(&out30).unwrap();
+        PairingIndex::build(v30["messages"].as_array().unwrap())
+            .validate()
+            .unwrap();
+    }
+
+    /// Repro #8 (live-canary run-B regression) — a byte-FORCED re-checkpoint that
+    /// prunes NOTHING (fired before any read aged past keep_recent) must NOT advance
+    /// the checkpoint, or it starves the later message-count re-checkpoint that WOULD
+    /// trim the now-aged reads (run B ended at 0% because of this). The fix rolls the
+    /// checkpoint state back on a byte-forced no-op.
+    #[test]
+    fn byte_forced_noop_recheckpoint_does_not_starve_later_trim() {
+        let cfg = read_fix_cfg(131_072); // the shipped default knob
+        let mut state = PruneState::default();
+
+        // Cold checkpoint at the 1-msg start (mirrors CC's early empty checkpoint).
+        let cold = read_session_body(0, 0);
+        let _ = stable_apply_to_body(&cold, &cfg, &mut state, 8);
+        assert_eq!(
+            state.checkpoint_len, 1,
+            "cold checkpoint at the start message"
+        );
+
+        // 3 big reads: byte tail = 3×58 KB = 174 KB > 128 KB → byte trigger fires at
+        // grew=6 (≤ threshold). But 3 reads with keep_recent=2 → 0 are old enough to
+        // trim → no-op. The rollback must leave the checkpoint at 1.
+        let b3 = read_session_body(3, 58_000);
+        let out3 = stable_apply_to_body(&b3, &cfg, &mut state, 8);
+        assert!(
+            matches!(out3, BodyOutcome::Unchanged),
+            "premature byte-forced re-checkpoint trims nothing (nothing aged yet)"
+        );
+        assert_eq!(
+            state.checkpoint_len, 1,
+            "a byte-forced NO-OP must NOT advance the checkpoint (rolled back)"
+        );
+
+        // Grow to 5 reads: from the (un-advanced) cp=1, grew=10 > threshold → a normal
+        // message-count re-checkpoint fires and trims the now-aged reads. (Pre-fix the
+        // checkpoint would have advanced to 7, leaving grew=4 here → no re-checkpoint
+        // → 0%, the regression.)
+        let b5 = read_session_body(5, 58_000);
+        let out5 = stable_apply_to_body(&b5, &cfg, &mut state, 8);
+        let bytes = bytes_of(&out5, &b5);
+        assert!(
+            bytes.len() < b5.len(),
+            "the later re-checkpoint trims the aged reads — no starvation"
+        );
+        assert!(
+            state.checkpoint_len > 1,
+            "the trimming re-checkpoint advanced the checkpoint"
+        );
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            serde_json::to_string(&v["messages"])
+                .unwrap()
+                .contains("[trimwire: trimmed"),
+            "old reads were bloat_capped at the later re-checkpoint"
+        );
+        PairingIndex::build(v["messages"].as_array().unwrap())
+            .validate()
+            .unwrap();
     }
 
     /// THE cache-stability guarantee for thinking_strip: across consecutive

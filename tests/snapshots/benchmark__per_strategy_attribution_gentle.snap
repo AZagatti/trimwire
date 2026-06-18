@@ -1,5 +1,6 @@
 ---
 source: tests/benchmark.rs
+assertion_line: 547
 expression: attribution_report(&tuned_config())
 ---
 {
@@ -29,7 +30,7 @@ expression: attribution_report(&tuned_config())
   },
   "exempt_heavy": {
     "attribution": [],
-    "in_bytes": 57114,
+    "in_bytes": 57247,
     "reduction_pct": 0.0
   },
   "giant_paste": {
@@ -68,6 +69,11 @@ expression: attribution_report(&tuned_config())
   "pure_chat_floor": {
     "attribution": [],
     "in_bytes": 9453,
+    "reduction_pct": 0.0
+  },
+  "read_heavy": {
+    "attribution": [],
+    "in_bytes": 83771,
     "reduction_pct": 0.0
   },
   "repeated_grep": {
