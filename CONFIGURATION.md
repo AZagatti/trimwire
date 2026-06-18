@@ -126,7 +126,8 @@ threshold_bytes   = 16384   # struct default; the `default` profile sets this to
 head_bytes        = 2048    # bytes kept from the start
 tail_bytes        = 2048    # bytes kept from the end
 keep_recent_turns = 4       # struct default; the `default` profile sets this to 2
-exempt_tools      = ["Read", "Edit", "Write", "MultiEdit", "Task"]
+exempt_tools      = ["Edit", "Write", "MultiEdit", "Task", "Agent"]  # never trimmed at ANY age (authoring + subagent; Task and Agent are both subagent-launch names)
+exempt_recent_only_tools = ["Read"]   # exempt only while RECENT; an OLD large Read IS trimmed (the "Read coverage gap" fix)
 # --- opt-in levers (all default 0 / empty = OFF; zero behaviour change unless set) ---
 catastrophic_bytes = 0          # if >0, also caps a RECENT result this large (it can't
                                 # fit the context window anyway, so it would brick the
@@ -155,7 +156,7 @@ keep_recent_turns = 4   # struct default; the `default` profile sets this to 2
 # the shipped `default` value — verb-class globs matching browser automation
 # (`*browser_act*`, NOT a bare `*act*`, which would also match extract/interact/redact):
 denylist_tools = ["*screenshot*", "*navigate*", "*click*", "*browser_act*", "Grep"]
-exempt_tools   = ["Read", "Edit", "Write", "MultiEdit", "Task"]  # never stubbed, even if denylisted
+exempt_tools   = ["Read", "Edit", "Write", "MultiEdit", "Task", "Agent"]  # never stubbed, even if denylisted
 # stub = "[trimwire: elided, older than sliding window]"
 ```
 
@@ -182,8 +183,8 @@ counterpart is `failed_input_purge`). Protects the most recent turns.
 enabled = true
 keep_recent_turns = 2            # turns protected from capping
 # shipped default — authoring/sub-agent tools are never capped (Write/Edit/MultiEdit/
-# NotebookEdit are ALSO a hard floor; Task is only protected via this list):
-exempt_tools = ["Task", "Write", "Edit", "MultiEdit", "NotebookEdit"]  # tool names (globs) never capped
+# NotebookEdit are ALSO a hard floor; Task and Agent are only protected via this list):
+exempt_tools = ["Task", "Agent", "Write", "Edit", "MultiEdit", "NotebookEdit"]  # tool names (globs) never capped
 ```
 
 ### `[strategies.stale_reads]` — on in `default`, off in `gentle`
@@ -196,7 +197,7 @@ the same path), and demand-pages the *last* read of a path once it exceeds
 [strategies.stale_reads]
 enabled = true
 keep_recent_turns = 4
-page_min_bytes = 32768           # default profile: only page reads larger than this (32 KB)
+page_min_bytes = 16384           # default profile: only page reads larger than this (16 KB; lowered from 32 KB in v0.3.0). struct default 0 = off
 exempt_tools = []
 protected_file_patterns = []     # opt-in (default empty = off): globs of file paths that
                                  # are never superseded-elided OR demand-paged. Mirror the
@@ -252,6 +253,10 @@ enabled = false
 [reprune]
 enabled = true    # on in both shipped profiles; set false to disable
 threshold = 8     # re-prune cadence: new messages before a full re-prune (~2× keep_recent)
+recheckpoint_result_bytes = 131072  # default profile (128 KB); 0 = off (gentle + struct default).
+                                    # Forces a re-checkpoint when the tail carries > this many bytes of
+                                    # tool_result content, with no-advance-on-no-op rollback (the
+                                    # byte-based re-checkpoint from the "Read coverage gap" fix).
 max_sessions = 1024
 ttl_secs = 3600
 ```
