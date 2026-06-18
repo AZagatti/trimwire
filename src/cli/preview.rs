@@ -92,6 +92,16 @@ pub fn preview(
     let raw =
         std::fs::read(&path).with_context(|| format!("read transcript {}", path.display()))?;
 
+    // Sub-agent transcripts live in a sibling `<uuid>/subagents/*.jsonl` dir, not
+    // in this file. They are NOT merged into the preview (they would break
+    // messages[] pairing), but we surface their count + on-disk size so the
+    // report never implies a session has no sub-agent data when it does.
+    let sidechains = trimwire::sweep::sidechain_files_for(&path);
+    let sidechain_bytes: u64 = sidechains
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).ok().map(|m| m.len()))
+        .sum();
+
     let rc = reconstruct_validated(&raw, include_sidechains)
         .with_context(|| format!("preview {}", path.display()))?;
 
@@ -194,6 +204,8 @@ pub fn preview(
             "messages": rc.messages.len(),
             "turn_records": rc.turn_records,
             "skipped_sidechain": rc.skipped_sidechain,
+            "subagent_transcripts": sidechains.len(),
+            "subagent_transcript_bytes": sidechain_bytes,
             "in_bytes": in_bytes,
             "out_bytes": out_bytes,
             "bytes_saved": saved,
@@ -265,6 +277,16 @@ pub fn preview(
          \x20   system prompt + tool schemas (not in the transcript), so the % is of\n\
          \x20   messages[] only. Read-only: this never writes the session."
     );
+
+    if !sidechains.is_empty() {
+        println!(
+            "  → {} sub-agent transcript{} ({}) on disk under this session's subagents/\n\
+             \x20   dir — separate files, not part of this preview; clean them with `trimwire sweep all`.",
+            sidechains.len(),
+            if sidechains.len() == 1 { "" } else { "s" },
+            human_bytes(sidechain_bytes as i64),
+        );
+    }
 
     if with_summarizer {
         let engine = cfg.summarizer.engine.as_str();

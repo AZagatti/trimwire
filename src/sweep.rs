@@ -194,17 +194,11 @@ pub fn is_sidechain_transcript(path: &Path) -> bool {
         .any(|c| matches!(c, std::path::Component::Normal(s) if s == "subagents"))
 }
 
-/// All `*.jsonl` MAIN-session transcripts under the sessions root (recursive),
-/// sorted. Empty if the root doesn't exist. Powers `trimwire sweep list/all`
-/// and `preview --last` so users never have to hunt for a path.
-///
-/// Sub-agent sidechain transcripts (see [`is_sidechain_transcript`]) are
-/// skipped: they aren't the sessions users mean when listing/sweeping. A
-/// sidechain can still be swept explicitly via `sweep file <path>`.
-pub fn session_files() -> Vec<PathBuf> {
-    let Some(root) = sessions_root() else {
-        return Vec::new();
-    };
+/// Recursive `*.jsonl` walk under `root` — BOTH main-session transcripts and
+/// sub-agent sidechains (the walk descends into `subagents/` dirs), sorted.
+/// Split out from [`all_transcript_files`] so it can be tested against a temp
+/// dir without touching `$HOME`/`$CLAUDE_CONFIG_DIR`.
+fn walk_transcripts(root: PathBuf) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root];
     while let Some(dir) = stack.pop() {
@@ -217,13 +211,57 @@ pub fn session_files() -> Vec<PathBuf> {
             // and escaping the projects tree. Real session dirs are not symlinks.
             if p.is_dir() && !p.is_symlink() {
                 stack.push(p);
-            } else if p.extension().and_then(|s| s.to_str()) == Some("jsonl")
-                && !is_sidechain_transcript(&p)
-            {
+            } else if p.extension().and_then(|s| s.to_str()) == Some("jsonl") {
                 out.push(p);
             }
         }
     }
+    out.sort();
+    out
+}
+
+/// Every `*.jsonl` transcript under the sessions root (recursive), MAIN sessions
+/// AND sub-agent sidechains, sorted. Empty if the root doesn't exist. Classify
+/// each with [`is_sidechain_transcript`]. Powers `trimwire sweep list/all`,
+/// which clean and account for sidechains too (they accumulate on disk just like
+/// main transcripts).
+pub fn all_transcript_files() -> Vec<PathBuf> {
+    match sessions_root() {
+        Some(root) => walk_transcripts(root),
+        None => Vec::new(),
+    }
+}
+
+/// All `*.jsonl` MAIN-session transcripts under the sessions root (recursive),
+/// sorted. Empty if the root doesn't exist. Powers `preview --last` so users
+/// never have to hunt for a path.
+///
+/// Sub-agent sidechain transcripts (see [`is_sidechain_transcript`]) are
+/// excluded here because they would fail `preview`'s pairing reconstruction;
+/// `sweep` uses [`all_transcript_files`] instead so it still cleans them.
+pub fn session_files() -> Vec<PathBuf> {
+    all_transcript_files()
+        .into_iter()
+        .filter(|p| !is_sidechain_transcript(p))
+        .collect()
+}
+
+/// Sub-agent sidechain transcripts that belong to a MAIN transcript `main`
+/// (`<project>/<uuid>.jsonl`): they live in the sibling `<uuid>/subagents/`
+/// directory (`<project>/<uuid>/subagents/agent-*.jsonl`). Sorted; empty when
+/// there is no `subagents/` dir (the common case) or it can't be read. Returns
+/// only the direct `*.jsonl` children, matching Claude Code's flat layout — a
+/// sub-agent's own nested `subagents/` (if any) is not this session's sidechain.
+pub fn sidechain_files_for(main: &Path) -> Vec<PathBuf> {
+    let dir = main.with_extension("").join("subagents");
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("jsonl"))
+        .collect();
     out.sort();
     out
 }
@@ -601,6 +639,91 @@ mod tests {
         assert!(is_sidechain_transcript(Path::new(
             "subagents/agent-cafebabe.jsonl"
         )));
+    }
+
+    #[test]
+    fn walk_transcripts_includes_main_and_sidechains_no_dupes_skips_non_jsonl() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+        let proj = root.join("-home-user-repo");
+        let sub = proj.join("uuidA/subagents");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(proj.join("uuidA.jsonl"), "{}\n").unwrap(); // main (has sidechains)
+        fs::write(proj.join("uuidB.jsonl"), "{}\n").unwrap(); // main (no sidechains)
+        fs::write(sub.join("agent-1.jsonl"), "{}\n").unwrap(); // sidechain
+        fs::write(sub.join("agent-1.meta.json"), "{}\n").unwrap(); // NOT jsonl → skipped
+        // A sub-agent that itself spawned one (nested subagents/ dir).
+        let deep = sub.join("more/subagents");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("agent-deep.jsonl"), "{}\n").unwrap();
+
+        let all = walk_transcripts(root);
+        // 2 main + 1 sidechain + 1 nested sidechain = 4 jsonl; the .meta.json is skipped.
+        assert_eq!(all.len(), 4, "found: {all:?}");
+        assert!(
+            all.iter()
+                .all(|p| p.extension().and_then(|s| s.to_str()) == Some("jsonl")),
+            "only .jsonl files are walked: {all:?}"
+        );
+        let mut uniq = all.clone();
+        uniq.dedup(); // already sorted by walk_transcripts
+        assert_eq!(uniq.len(), all.len(), "no duplicate paths");
+        // Classification: a "main" is any transcript NOT under a subagents/ dir.
+        let main = all.iter().filter(|p| !is_sidechain_transcript(p)).count();
+        let side = all.iter().filter(|p| is_sidechain_transcript(p)).count();
+        assert_eq!(main, 2, "two main transcripts");
+        assert_eq!(side, 2, "two sidechains (incl. the nested one)");
+    }
+
+    #[test]
+    fn sidechain_files_for_returns_direct_children_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let proj = tmp.path().join("-home-user-repo");
+        let sub = proj.join("uuidA/subagents");
+        fs::create_dir_all(&sub).unwrap();
+        let main = proj.join("uuidA.jsonl");
+        fs::write(&main, "{}\n").unwrap();
+        fs::write(sub.join("agent-1.jsonl"), "{}\n").unwrap();
+        fs::write(sub.join("agent-2.jsonl"), "{}\n").unwrap();
+        fs::write(sub.join("agent-1.meta.json"), "{}\n").unwrap(); // not jsonl
+        // A nested sub-agent dir must NOT be reported as a direct sidechain of `main`.
+        let deep = sub.join("more/subagents");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("agent-deep.jsonl"), "{}\n").unwrap();
+
+        let found = sidechain_files_for(&main);
+        assert_eq!(found.len(), 2, "two direct sidechain jsonl: {found:?}");
+        assert!(
+            found.iter().all(|p| {
+                let n = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                n.starts_with("agent-") && n.ends_with(".jsonl")
+            }),
+            "only agent-*.jsonl returned: {found:?}"
+        );
+        assert!(
+            found.iter().all(|p| !p.to_string_lossy().contains("more")),
+            "nested sub-agent transcript excluded: {found:?}"
+        );
+    }
+
+    #[test]
+    fn sidechain_files_for_missing_or_empty_dir_is_empty_not_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let proj = tmp.path().join("-home-user-repo");
+        fs::create_dir_all(&proj).unwrap();
+        let main = proj.join("uuidNoSubs.jsonl");
+        fs::write(&main, "{}\n").unwrap();
+        // No subagents/ dir at all.
+        assert!(
+            sidechain_files_for(&main).is_empty(),
+            "no subagents/ dir → empty (not an error)"
+        );
+        // An empty subagents/ dir also yields empty.
+        fs::create_dir_all(proj.join("uuidNoSubs/subagents")).unwrap();
+        assert!(
+            sidechain_files_for(&main).is_empty(),
+            "empty subagents/ dir → empty"
+        );
     }
 
     fn rec_assistant(uuid: &str, content: Value) -> String {

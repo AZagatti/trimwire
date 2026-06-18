@@ -10,7 +10,7 @@ use trimwire::sweep as engine;
 /// `trimwire sweep list` — show the session transcripts trimwire can clean, so
 /// you never have to hunt for a path.
 pub fn sweep_list() -> Result<()> {
-    let files = engine::session_files();
+    let files = engine::all_transcript_files();
     if files.is_empty() {
         match engine::sessions_root() {
             Some(root) => {
@@ -21,10 +21,26 @@ pub fn sweep_list() -> Result<()> {
         }
         return Ok(());
     }
-    println!("{} session transcript(s):", files.len());
+    // Sub-agent sidechains accumulate on disk too; list them (labeled) so the
+    // count and sizes are honest, instead of silently hiding them.
+    let sub = files
+        .iter()
+        .filter(|p| engine::is_sidechain_transcript(p))
+        .count();
+    let main = files.len() - sub;
+    if sub == 0 {
+        println!("{main} session transcript(s):");
+    } else {
+        println!("{main} session transcript(s) + {sub} sub-agent transcript(s):");
+    }
     for f in &files {
         let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
-        println!("  {:>9}  {}", human(size as i64), f.display());
+        let tag = if engine::is_sidechain_transcript(f) {
+            "  (sub-agent)"
+        } else {
+            ""
+        };
+        println!("  {:>9}  {}{}", human(size as i64), f.display(), tag);
     }
     println!("\nclean one: `trimwire sweep file <path>`   ·   clean all: `trimwire sweep all`");
     Ok(())
@@ -34,7 +50,10 @@ pub fn sweep_list() -> Result<()> {
 /// sessions safely abort (the file changed mid-sweep) and are reported, not
 /// fatal.
 pub fn sweep_all(dry_run: bool, yes: bool) -> Result<()> {
-    let files = engine::session_files();
+    // Include sub-agent sidechains: `build_swept` works record-by-record (no
+    // cross-message pairing), so sidechain transcripts trim safely and would
+    // otherwise pile up on disk uncleaned.
+    let files = engine::all_transcript_files();
     if files.is_empty() {
         println!("no session transcripts found to sweep.");
         return Ok(());
