@@ -56,8 +56,13 @@ jobs:
       - name: cargo test --doc (nextest doesn't run doctests)
         run: cargo test --doc
 
-      - name: cargo build (release)
-        run: cargo build --release
+      # Build the release bin AND the two examples CI runs (longitudinal_harm +
+      # bench) in ONE compile, so the later `cargo run --release --example …`
+      # steps (here + bench-drift-check.sh) just execute instead of recompiling
+      # the crate two more times. (Only these two examples — not `--examples`,
+      # which would also build the ~10 dev-only examples.)
+      - name: cargo build (release; bin + CI examples in one compile)
+        run: cargo build --release --bins --example longitudinal_harm --example bench
 
       - name: longitudinal degradation harness (offline, deterministic)
         run: cargo run --release --example longitudinal_harm
@@ -103,10 +108,16 @@ jobs:
       # (and edition 2024's floor) can't silently drift on a dep bump.
       - uses: dtolnay/rust-toolchain@c93f4f9c67595668add93d3d6895795ce52d8c2d # 1.85.0
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      # nextest (parallel) instead of the sequential stdlib test runner — same
+      # coverage, faster run; doctests run separately (nextest skips them).
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
+        with:
+          tool: nextest
       - run: cargo build --locked
       # Compile + run the tests on the floor too: a dep or test-only construct
       # that needs a newer rustc must fail here, not at a user's `cargo test`.
-      - run: cargo test --locked --no-fail-fast
+      - run: cargo nextest run --locked --no-fail-fast
+      - run: cargo test --locked --doc
 
   audit:
     name: cargo-deny + cargo-audit
@@ -116,12 +127,15 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
         with:
           command: check
-      # Node 24 build of the action: the v2.0.0 tag still runs on Node 20, which
-      # GitHub force-deprecates on 2026-06-16. Pin the default-branch commit that
-      # switched to node24 ("Update to use Node 24", #48) until a tag ships it.
-      - uses: rustsec/audit-check@858dc40f52ca2b8570b7a997c1c4e35c6fc9a432 # node24 (post-v2.0.0)
+      # cargo-audit via a PREBUILT binary (taiki-e/install-action) instead of the
+      # rustsec/audit-check action, which `cargo install`s cargo-audit FROM SOURCE
+      # on every run (~3m of compile). Prebuilt + a host toolchain runs the same
+      # advisory scan in seconds. `cargo audit` exits non-zero on a vulnerability.
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-audit
+      - run: cargo audit
 
   parity:
     name: Python parity oracle
