@@ -351,7 +351,14 @@ impl Default for CrossTurnDedupConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            exempt_tools: Vec::new(),
+            // Exempt the subagent tools by default, matching the profiles and the
+            // sibling strategies (bloat_cap/stale_input_cap/sliding_window carry the
+            // same default). `Task`+`Agent` are both subagent-launch names (the name
+            // drifted across CC versions); never dedup a subagent result (findings /
+            // blocker lists), so a direct struct-default caller doesn't lose that
+            // protection. No shipped-behavior change: the live path applies a profile
+            // (which already sets this) and the strategy is off in the bare default.
+            exempt_tools: vec!["Task".to_owned(), "Agent".to_owned()],
             stub: "[trimwire: superseded by a later identical call]".to_owned(),
         }
     }
