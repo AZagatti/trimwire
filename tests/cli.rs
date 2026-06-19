@@ -263,6 +263,7 @@ fn summarizer_setup_cancels_on_stdin_eof() {
         .args(["summarizer", "setup"])
         .env("HOME", dir.path())
         .env_remove("XDG_CONFIG_HOME")
+        .env_remove("TRIMWIRE_OLLAMA_ENDPOINT") // isolate from a dev's host env
         .stdin(std::process::Stdio::null())
         .output()
         .expect("spawn summarizer setup");
@@ -273,8 +274,230 @@ fn summarizer_setup_cancels_on_stdin_eof() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(all.contains("setup cancelled"), "got: {all}");
+    // Real path is $HOME/.config/trimwire.toml (global_config_path). The old
+    // assertion checked .config/trimwire/config.toml — a path the wizard never
+    // writes — so it passed vacuously. This now actually fails if a cancel writes.
     assert!(
-        !dir.path().join(".config/trimwire/config.toml").exists(),
-        "cancel writes nothing"
+        !dir.path().join(".config/trimwire.toml").exists(),
+        "cancel must write no config"
     );
+}
+
+/// `summarizer setup` model-free happy path: pick model-free (`m`) then confirm
+/// the write (`y`). Asserts the config is written with `engine = "model-free"`,
+/// stores no API key, and PRESERVES a pre-existing non-summarizer section.
+/// Environment-independent: `m` selects model-free regardless of what the entry
+/// ollama probe finds, so this is stable whether or not ollama is running.
+#[test]
+fn summarizer_setup_model_free_writes_config_and_preserves_other_sections() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    // global_config_path() with HOME set + XDG removed = $HOME/.config/trimwire.toml.
+    let cfg_path = dir.path().join(".config/trimwire.toml");
+    fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+    // Pre-existing, NON-summarizer config that must survive the wizard.
+    fs::write(&cfg_path, "[server]\nlisten = \"127.0.0.1:9999\"\n").unwrap();
+
+    let mut child = Command::new(bin())
+        .args(["summarizer", "setup"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("TRIMWIRE_OLLAMA_ENDPOINT") // isolate from a dev's host env
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn summarizer setup");
+    // "m" = model-free at the primary picker; "y" = confirm the write.
+    child.stdin.take().unwrap().write_all(b"m\ny\n").unwrap();
+    let out = child.wait_with_output().expect("wait");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        out.status.success(),
+        "model-free setup should succeed; got: {all}"
+    );
+
+    let cfg = fs::read_to_string(&cfg_path).expect("config written");
+    assert!(
+        cfg.contains("engine = \"model-free\""),
+        "engine must be model-free; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("listen = \"127.0.0.1:9999\""),
+        "pre-existing [server] section must be preserved; got:\n{cfg}"
+    );
+    assert!(
+        !cfg.to_lowercase().contains("api_key ="),
+        "model-free must store no API key value; got:\n{cfg}"
+    );
+}
+
+/// `sweep all` must REFUSE (not hang, not destroy) when stdin is not a terminal
+/// and `--yes` is absent — the non-interactive safeguard. The transcript on disk
+/// must be left byte-for-byte intact with no backup created.
+#[test]
+fn sweep_all_refuses_without_yes_when_noninteractive() {
+    let dir = tempfile::tempdir().unwrap();
+    let sess_dir = dir.path().join("projects/-home-user-x");
+    fs::create_dir_all(&sess_dir).unwrap();
+    let sess = sess_dir.join("s.jsonl");
+    let body = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n";
+    fs::write(&sess, body).unwrap();
+
+    let out = Command::new(bin())
+        .args(["sweep", "all"])
+        .env("CLAUDE_CONFIG_DIR", dir.path())
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("spawn sweep all");
+
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        out.status.success(),
+        "refusal is a clean exit, not an error; got: {all}"
+    );
+    assert!(
+        all.contains("refusing to sweep") && all.contains("--yes"),
+        "must explain it refused and point at --yes; got: {all}"
+    );
+    // File untouched, and no `.bak.*` backup created.
+    assert_eq!(
+        fs::read_to_string(&sess).unwrap(),
+        body,
+        "transcript must be unchanged"
+    );
+    let made_backup = fs::read_dir(&sess_dir)
+        .unwrap()
+        .flatten()
+        .any(|e| e.file_name().to_string_lossy().contains(".bak."));
+    assert!(
+        !made_backup,
+        "no backup should be created when sweep refuses"
+    );
+}
+
+// ── P2 cheap CLI smokes (offline, deterministic) ────────────────────────────
+
+/// `trimwire completions bash` emits a non-empty shell completion script.
+#[test]
+fn completions_emits_a_bash_script() {
+    let out = Command::new(bin())
+        .args(["completions", "bash"])
+        .output()
+        .expect("spawn completions");
+    assert!(out.status.success(), "completions exits 0");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !s.trim().is_empty() && s.contains("trimwire"),
+        "completion script should mention the binary; got {} bytes",
+        s.len()
+    );
+}
+
+/// `trimwire man --out <dir>` writes at least one man page (`.1`) into the dir.
+#[test]
+fn man_out_writes_man_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let out_dir = dir.path().join("man");
+    let out = Command::new(bin())
+        .args(["man", "--out"])
+        .arg(&out_dir)
+        .output()
+        .expect("spawn man --out");
+    assert!(
+        out.status.success(),
+        "man --out exits 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let n = fs::read_dir(&out_dir)
+        .expect("man dir created")
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "1"))
+        .count();
+    assert!(n >= 1, "expected at least one .1 man page, got {n}");
+}
+
+/// `trimwire config edit` ensures the config exists and opens it in `$EDITOR`.
+/// A fake editor records the path it was handed, proving the right file is opened.
+#[test]
+fn config_edit_opens_editor_on_the_config_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let bindir = dir.path().join("bin");
+    fs::create_dir_all(&bindir).unwrap();
+    let marker = dir.path().join("editor_ran.txt");
+    let editor = bindir.join("fakeeditor");
+    fs::write(
+        &editor,
+        format!("#!/bin/sh\nprintf '%s' \"$1\" > \"{}\"\n", marker.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&editor, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let out = Command::new(bin())
+        .args(["config", "edit"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env("EDITOR", editor.to_str().unwrap())
+        .output()
+        .expect("spawn config edit");
+    assert!(
+        out.status.success(),
+        "config edit exits 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let recorded = fs::read_to_string(&marker).expect("fake editor ran");
+    assert!(
+        recorded.ends_with("trimwire.toml"),
+        "editor opened the config file; got: {recorded}"
+    );
+    assert!(
+        dir.path().join(".config/trimwire.toml").exists(),
+        "config edit ensures the file exists"
+    );
+}
+
+/// `trimwire sweep file --dry-run <path>` reports without writing — the file is
+/// left byte-for-byte intact and no `.bak.*` backup is created.
+#[test]
+fn sweep_file_dry_run_reports_without_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let sess = dir.path().join("s.jsonl");
+    // An empty thinking block makes the session sweepable (thinking_strip).
+    let body = "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"x\"},{\"type\":\"text\",\"text\":\"hi\"}]}}\n";
+    fs::write(&sess, body).unwrap();
+
+    let out = Command::new(bin())
+        .args(["sweep", "file", "--dry-run"])
+        .arg(&sess)
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn sweep file --dry-run");
+    assert!(
+        out.status.success(),
+        "dry-run exits 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&sess).unwrap(),
+        body,
+        "dry-run must not modify the file"
+    );
+    let made_backup = fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .any(|e| e.file_name().to_string_lossy().contains(".bak."));
+    assert!(!made_backup, "dry-run makes no backup");
 }
