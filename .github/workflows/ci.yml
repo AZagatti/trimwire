@@ -87,6 +87,9 @@ jobs:
       - name: install.sh end-to-end smoke (local artifact, no network)
         run: TRIMWIRE_SMOKE_BIN="$PWD/target/release/trimwire" bash scripts/install-smoke.sh
 
+      - name: dogfood harness (synthetic fixtures, offline, no live model)
+        run: python3 scripts/dogfood.py --bin "$PWD/target/release/trimwire"
+
   msrv:
     name: MSRV (1.85)
     runs-on: ubuntu-latest

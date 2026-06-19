@@ -17,6 +17,13 @@ end-to-end. Everything below runs in CI.
 | Snapshots | `insta` (`tests/snapshots/`) | stable structural output; serialize via `BTreeMap`, never `HashMap` order |
 | CLI e2e | `tests/cli.rs` (Unix) | the built binary: `run` launches claude with env + forwards args + propagates exit, `install` is idempotent, `doctor`/`stats`/`config`/`summarizer setup` behave |
 | Cross-platform smoke | `ci.yml` matrix | daemon binds a port on linux/macOS/windows; binary-size budget |
+| Dogfood harness | `scripts/dogfood.py` | offline, no live model: drives `preview`/`sweep`/`stats`/`dashboard` over synthetic fixtures that model real failure classes (subagent transcripts, base64 images, Agent-exemption, old bloat, malformed JSONL), asserts hard invariants (F6 discovery, read-only safety, no double-count, no-crash) and **flags** soft/known-open items (e.g. F7) for human review. The harness's own detector logic is self-tested first (`self_test()` — fires on planted anomalies, quiet on clean input) so a dead detector fails the run. `--real` additionally audits your local `~/.claude` corpus in metadata-only mode (counts/sizes/strategy names — never transcript text). |
+
+Run it locally: `python3 scripts/dogfood.py` (builds/resolves the binary) or
+`python3 scripts/dogfood.py --bin target/release/trimwire`; add `--real` to scan
+your own sessions. CI runs the synthetic suite; exit is non-zero only on a hard
+invariant violation (FLAGs never fail the run, so known-open items stay visible
+without breaking the gate).
 
 Gated by `.github/workflows/ci.yml` (fmt, clippy `-D warnings`, `cargo nextest run`
 + `cargo test --doc`, doc, package, MSRV, cargo-deny/audit, parity, cross-platform)
