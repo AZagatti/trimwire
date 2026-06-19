@@ -248,6 +248,21 @@ fn prompt_yn(msg: &str, default_yes: bool) -> Result<bool> {
 const RECOMMENDED_MODEL: &str = "qwen3.5:4b";
 const DEFAULT_ENDPOINT: &str = "http://localhost:11434";
 
+/// The ollama endpoint the wizard probes by default.
+///
+/// Honors `TRIMWIRE_OLLAMA_ENDPOINT` — an advanced/test-only seam so the probe
+/// can be pointed at a fake or unreachable local endpoint for deterministic,
+/// offline tests of the setup wizard (the live probe otherwise makes the menu
+/// depend on whatever ollama happens to have installed). When the env var is
+/// unset or blank, this returns the standard local address, so default behavior
+/// for normal users is unchanged.
+fn default_ollama_endpoint() -> String {
+    std::env::var("TRIMWIRE_OLLAMA_ENDPOINT")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_ENDPOINT.to_owned())
+}
+
 // ─── API provider sub-flow ────────────────────────────────────────────────────
 
 /// Run the inline "Add a new API provider" sub-flow.
@@ -561,9 +576,10 @@ fn wizard_local_details(
     println!();
     println!("  Local backend: ollama runs on your machine. Content never leaves your machine.");
 
-    let raw_endpoint = prompt(&format!("\n  ollama endpoint [{DEFAULT_ENDPOINT}]: "))?;
+    let def_ep = default_ollama_endpoint();
+    let raw_endpoint = prompt(&format!("\n  ollama endpoint [{def_ep}]: "))?;
     let endpoint = if raw_endpoint.is_empty() {
-        DEFAULT_ENDPOINT.to_owned()
+        def_ep.clone()
     } else {
         raw_endpoint
     };
@@ -571,7 +587,7 @@ fn wizard_local_details(
     // If the user entered a non-default endpoint, re-probe it so the model list
     // and reachability info reflects the actual target. Unreachable is a warning
     // only — the user can configure now and start ollama later.
-    let custom_probe: Option<(bool, Vec<String>)> = if endpoint != DEFAULT_ENDPOINT {
+    let custom_probe: Option<(bool, Vec<String>)> = if endpoint != def_ep {
         print!("  Probing ollama at {endpoint} ... ");
         use std::io::Write;
         let _ = std::io::stdout().flush();
@@ -695,11 +711,11 @@ pub fn summarizer_setup() -> Result<()> {
 
     // Probe ollama.
     let (ollama_reachable, installed_models) = {
-        let ep = DEFAULT_ENDPOINT;
+        let ep = default_ollama_endpoint();
         print!("  Probing ollama at {ep} ... ");
         use std::io::Write;
         let _ = std::io::stdout().flush();
-        match probe_ollama(ep) {
+        match probe_ollama(&ep) {
             OllamaProbe::Reachable(models) => {
                 println!("reachable ({} model(s) installed)", models.len());
                 (true, models)

@@ -388,6 +388,219 @@ fn sweep_all_refuses_without_yes_when_noninteractive() {
     );
 }
 
+/// A tiny fake ollama server: answers `GET /api/tags` with the given model list
+/// so the `summarizer setup` probe is deterministic and offline (no real ollama,
+/// no model inference). Stops + joins on drop. Pointed at via the
+/// `TRIMWIRE_OLLAMA_ENDPOINT` test seam. Declare it BEFORE the child and let it
+/// drop at end of scope, so it outlives `wait_with_output()` (join-on-drop only
+/// blocks briefly once the child has exited and closed the socket).
+struct FakeOllama {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+    port: u16,
+}
+
+impl FakeOllama {
+    fn start(models: &[&str]) -> Self {
+        use std::io::{Read, Write};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        listener.set_nonblocking(true).unwrap();
+
+        let models_json = models
+            .iter()
+            .map(|m| format!("{{\"name\":\"{m}\"}}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let body = format!("{{\"models\":[{models_json}]}}");
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        let handle = std::thread::spawn(move || {
+            while !stop2.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((mut s, _)) => {
+                        let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(50)));
+                        let mut buf = [0u8; 2048];
+                        let _ = s.read(&mut buf); // best-effort drain the request line
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        let _ = s.write_all(resp.as_bytes());
+                        let _ = s.flush();
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        FakeOllama {
+            stop,
+            handle: Some(handle),
+            port,
+        }
+    }
+
+    fn endpoint(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+}
+
+impl Drop for FakeOllama {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+/// `summarizer setup` API-provider happy path. The entry ollama probe is pointed
+/// at a dead port (no local models) so the added provider is item 1 —
+/// deterministic regardless of any real ollama. Asserts the provider block is
+/// written with the env-var NAME (never a key value), the engine is the provider
+/// id, and a pre-existing unrelated section survives.
+#[test]
+fn summarizer_setup_api_provider_writes_provider_block_without_key() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join(".config/trimwire.toml");
+    fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+    fs::write(&cfg_path, "[server]\nlisten = \"127.0.0.1:9999\"\n").unwrap();
+
+    // A fake ollama with NO models → probe reachable but empty → no local items in
+    // the picker → the added provider is item 1 (deterministic). Using a held-open
+    // socket avoids the dead-port TOCTOU a bind-then-drop free_port() would risk.
+    let fake = FakeOllama::start(&[]);
+    let mut child = Command::new(bin())
+        .args(["summarizer", "setup"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env("TRIMWIRE_OLLAMA_ENDPOINT", fake.endpoint())
+        .env_remove("TESTPROV_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn summarizer setup");
+    // a=add provider; id; style=anthropic; base_url=default(empty); model;
+    // key ENV-VAR NAME; y=add; 1=pick as primary; n=no fallback; y=write.
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"a\ntestprov\nanthropic\n\ntest-model\nTESTPROV_KEY\ny\n1\nn\ny\n")
+        .unwrap();
+    let out = child.wait_with_output().expect("wait");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success(), "api setup should succeed; got: {all}");
+
+    let cfg = fs::read_to_string(&cfg_path).expect("config written");
+    assert!(
+        cfg.contains("engine = \"testprov\""),
+        "engine = provider id; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("[[summarizer.providers]]"),
+        "provider block written; got:\n{cfg}"
+    );
+    assert!(cfg.contains("\"test-model\""), "model written; got:\n{cfg}");
+    assert!(
+        cfg.contains("https://api.anthropic.com"),
+        "default base_url written; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("api_key_env") && cfg.contains("\"TESTPROV_KEY\""),
+        "stores the env-var NAME; got:\n{cfg}"
+    );
+    assert!(
+        !cfg.to_lowercase().contains("sk-"),
+        "must not store a key VALUE; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("listen = \"127.0.0.1:9999\""),
+        "unrelated [server] preserved; got:\n{cfg}"
+    );
+}
+
+/// `summarizer setup` local-ollama happy path against a FAKE ollama server (no
+/// real ollama, no inference). The `TRIMWIRE_OLLAMA_ENDPOINT` seam points the
+/// probe at the fake, which reports an approved model — so picking it as primary
+/// is deterministic. Asserts the `[summarizer.local]` block + preserved config.
+#[test]
+fn summarizer_setup_local_path_writes_local_block() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let fake = FakeOllama::start(&["qwen3.5:4b"]);
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join(".config/trimwire.toml");
+    fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+    fs::write(&cfg_path, "[server]\nlisten = \"127.0.0.1:9999\"\n").unwrap();
+
+    let mut child = Command::new(bin())
+        .args(["summarizer", "setup"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env("TRIMWIRE_OLLAMA_ENDPOINT", fake.endpoint())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn summarizer setup");
+    // 1=pick the local model; endpoint=default(empty, resolves to the fake);
+    // model=default(empty → qwen3.5:4b); n=no fallback; y=write.
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"1\n\n\nn\ny\n")
+        .unwrap();
+    let out = child.wait_with_output().expect("wait");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        out.status.success(),
+        "local setup should succeed; got: {all}"
+    );
+
+    let cfg = fs::read_to_string(&cfg_path).expect("config written");
+    assert!(
+        cfg.contains("engine = \"local\""),
+        "engine = local; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("[summarizer.local]"),
+        "local block written; got:\n{cfg}"
+    );
+    assert!(cfg.contains("qwen3.5:4b"), "model written; got:\n{cfg}");
+    assert!(
+        cfg.contains(&fake.endpoint()),
+        "endpoint (the fake) written; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("listen = \"127.0.0.1:9999\""),
+        "unrelated [server] preserved; got:\n{cfg}"
+    );
+}
+
 // ── P2 cheap CLI smokes (offline, deterministic) ────────────────────────────
 
 /// `trimwire completions bash` emits a non-empty shell completion script.
