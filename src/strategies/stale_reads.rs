@@ -583,6 +583,49 @@ mod tests {
         PairingIndex::build(&msgs).validate().unwrap();
     }
 
+    /// Boundary pin for the page-min check's JSON-serialization semantics.
+    ///
+    /// The gate is `serde_json::to_string(content).len() <= page_min_bytes ⇒ skip`.
+    /// A bare JSON string serializes to `raw + 2` bytes (the surrounding quotes),
+    /// so paging fires iff `raw + 2 > page_min`, i.e. the EFFECTIVE raw-content
+    /// threshold is `page_min - 1`: raw == page_min-2 is NOT paged (serialized ==
+    /// page_min), raw == page_min-1 IS paged (serialized == page_min+1).
+    #[test]
+    fn page_min_boundary_accounts_for_json_quote_overhead() {
+        // True iff an OLD single-view Read of `raw_len` bytes is demand-paged.
+        let paged_at = |raw_len: usize, page_min: usize| -> bool {
+            let mut msgs = vec![
+                tool_use_msg("r0", "Read", json!({"path": "/src/boundary.rs"})),
+                tool_result_msg("r0", &"z".repeat(raw_len)),
+            ];
+            // Age the read past keep_recent (single-view, non-superseded, not hot).
+            for i in 0..6 {
+                let id = format!("p{i}");
+                msgs.push(tool_use_msg(
+                    &id,
+                    "Bash",
+                    json!({"command": format!("echo {i}")}),
+                ));
+                msgs.push(tool_result_msg(&id, "ok"));
+            }
+            apply(&mut msgs, &cfg_paging(page_min, 4)).unwrap();
+            msgs[1]["content"][0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("paged out")
+        };
+
+        let min = 1024;
+        assert!(
+            !paged_at(min - 2, min),
+            "raw == page_min-2 → serialized == page_min → NOT paged (<= gate)"
+        );
+        assert!(
+            paged_at(min - 1, min),
+            "raw == page_min-1 → serialized == page_min+1 → paged"
+        );
+    }
+
     /// §13B hot-path guard: a path the model has Read more than once is NEVER
     /// demand-paged, even when its current view is old + huge — paging it would
     /// force another re-read → the read-spiral. (Module-level unit coverage; the

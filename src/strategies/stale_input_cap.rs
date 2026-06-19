@@ -280,6 +280,61 @@ mod tests {
         );
     }
 
+    /// The SHIPPED default exempt list (`StaleInputCapConfig::default()`) protects
+    /// BOTH subagent tool names — `Task` AND the drifted `Agent` — so an old
+    /// subagent call's prompt is never elided, while non-exempt Bash bulk still
+    /// reduces. Mirrors the bloat_cap exemption regression test; uses the real
+    /// default exempt list (only `keep_recent_turns` is sized for the test).
+    #[test]
+    fn default_exempt_preserves_both_task_and_agent_subagent_inputs() {
+        let mut msgs = Vec::new();
+        for name in ["Task", "Agent"] {
+            let uid = format!("toolu_{name}");
+            msgs.push(json!({"role": "user", "content": [{"type": "text", "text": "go"}]}));
+            msgs.push(json!({"role": "assistant", "content": [
+                {"type": "tool_use", "id": uid, "name": name, "input": {
+                    "description": "delegate", "prompt": "x".repeat(2000)
+                }}
+            ]}));
+            msgs.push(json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": uid, "content": "done"}
+            ]}));
+        }
+        // Pad with non-exempt Bash so the subagent calls are old AND there is
+        // something reducible (non-vacuous).
+        for extra in successful_session(6) {
+            msgs.push(extra);
+        }
+        let c = StaleInputCapConfig {
+            enabled: true,
+            keep_recent_turns: 4,
+            ..StaleInputCapConfig::default() // the REAL exempt list
+        };
+        let stats = apply(&mut msgs, &c).unwrap();
+        // msgs[1] = Task call, msgs[4] = Agent call — both prompts intact.
+        assert_eq!(
+            msgs[1]["content"][0]["input"]["prompt"]
+                .as_str()
+                .unwrap()
+                .len(),
+            2000,
+            "Task prompt intact (default-exempt)"
+        );
+        assert_eq!(
+            msgs[4]["content"][0]["input"]["prompt"]
+                .as_str()
+                .unwrap()
+                .len(),
+            2000,
+            "Agent prompt intact (default-exempt)"
+        );
+        assert!(
+            stats.stubbed >= 1,
+            "non-exempt Bash bulk still reduced, got {}",
+            stats.stubbed
+        );
+    }
+
     #[test]
     fn authored_content_exempt_even_with_empty_exempt_tools() {
         // §13A hard floor: a user config that drops Write/Edit/MultiEdit from

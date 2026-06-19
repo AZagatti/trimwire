@@ -625,6 +625,95 @@ mod tests {
         assert!(text.contains("image stripped"));
     }
 
+    /// F7 (attribution pin): `bloat_cap` runs BEFORE `image_strip` in [`run`]
+    /// (lines ~114 vs ~122), so an OLD structured-image `tool_result` is
+    /// total-erased by `bloat_cap`; `image_strip` then sees a `[trimwire: …]`
+    /// marker string and counts 0. This test PINS that current attribution — a
+    /// future pipeline reorder (image_strip before bloat_cap) would credit
+    /// image_strip instead and break this test, which is exactly the intent.
+    /// The negative control proves the image is genuinely image_strip-eligible,
+    /// so this is an ORDERING effect, not an inert image.
+    #[test]
+    fn f7_bloat_cap_claims_old_image_array_before_image_strip() {
+        let tool = "mcp__playwright__browser_take_screenshot";
+        let image = json!([{
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": "A".repeat(5000)}
+        }]);
+        let build = || {
+            let mut m = vec![
+                json!({"role": "user", "content": [{"type": "text", "text": "shot"}]}),
+                json!({"role": "assistant", "content": [
+                    {"type": "tool_use", "id": "s0", "name": tool, "input": {}}
+                ]}),
+                json!({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "s0", "content": image.clone()}
+                ]}),
+            ];
+            // Age the image past keep_recent for both strategies.
+            for i in 0..6 {
+                let id = format!("p{i}");
+                m.push(json!({"role": "assistant", "content": [
+                    {"type": "tool_use", "id": id, "name": "Bash", "input": {"command": format!("echo {i}")}}
+                ]}));
+                m.push(json!({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": id, "content": "ok"}
+                ]}));
+            }
+            m
+        };
+        let bloat = BloatCapConfig {
+            enabled: true,
+            threshold_bytes: 100,
+            head_bytes: 8,
+            tail_bytes: 8,
+            keep_recent_turns: 2,
+            ..BloatCapConfig::default()
+        };
+        let img_cfg = ImageStripConfig {
+            enabled: true,
+            applies_to_tools: vec![tool.to_owned()],
+            keep_recent_count: 0,
+            stub: "[trimwire: image stripped]".to_owned(),
+        };
+        let stub_of = |fired: &[(&'static str, Stats)], name: &str| {
+            fired
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, s)| s.stubbed)
+                .unwrap_or(0)
+        };
+
+        // Both enabled, real run order: bloat_cap claims the image array.
+        let mut cfg = Config::default();
+        cfg.strategies.bloat_cap = bloat;
+        cfg.strategies.image_strip = img_cfg.clone();
+        let mut msgs = build();
+        let fired = run(&mut msgs, &cfg).unwrap();
+        assert!(
+            stub_of(&fired, "bloat_cap") >= 1,
+            "bloat_cap (runs first) total-erases the old image array"
+        );
+        assert_eq!(
+            stub_of(&fired, "image_strip"),
+            0,
+            "image_strip sees the bloat_cap marker and counts 0 (current F7 attribution)"
+        );
+        let c = msgs[2]["content"][0]["content"].as_str().unwrap();
+        assert!(c.starts_with("[trimwire:"), "image elided to a marker: {c}");
+
+        // Negative control: image_strip ALONE strips the same image → proves the
+        // above is an ordering effect, not an unstrippable image.
+        let mut cfg2 = Config::default();
+        cfg2.strategies.image_strip = img_cfg;
+        let mut msgs2 = build();
+        let fired2 = run(&mut msgs2, &cfg2).unwrap();
+        assert!(
+            stub_of(&fired2, "image_strip") >= 1,
+            "image_strip alone DOES strip the image (eligibility control)"
+        );
+    }
+
     /// The two default workhorses (dedup + failed-input-purge) fire together
     /// through `apply_to_body`: both run, the prefix/system survive, and the
     /// result is orphan-free.
