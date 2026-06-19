@@ -714,3 +714,166 @@ fn sweep_file_dry_run_reports_without_writing() {
         .any(|e| e.file_name().to_string_lossy().contains(".bak."));
     assert!(!made_backup, "dry-run makes no backup");
 }
+
+// ── P2 batch 2: share / statusline / sweep-undo / summarizer-status (offline) ──
+
+/// `trimwire share enable` / `disable` toggle `[share] enabled` in the config.
+/// Pure local file writes — no network.
+#[test]
+fn share_enable_then_disable_toggles_config_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = dir.path().join(".config/trimwire.toml");
+    let run = |arg: &str| {
+        Command::new(bin())
+            .args(["share", arg])
+            .env("HOME", dir.path())
+            .env_remove("XDG_CONFIG_HOME")
+            .output()
+            .expect("spawn share")
+    };
+    let e = run("enable");
+    assert!(
+        e.status.success(),
+        "share enable ok: {}",
+        String::from_utf8_lossy(&e.stderr)
+    );
+    assert!(
+        fs::read_to_string(&cfg).unwrap().contains("enabled = true"),
+        "enable writes the flag"
+    );
+    let d = run("disable");
+    assert!(d.status.success(), "share disable ok");
+    assert!(
+        fs::read_to_string(&cfg)
+            .unwrap()
+            .contains("enabled = false"),
+        "disable writes the flag"
+    );
+}
+
+/// `trimwire share stats` WITHOUT `--yes` and with the ledger disabled must be a
+/// safe no-op: a friendly message, exit 0, and NO upload (no `--yes` → no POST).
+#[test]
+fn share_stats_without_yes_is_offline() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(bin())
+        .args(["share", "stats"]) // no --yes ⇒ never POSTs
+        .env("HOME", dir.path())
+        .env("TRIMWIRE_LEDGER__ENABLED", "false")
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn share stats");
+    assert!(out.status.success(), "share stats exits 0");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.contains("nothing to share") || s.contains("ledger is disabled"),
+        "ledger-disabled path is a safe no-op (no upload); got: {s}"
+    );
+}
+
+/// `trimwire statusline add` wires trimwire into `~/.claude/settings.json`, and
+/// `remove` unwires it — a clean round trip. File-only, no network.
+#[test]
+fn statusline_add_then_remove_round_trips_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    let settings = dir.path().join(".claude/settings.json");
+    let run = |a: &str| {
+        Command::new(bin())
+            .args(["statusline", a])
+            .env("HOME", dir.path())
+            .env_remove("XDG_CONFIG_HOME")
+            .output()
+            .expect("spawn statusline")
+    };
+    let add = run("add");
+    assert!(
+        add.status.success(),
+        "statusline add ok: {}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    let s = fs::read_to_string(&settings).expect("settings.json created");
+    assert!(
+        s.contains("statusLine") && s.contains("trimwire"),
+        "trimwire statusLine wired; got: {s}"
+    );
+    let rm = run("remove");
+    assert!(rm.status.success(), "statusline remove ok");
+    let s2 = fs::read_to_string(&settings).unwrap_or_default();
+    assert!(
+        !s2.contains("trimwire"),
+        "remove unwires trimwire; got: {s2}"
+    );
+}
+
+/// `trimwire sweep file <path>` (mutating) creates a `.bak.*` backup, and
+/// `sweep undo <path>` restores the original bytes — the data-safety round trip.
+#[test]
+fn sweep_file_then_undo_restores_original_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let sess = dir.path().join("s.jsonl");
+    // Empty thinking block → sweep actually mutates (thinking_strip), so a backup
+    // is made and there is something for undo to restore.
+    let body = "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"x\"},{\"type\":\"text\",\"text\":\"hi\"}]}}\n";
+    fs::write(&sess, body).unwrap();
+
+    let sw = Command::new(bin())
+        .args(["sweep", "file"])
+        .arg(&sess)
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn sweep file");
+    assert!(
+        sw.status.success(),
+        "sweep file ok: {}",
+        String::from_utf8_lossy(&sw.stderr)
+    );
+    let made_backup = fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .any(|e| e.file_name().to_string_lossy().contains(".bak."));
+    assert!(made_backup, "sweep file creates a backup before rewriting");
+    assert_ne!(
+        fs::read_to_string(&sess).unwrap(),
+        body,
+        "sweep actually modified the file (empty thinking dropped)"
+    );
+
+    let un = Command::new(bin())
+        .args(["sweep", "undo"])
+        .arg(&sess)
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn sweep undo");
+    assert!(
+        un.status.success(),
+        "sweep undo ok: {}",
+        String::from_utf8_lossy(&un.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&sess).unwrap(),
+        body,
+        "undo restores the original bytes"
+    );
+}
+
+/// `trimwire summarizer status` on a fresh config reports the model-free
+/// (unconfigured) state cleanly. Offline.
+#[test]
+fn summarizer_status_reports_model_free_on_fresh_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(bin())
+        .args(["summarizer", "status"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn summarizer status");
+    assert!(out.status.success(), "summarizer status exits 0");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.contains("model-free") || s.contains("not configured"),
+        "fresh config = model-free; got: {s}"
+    );
+}
