@@ -230,7 +230,20 @@ These are the maintainer's standing expectations. Follow them by default; they a
 - **Verify subagent claims against the real code/data** — they overclaim; the orchestrator (you) is the check (catch "data not available at call-site", false precision, stale assumptions).
 - **Real sessions:** never operate on the live `~/.claude` transcripts — **copy them to a working dir and work on the copies** (`benchmark/reconstruct_session.py` on copies → bodies).
 - **Result-impacting code changes ship WITH regression/smoke tests**; strategy/prompt changes go through the **harm gate** (`tests/harm.rs` + the false-done detector + blind real-slice gut-read) and need maintainer greenlight before merge.
-- **Default: don't push or tag.** Commit on `main`. Push only when the maintainer **explicitly asks** and local checks are green (fmt/clippy/test/doc + any affected collector/site checks). Even then: **never merge the release-plz release PR** — leave it open for maintainer review (release-plz handles version/tag/crates.io + the binary build once *they* merge it). Never create tags by hand. Commit trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
+- **`main` is protected (ruleset, 2026-06-19) — all changes go through a PR.** Direct pushes to
+  `main` are blocked for non-admins; force-pushes and branch deletion are blocked for everyone.
+  Every PR must pass the required CI checks before merge: `fmt + clippy + test`, `MSRV (1.85)`,
+  `Python parity oracle`, `cargo-deny + cargo-audit`, and the three `cross-platform build (...)`
+  jobs. PRs require **0 approvals** (so the solo maintainer can self-merge) — but CI must be green.
+  Repo **admins have an `always` bypass** (emergency direct push), so the maintainer is never locked
+  out; prefer the PR flow regardless. Release-plz is unaffected: its release PR merges like any PR,
+  and tag/crates.io/binary publishing happens on `refs/tags/*` which the branch ruleset does not gate.
+- **Default: don't push or tag.** Work on a branch, open a PR, let CI go green, then merge it (squash).
+  Push only when the maintainer **explicitly asks** and local checks are green (fmt/clippy/test/doc +
+  any affected collector/site checks). For the **release-plz release PR**: by default leave it open for
+  maintainer review (release-plz handles version/tag/crates.io + the binary build on merge); merge it
+  ONLY when the maintainer explicitly says to. Never create tags by hand. Commit trailer:
+  `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 - **Priority order: CODE > docs/DX.** A skill is doc-like (not a code item). API-provider/portability is after the tool is peak. See `internal/BACKLOG-SCORED.md` BUILD SEQUENCE.
 - **Docs source = context7.** Before writing/reviewing code against any library or framework (Astro/Starlight/Vite for the site, Cloudflare Workers/D1 for the collector, clap/hyper/tokio/rusqlite for the binary), consult the `context7` skill rather than training data — and instruct subagents to do the same.
 - **Regression & bench sweep:** before a release, after a meaningful change set, or periodically, run the subagent sweep in [`docs/REGRESSION-WORKFLOW.md`](docs/REGRESSION-WORKFLOW.md) — a 6-agent fan-out (build/gate, invariant harnesses, bench regression, parity oracle, docs/memory drift, coverage gaps) reconciled into one scorecard. Mostly offline/deterministic (only `examples/api_harm` needs a provider key). It catches what CI doesn't: savings drift, doc/memory drift, and untested new surface.
