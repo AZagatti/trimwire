@@ -108,16 +108,12 @@ jobs:
       # (and edition 2024's floor) can't silently drift on a dep bump.
       - uses: dtolnay/rust-toolchain@c93f4f9c67595668add93d3d6895795ce52d8c2d # 1.85.0
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      # nextest (parallel) instead of the sequential stdlib test runner — same
-      # coverage, faster run; doctests run separately (nextest skips them).
-      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
-        with:
-          tool: nextest
       - run: cargo build --locked
       # Compile + run the tests on the floor too: a dep or test-only construct
       # that needs a newer rustc must fail here, not at a user's `cargo test`.
-      - run: cargo nextest run --locked --no-fail-fast
-      - run: cargo test --locked --doc
+      # (Measured: nextest here was a net LOSS — extra install + a separate
+      # doctest compile outweigh the parallel run, since the cost is the compile.)
+      - run: cargo test --locked --no-fail-fast
 
   audit:
     name: cargo-deny + cargo-audit
