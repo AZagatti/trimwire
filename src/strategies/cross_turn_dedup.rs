@@ -395,13 +395,10 @@ mod tests {
     }
 
     /// Subagent results survive cross_turn_dedup under the SHIPPED DEFAULT PROFILE.
-    ///
-    /// NOTE: unlike bloat_cap/stale_input_cap, cross_turn_dedup's Task/Agent
-    /// exemption lives in the PROFILE (`profile_baseline`), NOT the struct default
-    /// (`CrossTurnDedupConfig::default().exempt_tools` is intentionally empty — a
-    /// no-op baseline that profiles layer onto). So this pins the profile, and the
-    /// negative arm (empty exempt) proves the results ARE duplicates that would
-    /// otherwise be deduped — i.e. the test is non-vacuous.
+    /// (The struct default now carries the same Task/Agent exemption too — see
+    /// `struct_default_exempts_task_and_agent_matching_profile`.) The negative arm
+    /// uses an EXPLICIT empty exempt list (`cfg(&[])`) to prove the fixture is real
+    /// duplicates that would otherwise be deduped — i.e. the test is non-vacuous.
     #[test]
     fn default_profile_exempts_task_and_agent_results_from_dedup() {
         let prof = crate::config::profile_baseline("default")
@@ -433,7 +430,7 @@ mod tests {
             let mut kept = triple(name);
             let s = apply(&mut kept, &prof).unwrap();
             assert_eq!(s.stubbed, 0, "{name} results exempt under default profile");
-            // Without the exemption (struct-default empty list) → the two older
+            // Without the exemption (an EXPLICIT empty exempt list) → the two older
             // identical calls ARE deduped — proves the fixture is real duplicates.
             let mut deduped = triple(name);
             let s2 = apply(&mut deduped, &cfg(&[])).unwrap();
@@ -442,6 +439,64 @@ mod tests {
                 "{name} results are genuine duplicates (deduped without the exemption)"
             );
         }
+    }
+
+    /// Consistency hygiene: `CrossTurnDedupConfig::default()` now exempts the
+    /// subagent tools (Task/Agent) directly — matching the default profile and the
+    /// sibling strategies' struct defaults — so a direct struct-default caller
+    /// doesn't silently dedup subagent results. Ordinary tools still dedup.
+    #[test]
+    fn struct_default_exempts_task_and_agent_matching_profile() {
+        // The struct default's exempt list contains both subagent names, and it
+        // matches the default profile for those names.
+        let d = CrossTurnDedupConfig::default();
+        assert!(
+            d.exempt_tools.iter().any(|t| t == "Task")
+                && d.exempt_tools.iter().any(|t| t == "Agent"),
+            "struct default must exempt Task+Agent; got {:?}",
+            d.exempt_tools
+        );
+        let prof = crate::config::profile_baseline("default")
+            .strategies
+            .cross_turn_dedup;
+        for t in ["Task", "Agent"] {
+            assert_eq!(
+                d.exempt_tools.contains(&t.to_owned()),
+                prof.exempt_tools.contains(&t.to_owned()),
+                "struct default and default profile agree on exempting {t}"
+            );
+        }
+
+        let triple = |name: &str| {
+            let mut msgs = Vec::new();
+            for i in 0..3 {
+                let uid = format!("toolu_{name}{i}");
+                msgs.push(json!({"role": "assistant", "content": [
+                    {"type": "tool_use", "id": uid, "name": name, "input": {"prompt": "same"}}
+                ]}));
+                msgs.push(json!({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": uid, "content": "identical finding"}
+                ]}));
+            }
+            msgs
+        };
+        // Use the struct default's exempt list, with the strategy enabled for the test.
+        let enabled_default = CrossTurnDedupConfig {
+            enabled: true,
+            ..CrossTurnDedupConfig::default()
+        };
+        for name in ["Task", "Agent"] {
+            let mut kept = triple(name);
+            let s = apply(&mut kept, &enabled_default).unwrap();
+            assert_eq!(
+                s.stubbed, 0,
+                "{name} results exempt under the struct default"
+            );
+        }
+        // Control: an ordinary (non-subagent) tool is NOT exempt → still deduped.
+        let mut ordinary = triple("Read");
+        let s = apply(&mut ordinary, &enabled_default).unwrap();
+        assert_eq!(s.stubbed, 2, "ordinary duplicate results still dedup");
     }
 
     #[test]
