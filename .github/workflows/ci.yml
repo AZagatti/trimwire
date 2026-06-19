@@ -79,16 +79,20 @@ jobs:
         run: |
           sh -n scripts/install.sh
           bash -n scripts/install-smoke.sh
+          bash -n scripts/bench-drift-check.sh
           if ! command -v shellcheck >/dev/null 2>&1; then
             sudo apt-get update -qq && sudo apt-get install -y shellcheck
           fi
-          shellcheck scripts/install.sh scripts/install-smoke.sh
+          shellcheck scripts/install.sh scripts/install-smoke.sh scripts/bench-drift-check.sh
 
       - name: install.sh end-to-end smoke (local artifact, no network)
         run: TRIMWIRE_SMOKE_BIN="$PWD/target/release/trimwire" bash scripts/install-smoke.sh
 
       - name: dogfood harness (synthetic fixtures, offline, no live model)
         run: python3 scripts/dogfood.py --bin "$PWD/target/release/trimwire"
+
+      - name: benchmark results drift guard (RESULTS.md vs deterministic bench)
+        run: bash scripts/bench-drift-check.sh
 
   msrv:
     name: MSRV (1.85)

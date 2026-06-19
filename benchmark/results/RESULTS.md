@@ -35,7 +35,8 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | Corpus | Focus (unpruned → pruned) | Redundancy (unpruned → pruned) |
 |---|--:|--:|
 | `pure_chat_floor` | 75.2% → **75.2%** | 0.0% → **0.0%** |
-| `exempt_heavy` | 55.3% → **55.3%** | 0.0% → **0.0%** |
+| `exempt_heavy` | 55.2% → **55.2%** | 0.0% → **0.0%** |
+| `read_heavy` | 49.8% → **60.1%** | 0.0% → **0.0%** |
 | `unique_bash_spam` | 41.6% → **67.2%** | 0.0% → **0.0%** |
 | `at_the_boundary` | 71.3% → **88.6%** | 0.0% → **0.0%** |
 | `repeated_grep` | 32.8% → **65.7%** | 59.6% → **0.0%** |
@@ -66,7 +67,8 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | Corpus | What it models | In | Out | Saved | Reduction | Result |
 |---|---|--:|--:|--:|--:|:-:|
 | `pure_chat_floor` | the floor: nothing to prune, forwarded byte-for-byte | 9.5 KB | 9.5 KB | 0 B | 0.0% | no-op |
-| `exempt_heavy` | honest low case: protected/unique content → ~nothing to prune | 57.1 KB | 57.1 KB | 0 B | 0.0% | no-op |
+| `exempt_heavy` | honest low case: load-bearing authoring content → ~nothing to prune | 57.2 KB | 57.2 KB | 0 B | 0.0% | no-op |
+| `read_heavy` | old reads bloat_capped now Read is age-gated (coverage-gap fix); recent reads intact | 83.8 KB | 56.3 KB | 27.5 KB | 32.8% | pruned |
 | `unique_bash_spam` | only the oldest results past the recent window get capped | 222.1 KB | 95.6 KB | 126.5 KB | 57.0% | pruned |
 | `at_the_boundary` | recent results stay intact; only aged ones are capped | 143.6 KB | 79.3 KB | 64.3 KB | 44.8% | pruned |
 | `repeated_grep` | drops 7 superseded repeats; the distinct searches are kept | 29.8 KB | 6.5 KB | 23.2 KB | 78.1% | pruned |
@@ -85,15 +87,6 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 > a session with nothing redundant it correctly does nothing. Every pruned
 > body is orphan-free, never larger than the input, and leaves `system`
 > untouched (asserted; the harness panics otherwise).
->
-> **In/Out/Reduction measure `messages[]` bytes only** — the real request also
-> carries a `system` prompt + tool schemas (~12 KB ≈ 3000 tokens in production)
-> that trimwire never touches, so they're excluded from the denominator here. On
-> a **small** body this overstates the full-request reduction: e.g.
-> `stale_input_heavy`/`thinking_heavy` (12–14 KB) read ~84%/83% of `messages[]`
-> but only ~46%/42% of a full production request. These small "coverage corpora"
-> exist to exercise one strategy each, not to represent typical session sizes.
-> (The cost model in §5 adds the prefix back, so it isn't affected.)
 
 ## 2. Profiles — `default` / `gentle` (reduction %)
 
@@ -101,6 +94,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 |---|--:|--:|
 | `pure_chat_floor` | 0.0% | 0.0% |
 | `exempt_heavy` | 0.0% | 0.0% |
+| `read_heavy` | 32.8% | 0.0% |
 | `unique_bash_spam` | 57.0% | 0.0% |
 | `at_the_boundary` | 44.8% | 0.0% |
 | `repeated_grep` | 78.1% | 58.1% |
@@ -115,12 +109,12 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `thinking_heavy` | 82.9% | 16.6% |
 
 > Two *cleaning aggressiveness* levels. **`default`** (shipped) = all eight
-> cache-safe strategies, tight knobs (`keep_recent_turns=2`, `bloat 4 KB`,
-> `image keep 1`), a verb-class denylist (`*screenshot*`/`*navigate*`/`*click*`/
-> `*browser_act*`/`Grep`), and reprune on — cleans hardest while keeping reference-data
-> MCP results. **`gentle`** = dedup + failed-input-purge + a *conservative*
-> bloat_cap (32 KB / keep 6) + thinking_strip (keep 8) + reprune;
-> stale_input_cap, stale_reads, sliding-window and image-strip off (lightest
+> cache-safe strategies (plus opt-in simhash_dedup, off by default), tight knobs
+> (`keep_recent_turns=2`, `bloat 4 KB`, `image keep 1`), a verb-class denylist
+> (`*screenshot*`/`*navigate*`/`*click*`/`*browser_act*`/`Grep`),
+> and reprune on — cleans hardest while keeping reference-data MCP results.
+> **`gentle`** = dedup + failed-input-purge + a *conservative* bloat_cap
+> (32 KB / keep 6) + reprune; sliding-window and image-strip off (lightest
 > touch, for cost-sensitive sessions). Pick with `profile = "…"` in your
 > config. Their *cost* behaviour is not what you'd guess — see §5.
 
@@ -134,6 +128,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
 | `pure_chat_floor` | — | — | — | — | — | — | — | — | — |
 | `exempt_heavy` | — | — | — | — | — | — | — | — | — |
+| `read_heavy` | — | — | — | — | — | 27.5 KB | — | — | — |
 | `unique_bash_spam` | — | — | — | — | — | 126.5 KB | — | — | — |
 | `at_the_boundary` | — | — | — | — | — | 64.3 KB | — | — | — |
 | `repeated_grep` | — | — | 14 B | — | — | — | 5.9 KB | — | — |
@@ -153,6 +148,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 |---|--:|--:|--:|
 | `pure_chat_floor` | 100.0% | 100.0% | 100.0% |
 | `exempt_heavy` | 100.0% | 100.0% | 100.0% |
+| `read_heavy` | 100.0% | 46.6% | 100.0% |
 | `unique_bash_spam` | 100.0% | 36.7% | 100.0% |
 | `at_the_boundary` | 100.0% | 39.7% | 100.0% |
 | `repeated_grep` | 100.0% | 23.9% | 55.8% |
@@ -171,10 +167,11 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 > Pruning drops it whenever an old message is rewritten as it ages. We measure
 > this a whole message at a time (the cache invalidates from the first changed
 > message onward), which is a careful under-estimate of what's really kept.
-> NOTE: these figures are the **stateless** prune (re-prune from scratch each turn).
-> The shipped default runs **reprune** (on by default), which replays prior decisions
-> so the prefix stays byte-identical — far more stable than shown here. See §5b for the
-> reprune-on numbers (e.g. unique_bash_spam 36.7% stateless → 82.7% with reprune).
+> NOTE: these figures are the **stateless** prune (re-prune from scratch each
+> turn). The shipped default runs **reprune** (on by default), which replays
+> the prior decisions so the prefix stays byte-identical — far more stable than
+> shown here. See §5b for the reprune-on numbers (e.g. unique_bash_spam 36.7%
+> stateless → 82.7% with reprune).
 
 ## 5. Does the bill actually go down? (input-cost model)
 
@@ -191,7 +188,8 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | Corpus | Unpruned $ | default Δ | gentle Δ |
 |---|--:|--:|--:|
 | `pure_chat_floor` | $0.0201 | +0.0% | +0.0% |
-| `exempt_heavy` | $0.0762 | +0.0% | +0.0% |
+| `exempt_heavy` | $0.0763 | +0.0% | +0.0% |
+| `read_heavy` | $0.1082 | +84.2% | +0.0% |
 | `unique_bash_spam` | $0.2771 | +73.4% | +0.0% |
 | `at_the_boundary` | $0.1544 | +71.4% | +0.0% |
 | `repeated_grep` | $0.0547 | -4.4% | -17.6% |
@@ -242,16 +240,17 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | Corpus | cost (stateless → reprune) | cache-stability (stateless → reprune) |
 |---|--:|--:|
 | `pure_chat_floor` | $0.0201 → $0.0201 ↓ | 100.0% → **100.0%** |
-| `exempt_heavy` | $0.0762 → $0.0762 ↓ | 100.0% → **100.0%** |
+| `exempt_heavy` | $0.0763 → $0.0763 ↓ | 100.0% → **100.0%** |
+| `read_heavy` | $0.1993 → $0.1240 ↓ | 46.6% → **88.9%** |
 | `unique_bash_spam` | $0.4805 → $0.3182 ↓ | 36.7% → **82.7%** |
 | `at_the_boundary` | $0.2646 → $0.1837 ↓ | 39.7% → **83.4%** |
 | `repeated_grep` | $0.0523 → $0.0500 ↓ | 23.9% → **82.6%** |
 | `coding` | $0.0900 → $0.0742 ↓ | 75.0% → **87.3%** |
-| `mixed_realistic` | $0.4205 → $0.4397 ↑ | 46.2% → **82.1%** |
+| `mixed_realistic` | $0.4205 → $0.3737 ↓ | 46.2% → **81.9%** |
 | `mcp_non_playwright` | $0.2188 → $0.1705 ↓ | 60.8% → **88.9%** |
 | `long_running` | $0.1904 → $0.2325 ↑ | 84.0% → **85.2%** |
 | `resumed_session` | $0.4221 → $0.4107 ↓ | 87.4% → **90.7%** |
-| `browser_heavy` | $0.3368 → $0.3838 ↑ | 1.2% → **83.3%** |
+| `browser_heavy` | $0.3368 → $0.3621 ↑ | 1.2% → **66.7%** |
 | `giant_paste` | $0.4764 → $0.5521 ↑ | 83.3% → **83.3%** |
 | `stale_input_heavy` | $0.0362 → $0.0327 ↓ | 54.8% → **87.6%** |
 | `thinking_heavy` | $0.0453 → $0.0359 ↓ | 49.8% → **89.0%** |
@@ -307,20 +306,21 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 
 | Corpus | Body | min | median | mean | p99 | stddev | round spread |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| `pure_chat_floor` | 11.0 KB | 0.094 | 0.103 | 0.114 | 0.232 | 0.031 | 0.099–0.117 ms |
-| `exempt_heavy` | 58.6 KB | 0.588 | 0.647 | 0.688 | 1.218 | 0.137 | 0.643–0.658 ms |
-| `unique_bash_spam` | 223.6 KB | 1.742 | 1.906 | 2.028 | 3.249 | 0.369 | 1.862–1.968 ms |
-| `at_the_boundary` | 145.1 KB | 1.124 | 1.263 | 1.363 | 2.284 | 0.264 | 1.243–1.287 ms |
-| `repeated_grep` | 31.3 KB | 0.289 | 0.322 | 0.369 | 0.708 | 0.138 | 0.317–0.330 ms |
-| `coding` | 49.5 KB | 0.403 | 0.478 | 0.548 | 0.981 | 0.172 | 0.455–0.516 ms |
-| `mixed_realistic` | 364.5 KB | 1.949 | 2.333 | 2.570 | 4.089 | 0.570 | 2.123–2.800 ms |
-| `mcp_non_playwright` | 131.1 KB | 0.991 | 1.131 | 1.248 | 2.079 | 0.265 | 1.100–1.158 ms |
-| `long_running` | 135.2 KB | 1.231 | 1.397 | 1.560 | 2.754 | 0.395 | 1.328–1.457 ms |
-| `resumed_session` | 187.9 KB | 1.789 | 1.947 | 2.121 | 3.786 | 0.458 | 1.934–1.969 ms |
-| `browser_heavy` | 424.7 KB | 2.287 | 2.515 | 2.795 | 4.956 | 0.734 | 2.468–2.667 ms |
-| `giant_paste` | 509.7 KB | 2.802 | 3.193 | 3.483 | 6.170 | 0.772 | 3.136–3.362 ms |
-| `stale_input_heavy` | 15.8 KB | 0.123 | 0.135 | 0.154 | 0.322 | 0.126 | 0.131–0.149 ms |
-| `thinking_heavy` | 14.0 KB | 0.202 | 0.219 | 0.247 | 0.488 | 0.125 | 0.213–0.240 ms |
+| `pure_chat_floor` | 11.0 KB | 0.014 | 0.016 | 0.018 | 0.050 | 0.010 | 0.015–0.017 ms |
+| `exempt_heavy` | 58.8 KB | 0.109 | 0.125 | 0.143 | 0.315 | 0.070 | 0.116–0.148 ms |
+| `read_heavy` | 85.3 KB | 0.239 | 0.263 | 0.297 | 0.601 | 0.093 | 0.259–0.271 ms |
+| `unique_bash_spam` | 223.6 KB | 0.454 | 0.493 | 0.566 | 1.228 | 0.359 | 0.482–0.629 ms |
+| `at_the_boundary` | 145.1 KB | 0.269 | 0.300 | 0.335 | 0.735 | 0.133 | 0.294–0.316 ms |
+| `repeated_grep` | 31.3 KB | 0.137 | 0.151 | 0.170 | 0.360 | 0.057 | 0.147–0.160 ms |
+| `coding` | 49.5 KB | 0.222 | 0.245 | 0.278 | 0.578 | 0.123 | 0.241–0.263 ms |
+| `mixed_realistic` | 364.5 KB | 0.908 | 1.002 | 1.127 | 2.176 | 0.290 | 0.961–1.314 ms |
+| `mcp_non_playwright` | 131.1 KB | 0.292 | 0.324 | 0.364 | 0.720 | 0.129 | 0.318–0.344 ms |
+| `long_running` | 135.2 KB | 0.390 | 0.416 | 0.458 | 0.894 | 0.165 | 0.412–0.436 ms |
+| `resumed_session` | 187.9 KB | 0.749 | 0.813 | 0.885 | 1.646 | 0.206 | 0.806–0.832 ms |
+| `browser_heavy` | 424.7 KB | 0.727 | 0.811 | 0.925 | 1.804 | 0.256 | 0.767–1.054 ms |
+| `giant_paste` | 509.7 KB | 0.853 | 0.974 | 1.092 | 2.127 | 0.399 | 0.923–1.274 ms |
+| `stale_input_heavy` | 15.8 KB | 0.063 | 0.073 | 0.082 | 0.177 | 0.104 | 0.067–0.083 ms |
+| `thinking_heavy` | 14.0 KB | 0.069 | 0.081 | 0.096 | 0.226 | 0.094 | 0.075–0.099 ms |
 
 > Milliseconds for the whole transform (parse → prune → re-serialize), 5
 > rounds × {2000 | 200 for the big body} iterations after warm-up. Off the
