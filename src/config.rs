@@ -185,8 +185,10 @@ pub struct SystemShapeNormalizeConfig {
 #[serde(default)]
 pub struct CrossTurnDedupConfig {
     pub enabled: bool,
-    /// Tool-name patterns never deduped (supports `*`). Empty by default —
-    /// superseding a stale duplicate result is safe for any tool.
+    /// Tool-name patterns never deduped (supports `*`). Defaults to the subagent
+    /// tools (`Task`/`Agent`) so their results (findings / blocker lists) are never
+    /// deduped — matching the profiles and the sibling strategies. Superseding a
+    /// stale duplicate result is otherwise safe for any tool.
     pub exempt_tools: Vec<String>,
     /// Replacement for an earlier identical `tool_result.content`.
     pub stub: String,

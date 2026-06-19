@@ -89,7 +89,7 @@ a marker. Safe: only provably-superseded duplicates are removed.
 ```toml
 [strategies.cross_turn_dedup]
 enabled = true
-# exempt_tools = []   # tools never deduped (default: none)
+# exempt_tools = ["Task", "Agent"]   # tools never deduped (default: subagent tools)
 # stub = "[trimwire: superseded by a later identical call]"
 ```
 
