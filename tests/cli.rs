@@ -877,3 +877,230 @@ fn summarizer_status_reports_model_free_on_fresh_config() {
         "fresh config = model-free; got: {s}"
     );
 }
+
+// ── P2 batch 3: recall / preview / dashboard / statusline-wrap / fallback ─────
+
+/// `trimwire recall` degrades gracefully with no ledger: `--json` reports
+/// availability=false (ledger disabled), and the human path on a fresh HOME says
+/// the ledger isn't created yet. Offline — no network, no model.
+#[test]
+fn recall_degrades_gracefully_without_a_ledger() {
+    let dir = tempfile::tempdir().unwrap();
+    // JSON, ledger explicitly disabled → available:false.
+    let j = Command::new(bin())
+        .args(["recall", "--json"])
+        .env("HOME", dir.path())
+        .env("TRIMWIRE_LEDGER__ENABLED", "false")
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn recall --json");
+    assert!(j.status.success(), "recall --json exits 0");
+    let v: serde_json::Value = serde_json::from_slice(&j.stdout).expect("valid json");
+    assert_eq!(v["available"], false, "no ledger → available:false");
+
+    // Human path, fresh HOME (default config, no ledger db yet).
+    let h = Command::new(bin())
+        .args(["recall"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn recall");
+    assert!(h.status.success(), "recall exits 0 on a fresh HOME");
+    let s = String::from_utf8_lossy(&h.stdout);
+    assert!(
+        s.contains("ledger") && (s.contains("not yet created") || s.contains("disabled")),
+        "friendly no-ledger message; got: {s}"
+    );
+}
+
+/// `trimwire preview <path> --json` reconstructs a session transcript and emits
+/// valid estimate JSON. Reads the explicit `.jsonl` path (no ledger, no network).
+#[test]
+fn preview_json_reconstructs_a_temp_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let sess = dir.path().join("s.jsonl");
+    let body = concat!(
+        "{\"type\":\"user\",\"uuid\":\"u1\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}\n",
+        "{\"type\":\"assistant\",\"uuid\":\"a1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}\n",
+    );
+    fs::write(&sess, body).unwrap();
+
+    let out = Command::new(bin())
+        .args(["preview"])
+        .arg(&sess)
+        .arg("--json")
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn preview --json");
+    assert!(
+        out.status.success(),
+        "preview --json exits 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid json");
+    assert_eq!(v["messages"], 2, "two reconstructed turns");
+    assert!(
+        v.get("in_bytes").is_some() && v.get("out_bytes").is_some(),
+        "estimate fields present"
+    );
+}
+
+/// `trimwire dashboard --out <file>` degrades gracefully with no ledger data:
+/// it prints a friendly "nothing to report" and exits 0 without writing the file
+/// (the HTML-write path needs a populated ledger, out of cheap-offline scope).
+#[test]
+fn dashboard_degrades_gracefully_without_a_ledger() {
+    let dir = tempfile::tempdir().unwrap();
+    let html = dir.path().join("report.html");
+    let out = Command::new(bin())
+        .args(["dashboard", "--out"])
+        .arg(&html)
+        .env("HOME", dir.path())
+        .env("TRIMWIRE_LEDGER__ENABLED", "false")
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn dashboard --out");
+    assert!(out.status.success(), "dashboard exits 0 with no ledger");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.contains("nothing to report") || s.contains("disabled"),
+        "friendly no-data message; got: {s}"
+    );
+    assert!(
+        !html.exists(),
+        "no HTML written when there's nothing to report"
+    );
+}
+
+/// `trimwire statusline wrap` over a PRE-EXISTING (non-trimwire) statusLine must
+/// preserve the original (wrap it, not clobber it), and `remove` must restore the
+/// original losslessly. Pins wrap-over-existing + round-trip. File-only.
+#[test]
+fn statusline_wrap_preserves_existing_then_remove_restores() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    let settings = dir.path().join(".claude/settings.json");
+    // A pre-existing, NON-trimwire statusLine the user already has.
+    fs::write(
+        &settings,
+        "{\"statusLine\":{\"type\":\"command\",\"command\":\"my-custom-bar\"}}",
+    )
+    .unwrap();
+    let run = |a: &str| {
+        Command::new(bin())
+            .args(["statusline", a])
+            .env("HOME", dir.path())
+            .env_remove("XDG_CONFIG_HOME")
+            .output()
+            .expect("spawn statusline")
+    };
+
+    let w = run("wrap");
+    assert!(
+        w.status.success(),
+        "statusline wrap ok: {}",
+        String::from_utf8_lossy(&w.stderr)
+    );
+    let wrapped = fs::read_to_string(&settings).unwrap();
+    assert!(
+        wrapped.contains("trimwire") && wrapped.contains("--wrap-file"),
+        "wrap wires trimwire as a wrapper; got: {wrapped}"
+    );
+
+    // remove must restore the ORIGINAL command losslessly.
+    let r = run("remove");
+    assert!(r.status.success(), "statusline remove ok");
+    let restored = fs::read_to_string(&settings).unwrap();
+    assert!(
+        restored.contains("my-custom-bar"),
+        "remove restores the original statusLine; got: {restored}"
+    );
+    assert!(
+        !restored.contains("trimwire"),
+        "remove unwires trimwire; got: {restored}"
+    );
+}
+
+/// `summarizer setup` multi-engine chain: API provider as PRIMARY + local as
+/// FALLBACK, against the fake ollama (no real model/network/key). Asserts the
+/// fallback chain, both engine blocks, the env-var NAME (no key), and preserved
+/// config. The deferred multi-engine wizard coverage.
+#[test]
+fn summarizer_setup_api_primary_with_local_fallback() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let fake = FakeOllama::start(&["qwen3.5:4b"]);
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join(".config/trimwire.toml");
+    fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+    fs::write(&cfg_path, "[server]\nlisten = \"127.0.0.1:9999\"\n").unwrap();
+
+    let mut child = Command::new(bin())
+        .args(["summarizer", "setup"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env("TRIMWIRE_OLLAMA_ENDPOINT", fake.endpoint())
+        .env_remove("TESTPROV_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn summarizer setup");
+    // Items at the primary picker: 1) qwen3.5:4b (fake local). We:
+    //   a            → add an API provider
+    //   testprov / anthropic / "" / test-model / TESTPROV_KEY / y  → provider fields
+    //   2            → pick the provider (now item 2) as PRIMARY
+    //   y            → add a fallback
+    //   1            → pick the local model as the fallback
+    //   "" / ""      → local endpoint default (the fake) / model default (qwen3.5:4b)
+    //   n            → no more fallbacks
+    //   y            → write
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"a\ntestprov\nanthropic\n\ntest-model\nTESTPROV_KEY\ny\n2\ny\n1\n\n\nn\ny\n")
+        .unwrap();
+    let out = child.wait_with_output().expect("wait");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        out.status.success(),
+        "api+local setup should succeed; got: {all}"
+    );
+
+    let cfg = fs::read_to_string(&cfg_path).expect("config written");
+    assert!(
+        cfg.contains("engine = \"testprov\""),
+        "primary engine = provider id; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("fallback = [\"local\"]"),
+        "fallback chain = [local]; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("[[summarizer.providers]]") && cfg.contains("\"test-model\""),
+        "provider block written; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("[summarizer.local]") && cfg.contains("qwen3.5:4b"),
+        "local fallback block written; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("api_key_env") && cfg.contains("\"TESTPROV_KEY\""),
+        "stores the env-var NAME; got:\n{cfg}"
+    );
+    assert!(
+        !cfg.to_lowercase().contains("sk-"),
+        "no key VALUE stored; got:\n{cfg}"
+    );
+    assert!(
+        cfg.contains("listen = \"127.0.0.1:9999\""),
+        "unrelated [server] preserved; got:\n{cfg}"
+    );
+}
