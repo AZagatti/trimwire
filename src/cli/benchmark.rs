@@ -1557,4 +1557,91 @@ mod tests {
             std::env::remove_var("BENCH_ERROR_KEY");
         }
     }
+
+    // ── dry-run upload gate: `share benchmark` without --yes is upload-free ───────
+    //
+    // `run_share` is the upload side of `trimwire share benchmark`. The "dry-run is
+    // model-free" claim has two halves:
+    //   (1) no model/API call without `--yes` — the `api_safety_warning` gate
+    //       (tested above). NOTE the precise scope: that gate only covers an API
+    //       PROVIDER. A LOCAL ollama tag is ALWAYS scored live via `run_model`
+    //       (there is no dry-run on the local branch), so the model-free guarantee
+    //       holds specifically for `--model <provider-id>` without `--yes`.
+    //   (2) no network UPLOAD without `--yes` — covered by the tests below, which
+    //       hold regardless of backend.
+    // We prove (2) with a differential against a closed endpoint: identical inputs,
+    // only `yes` flips, and only `yes=true` ever touches the socket. (`post()` is the
+    // sole network call in run_share, reached only after the `!yes` early-return.)
+
+    /// A 127.0.0.1 port with nothing listening: bind `:0` to claim a free port, then
+    /// drop the listener so the port is closed again. A connect attempt is then
+    /// refused immediately (fast — unlike port 0, which stalls). Standard
+    /// recently-freed-port pattern; the reuse window is a negligible flake risk.
+    fn closed_endpoint() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+        let port = listener.local_addr().expect("local_addr").port();
+        drop(listener);
+        format!("http://127.0.0.1:{port}")
+    }
+
+    /// A clean LOCAL benchmark row that `is_uploadable_row` accepts — i.e. one that
+    /// WOULD be uploaded with `--yes`. Built exactly like the uploadable fixture in
+    /// `is_uploadable_row_rejects_dry_run_and_failures`.
+    fn clean_local_row() -> ModelScore {
+        let s = slice("s1", false, &["alpha"], "alpha beta gamma delta epsilon");
+        aggregate(
+            "qwen3.5:4b".into(),
+            "local",
+            vec![score_summary(&s, "alpha")],
+        )
+    }
+
+    #[test]
+    fn run_share_without_yes_does_not_upload() {
+        let row = clean_local_row();
+        // Non-vacuous pre-condition: with `--yes` this row WOULD be uploaded, so the
+        // only thing preventing the POST below is the missing `--yes`.
+        assert!(is_uploadable_row(&row), "fixture must be an uploadable row");
+        // Dry run against a closed endpoint: had it tried to POST, post() would get
+        // connection-refused and return Err. Ok ⇒ no socket was ever touched.
+        let r = run_share(&[row], /* yes = */ false, &closed_endpoint());
+        assert!(
+            r.is_ok(),
+            "dry-run `share benchmark` must be inert (no upload) and return Ok: {r:?}"
+        );
+    }
+
+    #[test]
+    fn run_share_with_yes_attempts_upload() {
+        // Positive control / differential vs the test above: SAME uploadable row, SAME
+        // closed endpoint, only `yes` flips to true. Now post() IS reached, so the
+        // connect to the closed port fails ⇒ Err. This proves the Ok in the dry-run
+        // test is the `!yes` gate firing — not a no-op that would never upload anyway.
+        let row = clean_local_row();
+        let r = run_share(&[row], /* yes = */ true, &closed_endpoint());
+        assert!(
+            r.is_err(),
+            "with --yes, run_share must reach post() and fail against a closed endpoint"
+        );
+    }
+
+    #[test]
+    fn run_share_with_only_dry_run_rows_uploads_nothing() {
+        // An API provider scored WITHOUT --yes yields an `api-dry-run` placeholder (no
+        // API call was made). When that placeholder is the only result, run_share must
+        // produce ZERO upload bodies — so even with `yes=true` it never reaches post():
+        // it returns Ok ("nothing to share") instead of connecting. (This is the
+        // `share benchmark` upload path; `summarizer benchmark` never calls run_share
+        // at all — it only renders the dry-run row — so it has no upload to gate.)
+        let dry = aggregate("my-provider (DRY RUN)".into(), "api-dry-run", vec![]);
+        assert!(
+            !is_uploadable_row(&dry),
+            "an api-dry-run placeholder is never uploadable"
+        );
+        let r = run_share(&[dry], /* yes = */ true, &closed_endpoint());
+        assert!(
+            r.is_ok(),
+            "a dry-run-only result has no bodies to upload ⇒ no network ⇒ Ok: {r:?}"
+        );
+    }
 }
