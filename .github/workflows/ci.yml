@@ -24,7 +24,11 @@ env:
 jobs:
   check:
     name: fmt + clippy + test
-    runs-on: ubuntu-latest
+    # EXPERIMENT: ARM64 runners are free for public repos and benchmark faster
+    # per-core than the x86 ubuntu-latest. Only the critical path moves here; the
+    # job name (a required status check) is unchanged. Revert if the warm-cache
+    # wall-clock isn't a clear, repeatable win.
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
