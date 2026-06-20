@@ -973,6 +973,124 @@ fn dashboard_degrades_gracefully_without_a_ledger() {
     );
 }
 
+/// `trimwire dashboard --out <file>` against a POPULATED ledger writes the
+/// self-contained HTML: it runs the ledger report + session queries, embeds the
+/// content-free payload, and writes the file. Seeds a real on-disk ledger via the
+/// public `Ledger::open`/`record` API (the same write path the gateway uses), then
+/// drives the binary as a subprocess pointed at it. Complements
+/// `dashboard_degrades_gracefully_without_a_ledger` (which covers the empty path).
+/// Offline — no network, no model, no live call.
+#[test]
+fn dashboard_writes_html_from_a_populated_ledger() {
+    use trimwire::ledger::{Ledger, Record};
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("ledger.db");
+    let db_str = db.to_str().unwrap().to_owned();
+    let session_id = "dash-smoke-sess-7f3a";
+
+    // One representative request row (content-free metadata only — byte counts,
+    // hashes, timings, model name; never message text).
+    let rec = |ts: i64, in_b: i64, out_b: i64| Record {
+        ts,
+        session_id: Some(session_id.to_owned()),
+        model: Some("claude-sonnet-4-6".to_owned()),
+        in_bytes: in_b,
+        out_bytes: out_b,
+        strategies: "bloat_cap".to_owned(),
+        strategy_bytes: format!("bloat_cap:{}", in_b - out_b),
+        prefix_hash_in: "hashin".to_owned(),
+        prefix_hash_out: "hashout".to_owned(),
+        ttft_us: 12_000,
+        input_tokens: 100,
+        cache_read_input_tokens: 40,
+        cache_creation_input_tokens: 10,
+        output_tokens: 25,
+        applied_edits_cleared_thinking_turns: 0,
+        applied_edits_cleared_tool_uses: 0,
+        applied_edits_cleared_input_tokens: 0,
+    };
+
+    // Seed two rows through the REAL recorder (fire-and-forget on the tokio
+    // blocking pool — `record` needs a runtime context). Use `now` timestamps so
+    // open-time pruning (retain_days) never drops them.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let ledger = Ledger::open(&db_str, 365);
+        ledger.record(rec(now, 1000, 400));
+        ledger.record(rec(now, 1000, 400));
+    });
+    // The inserts run on the blocking pool; WAL + per-statement autocommit means a
+    // fresh read-only connection sees them once committed. Poll the read side
+    // (kept inside the runtime's lifetime) until both rows land — deterministic,
+    // with a generous timeout instead of a fixed sleep.
+    let mut total = 0;
+    for _ in 0..100 {
+        total = Ledger::report(&db_str)
+            .map(|r| r.total_requests)
+            .unwrap_or(0);
+        if total >= 2 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(
+        total, 2,
+        "seed must land 2 request rows before the smoke runs"
+    );
+    drop(rt);
+
+    // Drive the binary against the seeded ledger.
+    let html = dir.path().join("report.html");
+    let out = Command::new(bin())
+        .args(["dashboard", "--out"])
+        .arg(&html)
+        .current_dir(dir.path())
+        .env("HOME", dir.path())
+        .env("TRIMWIRE_LEDGER__ENABLED", "true")
+        .env("TRIMWIRE_LEDGER__DB_PATH", &db_str)
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn dashboard --out");
+    assert!(
+        out.status.success(),
+        "dashboard exits 0 with a populated ledger; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // The HTML file must be written and be the fully-spliced dashboard, carrying a
+    // value DERIVED from the seeded ledger (so this can't pass on the empty path).
+    assert!(
+        html.exists(),
+        "HTML file written for the populated-ledger path"
+    );
+    let body = fs::read_to_string(&html).expect("read written html");
+    assert!(
+        !body.contains("__TRIMWIRE_DATA__"),
+        "data token must be replaced (template was spliced)"
+    );
+    assert!(
+        body.contains("const DATA ="),
+        "renders into the dashboard DATA literal"
+    );
+    assert!(
+        body.contains("\"total_requests\":2"),
+        "report aggregated from the 2 seeded rows is embedded"
+    );
+    assert!(
+        body.contains(session_id),
+        "the seeded session row is embedded in the dashboard"
+    );
+}
+
 /// `trimwire statusline wrap` over a PRE-EXISTING (non-trimwire) statusLine must
 /// preserve the original (wrap it, not clobber it), and `remove` must restore the
 /// original losslessly. Pins wrap-over-existing + round-trip. File-only.
