@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.7](https://github.com/AZagatti/trimwire/compare/v0.3.6...v0.3.7) - 2026-06-20
+
+### Other
+
+- *(ci)* line-tables-only debug info for dev/test profiles ([#51](https://github.com/AZagatti/trimwire/pull/51))
+- *(benchmark)* cover share-benchmark dry-run upload gate (model-free) ([#48](https://github.com/AZagatti/trimwire/pull/48))
+
 ## [0.3.6](https://github.com/AZagatti/trimwire/compare/v0.3.5...v0.3.6) - 2026-06-20
 
 ### Other
