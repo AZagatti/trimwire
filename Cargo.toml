@@ -104,10 +104,17 @@ codegen-units = 1
 
 [profile.dev]
 opt-level = 0
-debug = true
+# Line tables only: keep file+line numbers in panic/backtrace output (the only
+# debug info CI and `RUST_BACKTRACE` actually use) but skip the full DWARF
+# variable/type info. Cheaper to emit and link; nothing here is run under a
+# step debugger. Use `debug = true` locally if you need variable inspection.
+debug = "line-tables-only"
 
 # Tests do real CPU work (the benchmark replays + the 3,000-body fuzz), so build
 # them optimized — the dependency graph is unaffected, only the test/bench code
 # is compiled hotter, which cuts the suite's wall time noticeably.
 [profile.test]
 opt-level = 2
+# Same line-tables-only trade-off as [profile.dev] (test inherits dev, but set
+# it explicitly so the intent survives a future dev-profile change).
+debug = "line-tables-only"
