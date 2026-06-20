@@ -117,7 +117,12 @@ fn time_apply(body: &[u8], cfg: &trimwire::config::Config, rounds: u32, iters: u
 
 // ---- report ---------------------------------------------------------------
 
-fn report() {
+/// Full human report. `with_timing == false` (the `--ci-drift` mode) emits the
+/// same deterministic sections 0–6b but SKIPS the expensive `## 7. Gateway
+/// overhead` micro-timing loops (~150k `apply_to_body` calls, ~36s, host-
+/// dependent and intentionally dropped by `scripts/bench-drift-check.sh`). The
+/// §7 header is still printed so the drift script's normalization boundary holds.
+fn report(with_timing: bool) {
     let def = default_install_config();
     let gentle = tuned_config();
     let corpora = all_corpora();
@@ -485,7 +490,19 @@ fn report() {
     );
 
     // ---- Section 7: overhead ----
+    // The header is ALWAYS printed so `scripts/bench-drift-check.sh` can normalize
+    // "## 7. Gateway overhead" → EOF on both sides. The timing TABLE below is
+    // host-dependent (dropped by the drift diff) and the only expensive part of
+    // this binary, so `--ci-drift` skips it.
     println!("## 7. Gateway overhead — `apply_to_body` per request (statistical)\n");
+    if !with_timing {
+        println!(
+            "> _Per-request timing omitted in `--ci-drift` mode — it is host-dependent\n\
+             > and excluded from the drift diff anyway. Run `cargo run --release\n\
+             > --example bench` for the full timing table._\n"
+        );
+        return;
+    }
     println!("| Corpus | Body | min | median | mean | p99 | stddev | round spread |");
     println!("|---|--:|--:|--:|--:|--:|--:|--:|");
     for c in &corpora {
@@ -570,6 +587,9 @@ fn main() {
                 .unwrap_or_else(|| "benchmark/fixtures".to_owned()),
         ),
         Some("--spike") => spike(),
-        _ => report(),
+        // CI drift mode: deterministic sections only, no §7 timing loops (the
+        // drift guard drops §7 anyway). Keeps the full report for humans/RESULTS.md.
+        Some("--ci-drift") => report(false),
+        _ => report(true),
     }
 }

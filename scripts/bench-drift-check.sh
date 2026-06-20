@@ -20,10 +20,19 @@ COMMITTED="$ROOT/benchmark/results/RESULTS.md"
 FRESH="$(mktemp)"
 trap 'rm -f "$FRESH"' EXIT
 
-echo "[bench-drift] regenerating bench (offline, deterministic)…"
-( cd "$ROOT" && cargo run --release --quiet --example bench ) > "$FRESH"
+echo "[bench-drift] regenerating bench (offline, deterministic; --ci-drift skips §7 timing)…"
+# Run the example in --ci-drift mode: it emits the same deterministic sections
+# (0–6b) but SKIPS the expensive `## 7. Gateway overhead` micro-timing loops the
+# diff drops anyway (~36s saved). Prefer the PRE-BUILT binary (CI builds it in the
+# release-build step) to avoid ~1s of `cargo run` freshness overhead; build it
+# only if missing (standalone/local use).
+BIN="$ROOT/target/release/examples/bench"
+[ -x "$BIN" ] || ( cd "$ROOT" && cargo build --release --quiet --example bench )
+"$BIN" --ci-drift > "$FRESH"
 
 # Drop the host-dependent timing section (§7 → EOF) from both sides before diff.
+# --ci-drift output stops at the §7 header (no table), but the committed
+# RESULTS.md keeps the full §7 timing table, so normalize BOTH sides here.
 norm() { sed '/^## 7\. Gateway overhead/,$d' "$1"; }
 
 if diff <(norm "$COMMITTED") <(norm "$FRESH") > /tmp/bench_drift.diff 2>&1; then
