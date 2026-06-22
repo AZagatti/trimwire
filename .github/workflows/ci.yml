@@ -29,6 +29,7 @@ jobs:
     # job name (a required status check) is unchanged. Revert if the warm-cache
     # wall-clock isn't a clear, repeatable win.
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -81,7 +82,7 @@ jobs:
 
       - name: actionlint (workflow lint)
         run: |
-          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash)
           ./actionlint
 
       - name: shellcheck installer scripts
@@ -106,12 +107,13 @@ jobs:
   msrv:
     name: MSRV (1.85)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       # Actually build on the advertised minimum so the rust-version claim
       # (and edition 2024's floor) can't silently drift on a dep bump.
       - uses: dtolnay/rust-toolchain@c93f4f9c67595668add93d3d6895795ce52d8c2d # 1.85.0
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      # No rust-cache here: the MSRV build must be COLD so a dep that quietly raised its real MSRV can't pass on a stale cached build-script artifact (audit P1-3).
       - run: cargo build --locked
       # Compile + run the tests on the floor too: a dep or test-only construct
       # that needs a newer rustc must fail here, not at a user's `cargo test`.
@@ -122,6 +124,7 @@ jobs:
   audit:
     name: cargo-deny + cargo-audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
@@ -140,6 +143,7 @@ jobs:
   parity:
     name: Python parity oracle
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
@@ -160,6 +164,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable

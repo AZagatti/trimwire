@@ -31,6 +31,7 @@ jobs:
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: write
       pull-requests: read
@@ -42,17 +43,26 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - name: Require RELEASE_PLZ_TOKEN
+        env:
+          PAT: ${{ secrets.RELEASE_PLZ_TOKEN }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "::error::RELEASE_PLZ_TOKEN (PAT) is not set. A release created with the default GITHUB_TOKEN does not trigger release.yml, so no binaries would attach. Refusing to publish a binary-less release." >&2
+            exit 1
+          fi
       - name: Run release-plz
         uses: release-plz/action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5
         with:
           command: release
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: write
       pull-requests: write
@@ -72,5 +82,6 @@ jobs:
         with:
           command: release-pr
         env:
+          # Opening a release PR with GITHUB_TOKEN is harmless; only the publish step (release-plz-release) needs the PAT.
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
