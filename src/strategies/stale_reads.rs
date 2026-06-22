@@ -315,8 +315,13 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &StaleReadsConfig) -> R
                 if content_len <= cfg.page_min_bytes {
                     continue;
                 }
+                // Report the RAW content byte count in the marker, not the serialized
+                // length (which adds the 2 JSON-string quote bytes). The gate above
+                // intentionally compares the serialized length; the human-/model-facing
+                // marker should state the actual file-content size (audit P3-3).
+                let raw_len = content.as_str().map(str::len).unwrap_or(content_len);
                 let marker = Value::String(format!(
-                    "[trimwire: paged out — Read {path} ({content_len} bytes); re-read the file to restore]"
+                    "[trimwire: paged out — Read {path} ({raw_len} bytes); re-read the file to restore]"
                 ));
                 let marker_len = serde_json::to_string(&marker)
                     .map(|s| s.len())

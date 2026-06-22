@@ -26,10 +26,10 @@
 //!   `stream` otherwise. A counting body adapter in `proxy_stream` would
 //!   give true bytes-out for SSE responses; left out of Step 1 so the
 //!   forwarding path stays zero-copy.
-//! - Handler-failure error response is plain-text 502; SPIKE §6 spec is
-//!   an Anthropic-shaped JSON envelope (`{"type":"error","error":{...}}`).
-//!   Step 5 (ledger) is a natural place to align this when the error
-//!   surface stabilises.
+//! - Handler-failure error response is an Anthropic-shaped JSON envelope
+//!   (`{"type":"error","error":{...}}`, SPIKE §6) via `anthropic_error`; the
+//!   client message is detail-free and the full error chain goes to stderr
+//!   (see `error_response`).
 //! - `ctrl-c` shutdown is immediate; in-flight requests are dropped. A
 //!   graceful-drain path (let active connections complete with a small
 //!   deadline) would be polite for `trimwire run` exit.
@@ -322,6 +322,19 @@ async fn handle(
                     config.reprune.max_sessions,
                     config.reprune.ttl_secs,
                 );
+                // NOTE (audit P2-7): this holds the DashMap shard write-lock across the
+                // synchronous prune, so a concurrent request on the SAME shard (a
+                // different session that hash-collides) waits. The audit's suggested
+                // "clone the state out, prune, write back" is NOT a fix here: PruneState
+                // owns `checkpoint_prefix` (the full original message prefix, often MBs —
+                // see reprune.rs), so cloning per request costs more than the ~62µs
+                // stable-turn lock-hold it would replace. The correct fix is a
+                // per-session lock (`DashMap<_, Arc<Mutex<PruneState>>>`) so only
+                // same-session turns serialize — a focused concurrency change (touches
+                // the summarizer-replay path + evict_stale idle tracking) deferred to its
+                // own PR with a concurrency stress test. Same-session turns are
+                // sequential in practice, so today's contention is a narrow tail-latency
+                // case, never a correctness issue (reprune is self-correcting).
                 let mut st = reprune_cache
                     .entry(reprune_key(sid, model.as_deref()))
                     .or_default();

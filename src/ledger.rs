@@ -525,10 +525,14 @@ pub fn prefix_hash_and_model(body: &[u8]) -> (String, Option<String>) {
         }
         _ => Value::Object(serde_json::Map::new()),
     };
-    // Serializing a `Value` that was just parsed by serde_json cannot fail
-    // (no non-string keys, no custom serializer). `expect` over a silent empty
-    // fallback so a regression can never make a busted prefix look "stable".
-    let serialized = serde_json::to_vec(&prefix).expect("serialize JSON prefix");
+    // Serializing a `Value` that was just parsed by serde_json cannot fail (no
+    // non-string keys, no custom serializer). Use a content-derived fallback
+    // instead of `expect` so a future refactor can't panic a connection task in
+    // the hot path (audit P3-5) — while preserving the original invariant: the
+    // fallback is the prefix's Debug bytes, which stay DISTINCT per prefix, so a
+    // busted prefix can never hash equal to a different one and look "stable".
+    let serialized =
+        serde_json::to_vec(&prefix).unwrap_or_else(|_| format!("{prefix:?}").into_bytes());
     (hex::encode(Sha256::digest(&serialized)), model)
 }
 
