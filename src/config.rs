@@ -1034,6 +1034,8 @@ impl Config {
         // `;`, `|`, `$`, backticks, `${IFS}`, or a newline to append extra `export`/unit
         // lines). Whitespace/control chars are excluded by the allowlist too. Fall back to
         // the trusted value (global config / `TRIMWIRE_*` env), then the built-in default.
+        // (`/` is intentionally NOT allowed: callers add the `http://` scheme prefix AFTER
+        // this validation, so a valid host:port never needs a slash.)
         let is_unsafe_listen = |s: &str| {
             s.is_empty()
                 || s.chars().any(|c| {
@@ -1938,6 +1940,8 @@ fallback = ["ghost-provider"]
             "127.0.0.1:8765`reboot`",
             "127.0.0.1:8765$(id)",
             "127.0.0.1:8765&whoami",
+            // single-quote: the char that would break OUT of the rc export's quoting
+            "127.0.0.1:8765'evil'",
         ] {
             figment::Jail::expect_with(|jail| {
                 jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
@@ -1979,6 +1983,36 @@ fallback = ["ghost-provider"]
                 Ok(())
             });
         }
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // figment::Jail's closure dictates the Result type
+    fn load_revalidates_hostile_trusted_env_listen() {
+        // The fallback target (trusted global/env tier) is re-validated too: a hostile
+        // TRIMWIRE_SERVER__LISTEN must NOT become the "safe" fallback — it drops to the
+        // built-in default. But a VALID env listen IS honored over a hostile project one.
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
+            jail.set_env("TRIMWIRE_SERVER__LISTEN", "127.0.0.1:9999;evil");
+            jail.create_file(".trimwire.toml", "[server]\nlisten = \"0.0.0.0:1$(x)\"\n")?;
+            let cfg = Config::load().expect("load");
+            assert_eq!(
+                cfg.server.listen, "127.0.0.1:8765",
+                "hostile env fallback must drop to the built-in default, not the hostile env value"
+            );
+            Ok(())
+        });
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
+            jail.set_env("TRIMWIRE_SERVER__LISTEN", "127.0.0.1:9000");
+            jail.create_file(".trimwire.toml", "[server]\nlisten = \"0.0.0.0:1$(x)\"\n")?;
+            let cfg = Config::load().expect("load");
+            assert_eq!(
+                cfg.server.listen, "127.0.0.1:9000",
+                "a valid trusted env listen is honored over a hostile project value"
+            );
+            Ok(())
+        });
     }
 
     #[test]
