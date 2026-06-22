@@ -57,12 +57,15 @@ trust + atomicity design, which is an owner decision.
   published `.sha256`, atomic-swap, restart the service, health-check + rollback.
   *Bounded, no new infra.* Caveat: checksum-only integrity (same-origin) — no
   defense against a compromised release. Acceptable only with an explicit
-  in-help caveat and pinned HTTPS to `github.com`.
-- **(B) Signed updater** — add release **signing** (minisign or cosign /
-  GitHub artifact attestations) to `release.yml`, pin the public key in the
-  binary, and have `update` verify the signature before swap. *Strongest;* the
-  right bar for a security tool. Cost: signing key management + release-workflow
-  changes.
+  in-help caveat and HTTPS via the system trust store to `github.com` (ordinary
+  CA validation — *not* certificate pinning).
+- **(B) Signed updater** — add release **signing** to `release.yml`, and have
+  `update` verify before the swap. Lowest-friction path: **GitHub artifact
+  attestations** (`actions/attest-build-provenance` + `gh attestation verify`) —
+  no external key to manage, free on public repos, and reaches SLSA Build L2.
+  Alternatively minisign/cosign with a public key pinned in the binary (more
+  control, but you own the key lifecycle). *Strongest;* the right bar for a tool
+  that sits in the request path with the user's credential.
 - **(C) Status quo** — keep documenting the manual/`curl|sh`/`binstall` paths
   (done in this PR), defer a built-in updater.
 
