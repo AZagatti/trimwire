@@ -287,7 +287,7 @@ ones win (about **−55%** at 256 turns in our cost-model benchmark; exact figur
 Overhead is roughly **sub-2 ms** per request (host-dependent), off the network path.
 
 Numbers are reproducible (`cargo run --release --example bench`) and least
-reliable for token/cost estimates (~4 bytes/token). The full 14-corpus tables,
+reliable for token/cost estimates (~4 bytes/token). The full 15-corpus tables,
 per-strategy attribution, profiles, cache-stability, and the cost model live in
 [`benchmark/`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md).
 For figures from *your* traffic, run `trimwire stats`.

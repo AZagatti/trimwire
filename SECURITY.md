@@ -27,9 +27,12 @@ You should expect:
 
 ## Security model
 
-> A user-facing version of this section is published at
-> [trimwire.dev/guides/security-model](https://trimwire.dev/guides/security-model/).
-> The text below is the canonical source.
+> The polished, user-facing version of the security model is published at
+> [trimwire.dev/guides/security-model](https://trimwire.dev/guides/security-model/)
+> (source: [`docs/SECURITY-MODEL.md`](docs/SECURITY-MODEL.md)). This file is the
+> repo's security **policy** (supported versions + how to report a vulnerability)
+> plus a condensed threat-model summary below; if the two ever differ on a
+> detail, `docs/SECURITY-MODEL.md` is the one that ships to users.
 
 trimwire is a **local forwarding gateway** — plain HTTP on `127.0.0.1`,
 forwarding to Anthropic over HTTPS. It runs on `127.0.0.1` only; it does not

@@ -10,8 +10,10 @@ _Last updated: 2026-06-11._
 ## The trimwire tool
 
 trimwire is a local proxy. Your Claude Code (or other harness) traffic passes
-through it on your own machine, on its way to your model provider on **your own
-API key**.
+through it on your own machine, on its way to Anthropic using **your own
+credential — whatever Claude Code already sends** (an API key, or a Pro/Max
+subscription OAuth token). trimwire forwards that credential unchanged; it never
+substitutes or originates its own.
 
 - It reads each request **only to prune it in memory** before forwarding it, then
   discards it. It does **not** store your prompts, code, file contents, file
