@@ -276,7 +276,7 @@ pub fn doctor() -> Result<()> {
                         "{} ANTHROPIC_BASE_URL not set in THIS shell — Claude Code launched here \
                          won't route through trimwire (install adds it to new shells; an IDE/app \
                          may need it set separately)\n  → to fix this shell: \
-                         export ANTHROPIC_BASE_URL=http://{addr}",
+                         export ANTHROPIC_BASE_URL='http://{addr}'",
                         render::warn()
                     );
                 }

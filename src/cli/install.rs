@@ -485,7 +485,7 @@ fn rc_block(base_url: &str) -> String {
          # ANTHROPIC_BASE_URL routes Claude Code through the local trimwire gateway.\n\
          # ENABLE_TOOL_SEARCH re-enables Claude Code's web search, which it disables\n\
          # whenever ANTHROPIC_BASE_URL is set (see docs/FAQ.md).\n\
-         export ANTHROPIC_BASE_URL={base_url}\nexport ENABLE_TOOL_SEARCH=true\n{RC_MARKER_END}\n"
+         export ANTHROPIC_BASE_URL='{base_url}'\nexport ENABLE_TOOL_SEARCH=true\n{RC_MARKER_END}\n"
     )
 }
 
@@ -532,7 +532,9 @@ mod tests {
             "preserves existing lines"
         );
         assert!(updated.contains(RC_MARKER_START) && updated.contains(RC_MARKER_END));
-        assert!(updated.contains("ANTHROPIC_BASE_URL=http://127.0.0.1:8765"));
+        // Value is single-quoted so a hostile (but already charset-sanitized) value
+        // can never be reinterpreted by the shell (defense-in-depth for P1-1).
+        assert!(updated.contains("ANTHROPIC_BASE_URL='http://127.0.0.1:8765'"));
         // Re-running is a no-op.
         assert!(ensure_rc_block(&updated, &block).is_none());
     }

