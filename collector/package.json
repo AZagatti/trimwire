@@ -13,11 +13,11 @@
     "db:init:local": "wrangler d1 execute trimwire-telemetry --local --file=./schema.sql"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.16.17",
-    "@cloudflare/workers-types": "^4.20260612.1",
+    "@cloudflare/vitest-pool-workers": "^0.16.18",
+    "@cloudflare/workers-types": "^4.20260621.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8",
-    "wrangler": "^4.102.0"
+    "wrangler": "^4.103.0"
   },
   "overrides": {
     "esbuild": "^0.28.1"
