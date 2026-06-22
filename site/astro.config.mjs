@@ -51,7 +51,8 @@ export default defineConfig({
         {
           label: "Start here",
           items: [
-            { label: "Overview", link: "/" },
+            { label: "Home", link: "/" },
+            { label: "What is trimwire?", link: "/guides/overview/" },
             { label: "Community dashboard", link: "/dashboard/" },
             { label: "Model benchmark", link: "/benchmark/" },
             { label: "Performance", link: "/performance/" },
@@ -75,6 +76,7 @@ export default defineConfig({
           items: [
             { label: "CLI Reference", link: "/guides/cli/" },
             { label: "Model compatibility", link: "/guides/model-compatibility/" },
+            { label: "For agents (LLMs)", link: "/guides/for-agents/" },
             { label: "Privacy policy", link: "/guides/privacy/" },
           ],
         },

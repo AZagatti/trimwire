@@ -130,7 +130,8 @@ spike shows 80-94% prefix reuse at every length).
   behind a cargo feature, never in a default profile / parity oracle.
 - **Don't over-engineer the surface.** The profile story must stay **simple** —
   **two profiles**: `default` (aggressive + reprune) and `gentle` (dedup + purge +
-  a *conservative* bloat_cap at a high threshold / large keep_recent + reprune —
+  a *conservative* bloat_cap at a high threshold / large keep_recent + a *conservative*
+  thinking_strip (keep 8) + reprune —
   NOT dedup+purge-only, so it's still >0% on bloat-heavy sessions). NOT the
   confusing low/medium/high intensity dial; no `pro`. One good default + one
   gentler escape hatch. Keep the tool focused on its core: deterministic,

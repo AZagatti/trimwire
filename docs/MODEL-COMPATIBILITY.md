@@ -62,14 +62,19 @@ the **next** UTC day (it only covers completed days).
 | **deepseek/deepseek-v4-pro** | OpenRouter | **10/10** | 92% | ~$0.0045 | |
 | **deepseek/deepseek-v4-flash** | OpenRouter | **10/10** | 92% | ~$0.003 | ⬆ upgrade — a single 83% run had wrongly condemned it |
 | **glm-5 / glm-5-turbo** | Z.ai | **10/10** | 92% | (Z.ai sub) | |
-| **glm-5.1** | Z.ai | **10/10** | 100% | (Z.ai sub) | ✦ new model |
+| **glm-5.1** | Z.ai | **10/10** | 100% | (Z.ai sub) | new model |
+| **glm-5.2** | Z.ai | **10/10** | 100% | (Z.ai sub) | ✦ current tested GLM-5.x option; top of the Z.ai subscription lane |
 | **openai/gpt-5.4-mini** | OpenRouter | **10/10** | 100% | ~$0.026 | the cheap OpenAI option that holds (NOT gpt-4o-mini) |
 | **qwen/qwen3.7-plus** | OpenRouter | **10/10** | 92% | ~$0.018 | ✦ discovery — new Alibaba series (1M ctx); cheap + clean |
 | **stepfun/step-3.7-flash** | OpenRouter | **10/10** | 92% | ~$0.015 | ✦ discovery — cheap + clean |
 | **mistralai/mistral-large-2512** | OpenRouter | **10/10** | 92% | ~$0.028 | ✦ discovery — solid, pricier |
 | **nvidia/nemotron-3-ultra-550b** | OpenRouter | **10/10** | 92% | ~$0.036 | ✦ discovery — passes but overkill/expensive |
 | **openrouter/owl-alpha** | OpenRouter | **10/10** | 92% | **free** | ✦ discovery — zero-cost, BUT "alpha"/first-party: availability + rate-limits unstable, validate before relying |
-| **qwen3.5:4b (local @60 KB)** | ollama | **5/5** | 100% | free | the local default |
+
+(This table is the **API/cloud** lane at the 128 KB tested budget.) **Local model (different budget):**
+`qwen3.5:4b` is the default model when `engine = "local"` is enabled; it is validated at its default
+**~60 KB** slice budget (N=10 @60 KB = 10/10), **not** at 128 KB — keep the ~60 KB default, do NOT
+raise it. See the Local section below.
 
 Expensive top tier — passed but only **N=3** (directional, not high-confidence):
 claude-haiku-4.5, claude-sonnet-4.6, gpt-5.4 (all 3/3); gemini-3.1-pro-preview (3/3 but
@@ -145,7 +150,7 @@ original default was ~38 KB; raised after the measurements below.)
 
 | Model | Retention (early tests) |
 |---|---|
-| qwen3.5:4b (default) | 100% (N=5 @60 KB; the recommended local model) |
+| qwen3.5:4b (default local-engine model) | 100% (N=10 @60 KB; the recommended model when `engine = "local"`) |
 | qwen3.5:4b-q8_0 | 100% (N=1) |
 | qwen3.5:9b | ~92% (N=1; a 2-word needle phrased differently — effectively fine) |
 
@@ -193,7 +198,7 @@ drift — confirm on your own account):
 | Zero cost, own hardware | **qwen3.5:4b** (local, ~60 KB ceiling) | local ollama | free |
 | Cheapest reliable API | **deepseek-v4-flash** | anthropic · `api.deepseek.com/anthropic` | PAYG (pennies) |
 | Top fidelity / best value | **minimax-m3** | anthropic · `api.minimax.io/anthropic` (or via OpenRouter) | PAYG / MiniMax Token Plan |
-| Already on a Z.ai plan | **glm-5 / glm-5-turbo / glm-5.1** | anthropic · `api.z.ai/api/anthropic` | coding-plan subscription |
+| Already on a Z.ai plan | **glm-5 / glm-5-turbo / glm-5.1 / glm-5.2** (5.2 = current tested) | anthropic · `api.z.ai/api/anthropic` | coding-plan subscription |
 | Prefer OpenAI | **gpt-5.4-mini** (10/10; NOT gpt-4o-mini) | openai · `api.openai.com/v1` | PAYG |
 | One key for everything | any of the above | openai · `openrouter.ai/api/v1` | OpenRouter PAYG credits |
 
@@ -212,9 +217,10 @@ that miss 128 KB at N=10 (see "NOT safe" above). Always confirm with
   the useful work for the *good* models for zero safety gain. The real safeguard is
   **model choice**: pick a reliable one (below) or validate yours with `probe --runs 10`.
   128 KB is NOT a universal safe floor, but lowering the global default isn't the fix.
-- **Reliable @128 KB (N=10, all-pass):** minimax/minimax-m3, deepseek/deepseek-v4-pro,
-  deepseek/deepseek-v4-flash, Z.ai glm-5 / glm-5-turbo / glm-5.1, and local qwen3.5:4b
-  (@60 KB). Best value: **minimax-m3** (~$0.003/run).
+- **Reliable at tested budgets (N=10, all-pass):** API models @128 KB — minimax/minimax-m3,
+  deepseek/deepseek-v4-pro, deepseek/deepseek-v4-flash, Z.ai glm-5 / glm-5-turbo / glm-5.1 / glm-5.2,
+  etc.; **local qwen3.5:4b at its default ~60 KB budget only** (not 128 KB). Best value:
+  **minimax-m3** (~$0.003/run); current tested Z.ai option: **glm-5.2**.
 - **Newer ≠ better, and bigger-model ≠ safer.** qwen3-235b fails where v4-flash passes;
   glm-4.5/4.6/4.7 all fail 128 KB at N=10 while glm-5.x is rock-solid; kimi-k2.6 truncates.
   Pick a *validated* tag, not the latest or the largest.

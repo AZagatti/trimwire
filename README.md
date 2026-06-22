@@ -15,6 +15,10 @@
 
 <!-- regenerate with: vhs demo.tape  (see demo.tape) -->
 
+**New here?** Start with the [Overview](docs/OVERVIEW.md) (what it is, recommended
+defaults, what the numbers mean, limits) and the [FAQ](docs/FAQ.md). **An LLM/agent
+reading this?** See [For agents](docs/FOR-AGENTS.md) for a canonical summary.
+
 ## Quickstart
 
 ### 1. Install
@@ -153,7 +157,10 @@ failure (model down, slow, bad output) silently falls back to model-free pruning
 Configure with `trimwire summarizer setup` (interactive wizard). Three engines:
 
 - **`local`** — ollama on your own machine. No API key, no data leaves your machine.
-  Default model: `qwen3.5:4b` (~3.4 GB RAM), the only harm-validated model.
+  Default model: `qwen3.5:4b` (~3.4 GB RAM) — the recommended local backend; see
+  [SUMMARIZER.md](https://github.com/AZagatti/trimwire/blob/main/docs/SUMMARIZER.md)
+  and [MODEL-COMPATIBILITY.md](https://github.com/AZagatti/trimwire/blob/main/docs/MODEL-COMPATIBILITY.md)
+  for other approved local tags.
 - **Cloud API** (engine = a provider id, e.g. `"anthropic"`) — sends the prunable slice to
   the provider you configure using your own API key. Your key, your provider, your choice.
 - **`model-free`** — the default; no summarizer, no model calls.
@@ -253,7 +260,8 @@ The built-in community collector endpoint ships in the binary and points at
 It depends on your session shape. trimwire prunes only when a strategy matches,
 and **does nothing** when there's no redundancy, so there's no single "saves
 X%". Offline replay through the real strategy code (`default` profile) spans the
-full range:
+full range (values below are observed in this benchmark suite, rounded — exact
+per-corpus figures in [`RESULTS.md`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md)):
 
 | Session shape | Request size | Reduction |
 |---|--:|--:|
@@ -268,14 +276,15 @@ full range:
 **The point is a cleaner session, not a smaller bill.** Pruning drops stale
 backlog so the current task isn't buried in history ("context rot"). That lifts
 the **focus ratio** (the share of the request that's your recent working window:
-repeated-search 33%→66%, browser 71%→98%) and keeps it 2–3× higher than no
-pruning over a long session. (Focus is a byte-share proxy; that it improves model
+repeated-search 33%→66%, browser 71%→98%) and keeps it roughly 2–3× higher than no
+pruning over a long session in these benchmarks. (Focus is a byte-share proxy; that it improves model
 output is plausible, not proven.)
 
 **Cost is a side effect, and non-monotonic.** Cache hits bill at ~0.1×, so
 pruning *old* content can bust the cache: short sessions are a wash-to-loss, long
-ones win (≈ **−55%** at 256 turns). Overhead is **sub-2 ms** per request, off the
-network path.
+ones win (about **−55%** at 256 turns in our cost-model benchmark; exact figure in
+[RESULTS §6b](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md)).
+Overhead is roughly **sub-2 ms** per request (host-dependent), off the network path.
 
 Numbers are reproducible (`cargo run --release --example bench`) and least
 reliable for token/cost estimates (~4 bytes/token). The full 14-corpus tables,
@@ -301,10 +310,15 @@ documented in
   environment.
 - Does **not** cover the standalone desktop/web app. Like any local gateway, it
   only sees clients that read `ANTHROPIC_BASE_URL`.
-- Does not modify the Claude Code system prompt.
+- Does not modify the Claude Code system prompt on the default path;
+  `system_shape_normalize` is the opt-in malformed-shape recovery exception.
 
 ## Docs
 
+- **Overview:** what trimwire is, recommended defaults, what the numbers mean, and limits:
+  [`docs/OVERVIEW.md`](https://github.com/AZagatti/trimwire/blob/main/docs/OVERVIEW.md)
+- **For agents:** canonical LLM/agent summary and claims to use/avoid:
+  [`docs/FOR-AGENTS.md`](https://github.com/AZagatti/trimwire/blob/main/docs/FOR-AGENTS.md)
 - **FAQ & Trust:** ToS, code privacy, latency, how to try it safely first:
   [`docs/FAQ.md`](https://github.com/AZagatti/trimwire/blob/main/docs/FAQ.md)
 - **Configuration:** every strategy knob, the ledger, statusline integration:

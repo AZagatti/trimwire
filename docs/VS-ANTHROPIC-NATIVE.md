@@ -40,7 +40,7 @@ fails open to the original body.
 | Dimension | Anthropic-native | trimwire |
 |---|---|---|
 | **Where it runs** | Server-side (context editing) / inside Claude Code (`/compact`) | A local proxy on your machine, before the request leaves |
-| **Determinism** | Heuristic / model-driven; output can vary | Deterministic, byte-for-byte; same input → same output |
+| **Determinism** | Heuristic / model-driven; output can vary | Deterministic on the default path, byte-for-byte; same input → same output (default path) |
 | **Transparency** | Trims happen upstream; limited local visibility | You see exactly what changed + the spend impact (`trimwire stats`) |
 | **Trigger** | On `/compact`, or context-editing on a configured threshold (can run before the hard limit) | Every request, proactively — bytes are trimmed before they accumulate |
 | **Loss profile** | `/compact` is lossy summarization; context-editing drops old tool output | Default path keeps recent turns verbatim; trims stale/duplicated/oversized tool output with markers; summarizer is opt-in |
