@@ -7,7 +7,7 @@ import { test, expect } from "@playwright/test";
  * empty-state + opt-in CTA — NOT seeded sample data dressed up as real. These
  * specs verify the real production behaviour end-to-end in a browser:
  *   1. The empty-state renders (no table, no fake rows, no "preview" banner).
- *   2. The opt-in CTA (`trimwire share benchmark` + the guide link) is present.
+ *   2. The opt-in CTA (`trimwire share benchmark --yes` + the guide link) is present.
  *
  * The interactive table (sorting, search, family filter, keyboard nav) is covered
  * by the unit tests, which mount the renderer against a fixture payload directly.
@@ -30,7 +30,7 @@ test.describe("/benchmark/ page", () => {
 
   test("shows the opt-in CTA (command + guide link)", async ({ page }) => {
     const empty = page.locator(".tw-bench-empty");
-    await expect(empty.locator(".tw-empty-cmd")).toHaveText("trimwire share benchmark");
+    await expect(empty.locator(".tw-empty-cmd")).toHaveText("trimwire share benchmark --yes");
     // The empty-state has two links (the guide + the ?demo preview), so assert the
     // guide link specifically — a bare `a` locator is a strict-mode violation.
     await expect(empty.locator('a[href="/guides/benchmark/"]')).toBeVisible();

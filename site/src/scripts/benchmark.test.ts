@@ -107,7 +107,7 @@ describe("benchmark leaderboard", () => {
     expect(root.querySelectorAll(".tw-bench-kpi .tw-kpi")).toHaveLength(0); // no fake KPIs
     const empty = root.querySelector(".tw-bench-empty");
     expect(empty).not.toBeNull();
-    expect(empty?.querySelector(".tw-empty-cmd")?.textContent).toBe("trimwire share benchmark");
+    expect(empty?.querySelector(".tw-empty-cmd")?.textContent).toBe("trimwire share benchmark --yes");
     expect(empty?.querySelector("a")?.getAttribute("href")).toBe("/guides/benchmark/");
   });
 
