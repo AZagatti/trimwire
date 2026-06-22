@@ -18,9 +18,25 @@ curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/inst
 
 If you used option 1 or 2, run `trimwire install` next — it wires Claude Code
 (config + `ANTHROPIC_BASE_URL` + the always-up service). The `curl | sh` script in
-option 3 already runs that for you. To **update**, re-fetch the binary or re-run
-`cargo binstall trimwire`. Full walkthrough: the
+option 3 already runs that for you. Full walkthrough: the
 [README](https://github.com/AZagatti/trimwire#quickstart).
+
+**To update**, re-run the same method you installed with — each overwrites the
+binary in place (your config and shell rc are untouched):
+
+- **Installed via `curl | sh`** (option 3): re-run that one-liner. It downloads
+  the latest release binary and re-runs `trimwire install` (idempotent).
+- **`cargo binstall`/`cargo install`** users: `cargo binstall trimwire` (fetches
+  the latest prebuilt) or `cargo install trimwire` (rebuilds).
+- **Manual binary** (option 1): download the new asset from
+  [releases/latest](https://github.com/AZagatti/trimwire/releases/latest) and
+  replace the binary on your `PATH`.
+
+There is no built-in `trimwire update` self-updater yet — a self-replacing binary
+needs signature verification and atomic-swap design first; see the design notes
+in [`docs/UPDATE-COMMAND-SPIKE.md`](https://github.com/AZagatti/trimwire/blob/main/docs/UPDATE-COMMAND-SPIKE.md).
+After updating, restart the service with `trimwire off && trimwire on` (or open a
+new shell) so the new binary is the one serving.
 
 ## Is trimwire safe to use with my Claude subscription? (Terms of Service)
 
