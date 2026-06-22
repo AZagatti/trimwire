@@ -9,6 +9,7 @@
 
 pub mod config;
 pub mod error;
+pub mod fsperm;
 pub mod ledger;
 pub mod pairing;
 pub mod proxy;

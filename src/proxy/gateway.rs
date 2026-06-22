@@ -555,13 +555,18 @@ fn format_fired(fired: &[(&'static str, strategies::Stats)]) -> String {
 
 /// Map handler-level failures to a 502. We never crash the connection — the
 /// caller sees an Anthropic-shaped error envelope.
+///
+/// The full error chain (which can include the upstream URL and the request
+/// `path?query`) is written to STDERR only. The client-facing envelope is a
+/// fixed, detail-free message so internal context is never echoed back into
+/// Claude Code's terminal (audit P3-1).
 fn error_response(
     e: anyhow::Error,
 ) -> Response<http_body_util::combinators::BoxBody<Bytes, BoxBodyError>> {
     eprintln!("[gateway] error: {e:#}");
     anthropic_error(
         StatusCode::BAD_GATEWAY,
-        &format!("trimwire gateway error: {e}"),
+        "trimwire gateway error — see the gateway log (TRIMWIRE_LOG / --audit) for details",
     )
 }
 

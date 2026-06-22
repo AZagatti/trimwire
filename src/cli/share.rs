@@ -600,6 +600,9 @@ fn read_or_create_install_id(data_dir: &std::path::Path) -> Result<String> {
         std::fs::write(&path, hex_id.as_bytes())
             .with_context(|| format!("write install id to {}", path.display()))?;
     }
+    // Owner-only perms (0600 on Unix): the install-id is an HMAC key (never transmitted);
+    // keep it off other local users' eyes. Best-effort, on the final path.
+    let _ = trimwire::fsperm::restrict_to_owner(&path);
     Ok(hex_id)
 }
 

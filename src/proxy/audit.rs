@@ -85,6 +85,12 @@ pub struct Capture {
     /// Ordered tool *definition* names from `tools[]` (schema identifiers, not
     /// message content). Empty when the request carries no tools. Comparing this
     /// across turns answers "does Claude Code reorder tools between requests?".
+    ///
+    /// Privacy note (audit P3-2): these are the client's tool-definition names,
+    /// so for MCP servers they take the form `mcp__<server>__<tool>` and can
+    /// reveal configured MCP server names (e.g. internal service names). The
+    /// audit log is opt-in and local-only (and now owner-only `0600` on Unix),
+    /// but treat the file as you would your MCP config.
     pub tool_names: Vec<String>,
     /// Indices into `tool_names` whose tool definition carries a `cache_control`
     /// breakpoint (usually just the last one).
@@ -313,6 +319,10 @@ impl AuditSink {
     /// Open (create + append) the audit file at `path`.
     pub fn open(path: &str) -> std::io::Result<Self> {
         let f = OpenOptions::new().create(true).append(true).open(path)?;
+        // Owner-only perms (0600 on Unix): the audit log is shape-metadata-only, but it
+        // can embed structural identifiers (e.g. MCP tool names) — don't leave it
+        // world-readable on a shared host. Best-effort.
+        let _ = crate::fsperm::restrict_to_owner(std::path::Path::new(path));
         Ok(Self {
             writer: Arc::new(Mutex::new(BufWriter::new(f))),
         })
