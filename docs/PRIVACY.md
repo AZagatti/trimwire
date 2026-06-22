@@ -23,7 +23,8 @@ substitutes or originates its own.
   the same numbers `trimwire stats` shows you. This never leaves your machine
   unless you explicitly opt in to sharing (below).
 - It makes **no network calls of its own** on the default path. (The optional
-  summarizer, if you enable it, calls a model **you choose on your own key** — see
+  summarizer, if you enable it, calls a model **you configure on a separate API
+  key** — never your forwarded Claude Code credential — see
   [Summarizer](SUMMARIZER.md).)
 
 ## Opt-in telemetry (`trimwire share`)

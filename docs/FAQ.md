@@ -26,9 +26,10 @@ option 3 already runs that for you. To **update**, re-fetch the binary or re-run
 
 **With an API key: unambiguously yes. With a Pro/Max subscription: a greyer,
 fast-moving area — read on.** (We're not lawyers; this is our reading, verify against
-the current [Claude Code legal terms](https://code.claude.com/docs/en/legal-and-compliance).
-_Last reviewed: 2026-06; the ToS landscape shifted repeatedly through 2026, so
-re-check the current terms._)
+the current [Claude Code legal terms](https://code.claude.com/docs/en/legal-and-compliance).)
+
+> **Last reviewed: 2026-06.** The Claude ToS landscape shifted repeatedly through
+> 2026 — re-check the current terms before relying on the Pro/Max reading below.
 
 trimwire uses the LLM-gateway pattern Anthropic documents: Claude Code points at
 trimwire via `ANTHROPIC_BASE_URL`, trimwire prunes the conversation `messages[]`, and
