@@ -53,13 +53,15 @@ Claude Code's API context on every request.
   (host-dependent JSON transform, off the network path)."
 - "Optional summarizer helps most on long sessions (up to roughly −65% cache-weighted cost observed in one long
   real session — a best case, not a guarantee)."
-- "Pruning leaves a re-read cue, so the agent can recover an elided detail. Any lossy
-  overflow step — a summarizer (including trimwire's own) or a plain window cutoff — can discard
-  older detail; the difference is that trimwire's pruning leaves a cue to re-read." (Mechanism, not
-  a measured comparison vs native compaction.)
-- "Transparent proxy: auth, system prompt, and sampling are unchanged; only conversation context
-  changes. Works with API key, Pro, and Max." (System prompt is untouched **on the default path**;
-  the opt-in `system_shape_normalize` strategy is the sole exception and is off by default.)
+- "Pruning leaves a re-read cue, so the agent can attempt to recover an elided detail when the
+  source is still available to re-read or the tool can be re-run. Any lossy overflow step —
+  a summarizer (including trimwire's own) or a plain window cutoff — can discard older detail; the
+  difference is that trimwire's pruning leaves a cue to re-read." (Mechanism, not a measured
+  comparison vs native compaction.)
+- "Transparent proxy: auth and sampling are unchanged; only conversation context changes. On the
+  default path, the system prompt is untouched; `system_shape_normalize` is the opt-in exception.
+  API-key use is clearly covered; Pro/Max OAuth technically works but is a grey ToS area — defer to
+  FAQ."
 
 ## Stale / incorrect claims to AVOID
 

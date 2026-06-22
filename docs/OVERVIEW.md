@@ -13,7 +13,8 @@ Claude Code  ──►  trimwire (prune on every request)  ──►  Anthropic 
                   • leaves re-read cues for what it elided
 ```
 
-It's a transparent proxy: same auth, same system prompt, same sampling — only the
+It's a transparent proxy: same auth, same sampling, and — on the default path — the same system
+prompt (the opt-in `system_shape_normalize` strategy is the only exception); only the
 **conversation context** changes (that's the point). It works with API key, Pro, and Max
 (API key is clearly fine; Pro/Max OAuth has a grey-area ToS note — see [FAQ.md](FAQ.md)).
 
@@ -24,9 +25,8 @@ step (a model summarizer, including trimwire's own, or a plain window cutoff) ca
 older detail. trimwire's mechanical difference: it prunes only what is **structurally
 redundant or older than a configured window**, and leaves a small
 `[trimwire: …]` marker where it elided content — a **retrieval cue** the agent can act on by
-re-reading the source. You get a cleaner, cheaper request, and the markers give the agent a
-cue to re-read any elided source it still needs (when that source is a re-readable file or
-re-runnable tool).
+re-reading the source. You get a cleaner, more focused request, and the markers can help the
+agent re-read an elided source when that source is still available as a file or re-runnable tool.
 
 ## Recommended defaults
 

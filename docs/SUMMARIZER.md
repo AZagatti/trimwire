@@ -268,7 +268,7 @@ off or fails) — they simply own less of the old region once the summary covers
 > | Model class | Safe `slice_char_budget` | Notes |
 > |---|---|---|
 > | Unknown / low-tier models | **128 KB** (the default) | The conservative floor — don't raise it without gating the model below. Note the **GLM-4.x family (incl. 4.5-Air) FAILS 128 KB at N=10** ([MODEL-COMPATIBILITY.md](MODEL-COMPATIBILITY.md)); prefer GLM-5.x. |
-> | **GLM-5 / GLM-5-Turbo / GLM-5.1 / GLM-5.2** | **~768 KB** (much more) | Whole GLM-5.x family (incl. the newest **GLM-5.2**) is solid at the N=10-verified 128 KB; the ~512 KB and **~92% at 768 KB points are single-run (N=1), directional** ceilings — verify with `probe … --runs 10` before relying on it. Big coverage win — point the summarizer at a GLM-5-class model and set e.g. `slice_char_budget = 720896`. |
+> | **GLM-5 / GLM-5-Turbo / GLM-5.1 / GLM-5.2** | **~768 KB** (much more) | Whole GLM-5.x family (incl. the current **GLM-5.2**) is solid at the N=10-verified 128 KB; the ~512 KB and **~92% at 768 KB points are single-run (N=1), directional** ceilings — verify with `probe … --runs 10` before relying on it. Big coverage win — point the summarizer at a GLM-5-class model and set e.g. `slice_char_budget = 720896`. |
 >
 > There's a clear capability cliff between the GLM-4.x and GLM-5 generations. **Default
 > stays 128 KB (protects weak models); raise it only on a model you've gated.** To find a

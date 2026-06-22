@@ -190,8 +190,9 @@ again instead of guessing.
 That's the recommended recall-critical path: **`default` ON + agentic re-read**,
 not switching to `gentle`. `gentle` is a *lighter-touch, lower-savings* profile —
 it prunes less, but it is not a "recall mode" and not safer; relying on re-read
-keeps full savings while still letting the agent recover any specific detail on
-demand. (When a session overflows the context window, any lossy step — a
+keeps the default pruning behavior while giving the agent a cue to recover specific
+details when the original source is still available to re-read or re-run. (When a
+session overflows the context window, any lossy step — a
 summarizer or a plain window cutoff — can discard older detail; trimwire's
 per-request pruning leaves a `[trimwire: …]` cue so the agent can re-read it.)
 

@@ -411,7 +411,7 @@ pub fn doctor() -> Result<()> {
                 } else {
                     println!(
                         "{} summarizer.local.model = {m} is unvalidated — summary fidelity is \
-                         unverified for it (approved: qwen3.5:4b, qwen3.5:4b-q8_0, qwen3.5:9b, qwen3.5:2b)",
+                         unverified for it (validated: qwen3.5:4b, qwen3.5:4b-q8_0, qwen3.5:9b; warning-gated opt-down: qwen3.5:2b)",
                         render::warn()
                     );
                 }
