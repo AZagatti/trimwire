@@ -10,6 +10,12 @@
 //!
 //! On non-Unix targets (Windows) newly-created files already inherit the
 //! creating user's ACL, so this is a deliberate no-op there.
+//!
+//! Caveat: on filesystems where POSIX modes are advisory rather than enforced
+//! (a WSL `/mnt/c` NTFS mount, an SMB/CIFS share, FAT), the `chmod` succeeds but
+//! the underlying ACL governs real access. trimwire's data files live under the
+//! native data dir (`~/.local/share/trimwire`, `~/.config`), so this is only a
+//! concern if a user points `--ledger`/`--audit` at such a mount.
 
 use std::path::Path;
 

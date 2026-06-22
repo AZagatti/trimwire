@@ -589,6 +589,9 @@ fn read_or_create_install_id(data_dir: &std::path::Path) -> Result<String> {
     let write_result = (|| -> Result<()> {
         let mut f =
             std::fs::File::create(&tmp).with_context(|| format!("create tmp {}", tmp.display()))?;
+        // Tighten BEFORE writing + rename so the install-id is never briefly
+        // world-readable at the final path (rename preserves the inode's mode).
+        let _ = trimwire::fsperm::restrict_to_owner(&tmp);
         f.write_all(hex_id.as_bytes())
             .with_context(|| format!("write tmp {}", tmp.display()))?;
         std::fs::rename(&tmp, &path)
