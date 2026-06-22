@@ -75,7 +75,9 @@ export default defineConfig({
           label: "Reference",
           items: [
             { label: "CLI Reference", link: "/guides/cli/" },
+            { label: "Configuration reference", link: "/guides/configuration/" },
             { label: "Model compatibility", link: "/guides/model-compatibility/" },
+            { label: "Security & trust", link: "/guides/security-model/" },
             { label: "For agents (LLMs)", link: "/guides/for-agents/" },
             { label: "Privacy policy", link: "/guides/privacy/" },
           ],

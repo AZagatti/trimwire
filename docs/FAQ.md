@@ -52,7 +52,7 @@ tool — it doesn't authenticate as its own OAuth client or route requests on be
 banned third-party-OAuth pattern). **But the clause is broad and enforcement has shifted
 repeatedly through 2026** — if you want zero ambiguity, **use an API key** for Claude
 Code. See [`SPIKE.md` §1](https://github.com/AZagatti/trimwire/blob/main/SPIKE.md) and
-[`SECURITY.md`](https://github.com/AZagatti/trimwire/blob/main/SECURITY.md).
+the [Security & trust model](SECURITY-MODEL.md).
 
 > **The summarizer is separate either way.** It calls its backend with a standard
 > **API key** (Anthropic / OpenRouter / Z.ai / local ollama) — it never uses your
@@ -67,7 +67,7 @@ Code. See [`SPIKE.md` §1](https://github.com/AZagatti/trimwire/blob/main/SPIKE.
   the optional `--audit` log record shape metadata only: byte counts, token
   counts, which strategies fired, the model name, timestamps, a session id, and
   prefix hashes. Never message text, tool inputs, or tool results. See
-  the content-free guarantees in [`SECURITY.md`](https://github.com/AZagatti/trimwire/blob/main/SECURITY.md).
+  the content-free guarantees in the [Security & trust model](SECURITY-MODEL.md).
 - **Your transcript is untouched.** trimwire shapes the *request on the wire*; it
   never writes to the `~/.claude` session files. (The separate, explicit
   `trimwire sweep` command is the only thing that edits on-disk transcripts, and
@@ -205,4 +205,4 @@ Yes to all three. trimwire forwards whatever auth header Claude Code sends
 ---
 
 *More setup/diagnosis help: [`docs/TROUBLESHOOTING.md`](TROUBLESHOOTING.md). Security
-model: [`SECURITY.md`](https://github.com/AZagatti/trimwire/blob/main/SECURITY.md). Design rationale: [`SPIKE.md`](https://github.com/AZagatti/trimwire/blob/main/SPIKE.md).*
+model: [Security & trust](SECURITY-MODEL.md). Design rationale: [`SPIKE.md`](https://github.com/AZagatti/trimwire/blob/main/SPIKE.md).*

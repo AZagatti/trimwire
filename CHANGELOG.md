@@ -184,7 +184,7 @@ and fails open to the original request.
   `recall` / `preview` / `dashboard` inspection commands.
 - **Opt-in tuning levers** for advanced cases — catastrophic-result cap,
   tool-result age ladder, protected-file globs, and system-shape normalization.
-  See [CONFIGURATION.md](CONFIGURATION.md).
+  See [CONFIGURATION.md](docs/CONFIGURATION.md).
 - **Cross-platform binaries** for Linux, macOS, and Windows.
 
 ### Safety & correctness

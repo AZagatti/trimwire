@@ -285,7 +285,7 @@ Opt-in. When `engine` is not `"model-free"` (and `[reprune]` is on), trimwire se
 the OLD prunable slice to a **local ollama** model or your **own API key** and replays
 the resulting summary in place of that slice — a clean summary the model can read
 instead of lossy elision markers. Requires reprune (it carries the summary across
-turns). See [`docs/SUMMARIZER.md`](docs/SUMMARIZER.md) for the full guide; this is the
+turns). See [`SUMMARIZER.md`](SUMMARIZER.md) for the full guide; this is the
 knob reference. **ToS:** trimwire never originates calls on your Claude *subscription*
 token — only on a local model or an API key you provide.
 
@@ -334,7 +334,7 @@ keep_alive_secs = 0           # 0 = unload the model from RAM after each summari
 # api_key_env = "MYAPI_KEY"   # env var holding the key (never inline the key)
 ```
 
-See [docs/SUMMARIZER.md](docs/SUMMARIZER.md) "Provider recipes" for copy-paste configs
+See [SUMMARIZER.md](SUMMARIZER.md) "Provider recipes" for copy-paste configs
 (OpenAI, OpenRouter, Anthropic, Z.ai anthropic + openai, Azure, self-hosted vLLM).
 
 To let the summary own a large fraction of old content on a strong cloud model, use an
@@ -374,7 +374,7 @@ only with `--yes`, otherwise it dry-runs.
 
 The payload is coarse, bucketed, and anonymized client-side; it never contains
 prompts, code, paths, ids, IPs, or raw counts. See
-[`docs/TELEMETRY.md`](docs/TELEMETRY.md) for the full field-by-field contract.
+[`TELEMETRY.md`](TELEMETRY.md) for the full field-by-field contract.
 
 ```toml
 [share]
@@ -477,4 +477,4 @@ The shipped defaults (`threshold_bytes`, `keep_recent_turns`, the
 `sliding_window` denylist) are conservative starting points, not
 telemetry-tuned values. Run a few real sessions, check `trimwire stats`, and
 adjust. Per-profile savings/cost numbers and the methodology are in
-[`benchmark/`](benchmark/README.md) (start with its headline tables).
+[`benchmark/`](https://github.com/AZagatti/trimwire/blob/main/benchmark/README.md) (start with its headline tables).

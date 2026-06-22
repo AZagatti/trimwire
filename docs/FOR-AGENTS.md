@@ -91,7 +91,8 @@ Claude Code's API context on every request.
 ## Deeper docs
 
 - [Overview](OVERVIEW.md) · [FAQ & trust](FAQ.md) · [Summarizer](SUMMARIZER.md) ·
-  [Model compatibility](MODEL-COMPATIBILITY.md) · [CLI](CLI.md) · [Privacy](PRIVACY.md)
-- Config/profiles: [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/CONFIGURATION.md) ·
+  [Model compatibility](MODEL-COMPATIBILITY.md) · [CLI](CLI.md) ·
+  [Security & trust](SECURITY-MODEL.md) · [Privacy](PRIVACY.md)
+- Config/profiles: [`CONFIGURATION.md`](CONFIGURATION.md) ·
   Benchmarks: [`benchmark/results/RESULTS.md`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md)
 - The site also publishes `/llms.txt` and `/llms-full.txt` (auto-generated from these docs).

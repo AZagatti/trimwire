@@ -132,7 +132,7 @@ instead of being refused. Set it and forget it.
   Both turn on stable-prefix re-pruning (`[reprune]`, which replays the same pruning
   decisions turn-to-turn so the cache prefix stays byte-identical) to keep the
   prompt cache warm on long sessions. See
-  [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/CONFIGURATION.md)
+  [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/docs/CONFIGURATION.md)
   and [`benchmark/`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md)
   for what each trades.
 - **Rollback any time.** To route Claude Code straight to Anthropic again,
@@ -237,7 +237,7 @@ separate, explicit step:
 - `trimwire statusline remove` undoes either.
 
 Embedding trimwire as a segment in your own script, and the health-alert hook,
-are covered in [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/CONFIGURATION.md). `trimwire stats` always
+are covered in [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/docs/CONFIGURATION.md). `trimwire stats` always
 shows totals with no statusline at all.
 
 ## Telemetry — opt-in, anonymous, off by default
@@ -299,7 +299,7 @@ conservative subset: dedup + failed_input_purge + bloat_cap + thinking_strip. A
 ninth strategy, `simhash_dedup` (near-duplicate `tool_result` collapse), is opt-in
 (off in both profiles). Every threshold, denylist, profile, and the ledger are
 documented in
-[`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/CONFIGURATION.md).
+[`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/docs/CONFIGURATION.md).
 
 
 ## Compatibility
@@ -322,7 +322,7 @@ documented in
 - **FAQ & Trust:** ToS, code privacy, latency, how to try it safely first:
   [`docs/FAQ.md`](https://github.com/AZagatti/trimwire/blob/main/docs/FAQ.md)
 - **Configuration:** every strategy knob, the ledger, statusline integration:
-  [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/CONFIGURATION.md)
+  [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/docs/CONFIGURATION.md)
 - **Troubleshooting:** connection errors, empty stats, port conflicts, sweep aborts:
   [`docs/TROUBLESHOOTING.md`](https://github.com/AZagatti/trimwire/blob/main/docs/TROUBLESHOOTING.md)
 - **Alternatives:** mitmproxy-based pruners and other options:

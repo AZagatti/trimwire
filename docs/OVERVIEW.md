@@ -77,6 +77,6 @@ for figures from *your* traffic, run `trimwire stats`.
 
 - New here? [FAQ.md](FAQ.md) (trust, safety, what changes) and the
   [README](https://github.com/AZagatti/trimwire/blob/main/README.md) (install + quickstart).
-- Tuning knobs/profiles: [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/CONFIGURATION.md).
+- Tuning knobs/profiles: [`CONFIGURATION.md`](CONFIGURATION.md).
 - Optional summarizer: [SUMMARIZER.md](SUMMARIZER.md).
 - An LLM/agent reading this? See [For agents (canonical summary)](FOR-AGENTS.md) for a machine-readable summary.
