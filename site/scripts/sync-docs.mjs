@@ -41,8 +41,10 @@ const DOCS = [
   ["VS-ANTHROPIC-NATIVE.md", "vs. Anthropic native", 7],
   ["ROADMAP.md", "Roadmap", 8],
   ["CLI.md", "CLI Reference", 9],
-  ["MODEL-COMPATIBILITY.md", "Model compatibility", 10],
-  ["PRIVACY.md", "Privacy policy", 11],
+  ["CONFIGURATION.md", "Configuration reference", 10],
+  ["MODEL-COMPATIBILITY.md", "Model compatibility", 11],
+  ["SECURITY-MODEL.md", "Security & trust", 13],
+  ["PRIVACY.md", "Privacy policy", 14],
 ];
 
 mkdirSync(outDir, { recursive: true }); // idempotent — no-op (stable inode) if it exists

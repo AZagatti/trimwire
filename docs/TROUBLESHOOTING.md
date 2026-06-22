@@ -109,4 +109,4 @@ numbers: `trimwire preview <session.jsonl>` (no install) or `trimwire stats`
 **Does it send my data anywhere new?**
 No. It forwards to `api.anthropic.com` exactly like Claude Code already does;
 the only local persistence is the savings ledger (byte counts + hashes, no
-message content) at `~/.trimwire/ledger.db`. See [`SECURITY.md`](https://github.com/AZagatti/trimwire/blob/main/SECURITY.md).
+message content) at `~/.trimwire/ledger.db`. See the [Security & trust model](SECURITY-MODEL.md).

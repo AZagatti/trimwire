@@ -2,12 +2,11 @@
 
 ## Supported versions
 
-trimwire's first public release is v0.1.0. The most recent minor release
-receives security patches.
+The most recent minor release receives security patches.
 
 | Version | Supported |
 |---------|-----------|
-| 0.2.x   | ✅ |
+| 0.3.x   | ✅ |
 
 ## Reporting a vulnerability
 
@@ -27,6 +26,10 @@ You should expect:
 - A coordinated disclosure timeline if the report is valid
 
 ## Security model
+
+> A user-facing version of this section is published at
+> [trimwire.dev/guides/security-model](https://trimwire.dev/guides/security-model/).
+> The text below is the canonical source.
 
 trimwire is a **local forwarding gateway** — plain HTTP on `127.0.0.1`,
 forwarding to Anthropic over HTTPS. It runs on `127.0.0.1` only; it does not
