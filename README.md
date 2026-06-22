@@ -310,10 +310,15 @@ documented in
   environment.
 - Does **not** cover the standalone desktop/web app. Like any local gateway, it
   only sees clients that read `ANTHROPIC_BASE_URL`.
-- Does not modify the Claude Code system prompt.
+- Does not modify the Claude Code system prompt on the default path;
+  `system_shape_normalize` is the opt-in malformed-shape recovery exception.
 
 ## Docs
 
+- **Overview:** what trimwire is, recommended defaults, what the numbers mean, and limits:
+  [`docs/OVERVIEW.md`](https://github.com/AZagatti/trimwire/blob/main/docs/OVERVIEW.md)
+- **For agents:** canonical LLM/agent summary and claims to use/avoid:
+  [`docs/FOR-AGENTS.md`](https://github.com/AZagatti/trimwire/blob/main/docs/FOR-AGENTS.md)
 - **FAQ & Trust:** ToS, code privacy, latency, how to try it safely first:
   [`docs/FAQ.md`](https://github.com/AZagatti/trimwire/blob/main/docs/FAQ.md)
 - **Configuration:** every strategy knob, the ledger, statusline integration:
