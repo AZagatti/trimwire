@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.8](https://github.com/AZagatti/trimwire/compare/v0.3.7...v0.3.8) - 2026-06-22
+
+### Other
+
+- Publish Configuration reference + Security & trust docs on the site ([#64](https://github.com/AZagatti/trimwire/pull/64))
+- Finalize Trimwire public docs and consistency fixes ([#53](https://github.com/AZagatti/trimwire/pull/53))
+
 ## [0.3.7](https://github.com/AZagatti/trimwire/compare/v0.3.6...v0.3.7) - 2026-06-20
 
 ### Other
