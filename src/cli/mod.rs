@@ -130,8 +130,8 @@ pub fn off() -> Result<()> {
             println!(
                 "  Note: every new shell you open also exports ANTHROPIC_BASE_URL from the \
                  `# >>> trimwire >>>` block in your shell rc — unset only fixes the current shell. \
-                 To stop ALL shells routing through trimwire, remove that rc block by hand \
-                 (or run `trimwire uninstall`, which prints the exact lines to delete)."
+                 To stop ALL shells routing through trimwire, delete that `# >>> trimwire >>>` \
+                 block from your rc by hand (or run `trimwire uninstall`, which names the block to remove)."
             );
         }
         Err(e) => {

@@ -254,6 +254,33 @@ fn doctor_installed_but_gateway_down_exits_zero_advisory() {
     );
 }
 
+#[test]
+fn doctor_strict_exits_one_on_advisory() {
+    // Same recoverable state as the advisory test, but `--strict` must turn the
+    // ⚠ warnings (gateway down / ANTHROPIC_BASE_URL unset) into a non-zero exit
+    // so CI / scripted health checks can gate on it (audit P2-8).
+    let dir = tempfile::tempdir().unwrap();
+    let config_dir = dir.path().join(".config");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("trimwire.toml"),
+        "profile = \"default\"\n[server]\nlisten = \"127.0.0.1:8765\"\nupstream = \"https://api.anthropic.com\"\n",
+    )
+    .unwrap();
+    let out = Command::new(bin())
+        .args(["doctor", "--strict"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .output()
+        .expect("spawn doctor --strict");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !out.status.success(),
+        "doctor --strict must exit non-zero on advisory warnings. got: {s}"
+    );
+}
+
 /// `summarizer setup` with stdin closed (EOF) must cancel cleanly — never spin
 /// forever re-prompting on an empty answer — and write no config.
 #[test]

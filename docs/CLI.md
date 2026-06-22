@@ -59,7 +59,7 @@ Diagnose the setup: config, active profile, gateway health, `ANTHROPIC_BASE_URL`
 
 | Flag | Description |
 |---|---|
-| `--strict` | Exit 1 on advisory warnings (gateway not running / `ANTHROPIC_BASE_URL` unset) as well as hard failures — for CI / scripted health checks |
+| `--strict` | Exit 1 on advisory warnings (gateway not running / `ANTHROPIC_BASE_URL` unset or pointing elsewhere) as well as hard failures — for CI / scripted health checks |
 
 **Exit-code contract:**
 

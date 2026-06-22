@@ -234,8 +234,8 @@ enum Cmd {
 
     /// Remove the service and GUI/login env hooks that `install` set up.
     /// Does NOT edit your shell rc — the `# >>> trimwire >>>` block that
-    /// exports ANTHROPIC_BASE_URL is left in place; delete it by hand (the
-    /// command prints the exact lines), then restart your shell.
+    /// exports ANTHROPIC_BASE_URL is left in place; delete that block by hand
+    /// (the command points you to it), then restart your shell.
     #[command(display_order = 11)]
     Uninstall,
 
