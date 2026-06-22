@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.10](https://github.com/AZagatti/trimwire/compare/v0.3.9...v0.3.10) - 2026-06-22
+
+### Fixed
+
+- *(doctor)* --strict fails in pre-install state + release polish ([#75](https://github.com/AZagatti/trimwire/pull/75))
+- proxy/code hygiene (P3-3, P3-4, P3-5) + document P2-7 lock tradeoff ([#71](https://github.com/AZagatti/trimwire/pull/71))
+
+### Other
+
+- UX clarity (P2-8, P2-9, P2-10, P3-8, P3-9, P3-10, P3-12) ([#73](https://github.com/AZagatti/trimwire/pull/73))
+- reconcile benchmark numbers + trust wording (P2-1, P2-2, P3-11, ToS) ([#72](https://github.com/AZagatti/trimwire/pull/72))
+
+### Security
+
+- owner-only local files + don't leak internals in 502 (P2-6, P3-1, P3-2) ([#70](https://github.com/AZagatti/trimwire/pull/70))
+- prevent shell injection via project [server] listen (P1-1) ([#67](https://github.com/AZagatti/trimwire/pull/67))
+
 ## [0.3.9](https://github.com/AZagatti/trimwire/compare/v0.3.8...v0.3.9) - 2026-06-22
 
 ### Other
