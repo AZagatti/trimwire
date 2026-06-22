@@ -147,7 +147,7 @@ api_key_env = "ANTHROPIC_API_KEY"
 id = "zai"
 style = "anthropic"
 base_url = "https://api.z.ai/api/anthropic"
-model = "glm-4.6"
+model = "glm-5.2"   # GLM-5.x is reliable; GLM-4.x FAILS @128 KB (see MODEL-COMPATIBILITY.md)
 api_key_env = "ZAI_API_KEY"
 
 # Z.ai — OpenAI-compatible endpoint (non-standard /paas/v4 path → use full_url)
@@ -155,7 +155,7 @@ api_key_env = "ZAI_API_KEY"
 id = "zai-openai"
 style = "openai"
 full_url = "https://api.z.ai/api/paas/v4/chat/completions"
-model = "glm-4.6"
+model = "glm-5.2"   # GLM-5.x is reliable; GLM-4.x FAILS @128 KB (see MODEL-COMPATIBILITY.md)
 api_key_env = "ZAI_API_KEY"
 
 # Azure OpenAI (deployment URL with api-version → use full_url)
@@ -212,8 +212,11 @@ the prompt cache stays warm after the initial one-time bust.
 
 The **accumulator** (default on; appends new frozen delta segments rather than
 replacing the whole summary on each re-summarization, so older segments stay
-byte-frozen and the cache only busts on the new delta) delivers measured savings
-of **-64.6% cost vs baseline** on a real 981-turn session.
+byte-frozen and the cache only busts on the new delta) helps most on long
+sessions. Savings are a **range that grows with session length** — short
+sessions are a wash; one long real session (981 turns) reached **up to roughly −65%
+cache-weighted cost vs baseline** (observed best case, not a guarantee; the exact
+figure and method are in the benchmark artifacts).
 
 > **What "cost" means here.** trimwire's cost figure is **cache-weighted tokens** —
 > `input + 0.1·cache_read + 1.25·cache_creation` — because every turn re-sends the
@@ -223,7 +226,7 @@ of **-64.6% cost vs baseline** on a real 981-turn session.
 > weighted tokens = more turns before you hit the wall). "Savings" is the reduction
 > in that figure vs sending the un-pruned body. It is **non-monotonic**: pruning that
 > churns the cached prefix can cost *more* on short sessions — which is why reprune
-> (cache-stable replay) is on by default. The −64.6% above is a long-session figure,
+> (cache-stable replay) is on by default. The ~−65% above is a long-session best case,
 > not a universal one; short sessions are a wash. See [`BENCHMARK.md`](BENCHMARK.md) §5.
 
 The summarizer is built from the **original, un-pruned** messages (trimwire snapshots
@@ -257,13 +260,15 @@ deterministic strategies still run (and remain the full fallback when the summar
 off or fails) — they simply own less of the old region once the summary covers it.
 
 > **`slice_char_budget` has a per-MODEL fidelity ceiling — validate before raising it.**
-> The 128 KB API default is a safe floor for low-tier models. Measured retention ceilings
+> The 128 KB API default is the conservative starting point, not a universal guarantee —
+> even 128 KB isn't safe for every model (the GLM-4.x family fails it at N=10; see below).
+> Don't raise it without probing. Measured retention ceilings
 > (12 verbatim facts, `examples/api_harm`):
 >
 > | Model class | Safe `slice_char_budget` | Notes |
 > |---|---|---|
 > | Unknown / low-tier models | **128 KB** (the default) | The conservative floor — don't raise it without gating the model below. Note the **GLM-4.x family (incl. 4.5-Air) FAILS 128 KB at N=10** ([MODEL-COMPATIBILITY.md](MODEL-COMPATIBILITY.md)); prefer GLM-5.x. |
-> | **GLM-5 / GLM-5-Turbo / GLM-5.1** | **~700 KB** (much more) | Reliable through ~512 KB, ~92% at 768 KB. Big coverage win — point the summarizer at a GLM-5-class model and set e.g. `slice_char_budget = 720896`. |
+> | **GLM-5 / GLM-5-Turbo / GLM-5.1 / GLM-5.2** | **~768 KB** (much more) | Whole GLM-5.x family (incl. the newest **GLM-5.2**) is solid at the N=10-verified 128 KB; the ~512 KB and **~92% at 768 KB points are single-run (N=1), directional** ceilings — verify with `probe … --runs 10` before relying on it. Big coverage win — point the summarizer at a GLM-5-class model and set e.g. `slice_char_budget = 720896`. |
 >
 > There's a clear capability cliff between the GLM-4.x and GLM-5 generations. **Default
 > stays 128 KB (protects weak models); raise it only on a model you've gated.** To find a

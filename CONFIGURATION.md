@@ -49,7 +49,7 @@ order; anything you set by hand still wins.
 
 | profile | strategies | who it's for |
 |---|---|---|
-| `default` *(shipped)* | All eight cache-safe strategies with aggressive knobs: mostly `keep_recent_turns=2` (a few wider — `stale_reads`/`thinking_strip` keep 4), bloat cap 4 KB, image keep 1, verb-class denylist for browser tools, plus `stale_input_cap`, `stale_reads`, `thinking_strip`, and reprune on. (Exact per-strategy values are in the sections below.) | Most people, especially Max/quota-rich or long sessions. Cleanest context, kept cache-stable by reprune. |
+| `default` *(shipped)* | All eight cache-safe strategies with aggressive knobs: mostly `keep_recent_turns=2` (a few wider — `stale_reads`/`thinking_strip` keep 4), bloat cap 4 KB, image keep 1, verb-class denylist for browser tools, plus `stale_input_cap`, `stale_reads`, `thinking_strip`, and reprune on. (Exact per-strategy values are in the sections below.) | Most people; especially long or tool-heavy sessions. Cleanest context, kept cache-stable by reprune. |
 | `gentle` | `cross_turn_dedup` + `failed_input_purge` + conservative `bloat_cap` (32 KB / keep 6) + `thinking_strip` (keep 8) + reprune. `stale_input_cap`, `stale_reads`, `sliding_window`, and `image_strip` are off. | Lightest-touch option; least pruning, least rot protection. |
 
 Both profiles turn on stable-prefix re-pruning (`[reprune]`), which keeps the
@@ -313,9 +313,10 @@ accept_ratio  = 1.0           # 1.0 = strict (keep summary only if smaller than 
 endpoint = "http://localhost:11434"
 model    = "qwen3.5:4b"       # an approved local tag; weaker tags are warned/refused
 max_num_ctx = 25600           # ollama num_ctx + local slice budget (≈max_num_ctx×2.5−2000
-#                             # chars ≈ 60 KB). Raise to 40000 (≈96 KB) on a GPU/high-RAM
-#                             # box for more coverage (qwen3.5:4b held ~92% near this size);
-#                             # KV cache only grows when a slice is actually that big.
+#                             # chars ≈ 60 KB). KEEP THE DEFAULT for qwen3.5:4b: raising to
+#                             # 40000 (≈96 KB) FAILS it (N=10: 0/10, drops the same ~2 facts
+#                             # every run) — see MODEL-COMPATIBILITY.md. Only raise on a model
+#                             # you've gated at the larger size with `summarizer probe`.
 #                             # Clamped at 131072.
 keep_alive_secs = 0           # 0 = unload the model from RAM after each summarizer call
 #                             # (RAM-saving default). Raise (e.g. 60) to keep it warm

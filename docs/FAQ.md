@@ -35,7 +35,7 @@ documented examples of the **same** pattern. Specifically, trimwire:
 
 - keeps **Claude Code itself as the client, verbatim** (same binary, system prompt,
   User-Agent) — trimwire is not a client;
-- **never modifies `system` or `tools[]`** — only the conversation `messages[]`;
+- **never modifies `system` (on the default path) or `tools[]`** — only the conversation `messages[]`;
 - **forwards your auth header unchanged** and never originates its own model calls on
   your token. No CA cert, no TLS interception, no binary patching.
 
@@ -178,6 +178,22 @@ there — it just doesn't get the redundant bytes. Strategies only remove conten
 that is structurally redundant (e.g. superseded by a later identical call) or
 older than the configured window — never anything based on a semantic judgement
 of what the model "needs".
+
+## What if trimwire pruned an old detail I still need?
+
+Keep `default` on and **ask the agent to re-read the file or re-run the tool** —
+the underlying data is still on disk; pruning only changes what's sent on *this*
+request, not your history. The `[trimwire: …]` markers are **retrieval cues**:
+they tell the model exactly what was elided and where, so it can fetch the source
+again instead of guessing.
+
+That's the recommended recall-critical path: **`default` ON + agentic re-read**,
+not switching to `gentle`. `gentle` is a *lighter-touch, lower-savings* profile —
+it prunes less, but it is not a "recall mode" and not safer; relying on re-read
+keeps full savings while still letting the agent recover any specific detail on
+demand. (When a session overflows the context window, any lossy step — a
+summarizer or a plain window cutoff — can discard older detail; trimwire's
+per-request pruning leaves a `[trimwire: …]` cue so the agent can re-read it.)
 
 ## Does it work with API key, Pro, and Max?
 

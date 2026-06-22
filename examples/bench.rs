@@ -131,7 +131,7 @@ fn report(with_timing: bool) {
     println!(
         "> **TL;DR** — request size **0–99% lighter** by session shape (nothing when\n\
          > there's no redundancy); the point is **context-window headroom**, not money;\n\
-         > cost is non-monotonic (wash-to-loss short, ≈ −52% at 256 turns); **sub-2 ms**\n\
+         > cost is non-monotonic (wash-to-loss short, ≈ −55% at 256 turns — §6b computes −54.6%); **sub-2 ms**\n\
          > overhead; orphan-free + `system` untouched on every corpus + a 3,000-body fuzz.\n"
     );
     println!(
@@ -249,8 +249,9 @@ fn report(with_timing: bool) {
          > (`*screenshot*`/`*navigate*`/`*click*`/`*browser_act*`/`Grep`),\n\
          > and reprune on — cleans hardest while keeping reference-data MCP results.\n\
          > **`gentle`** = dedup + failed-input-purge + a *conservative* bloat_cap\n\
-         > (32 KB / keep 6) + reprune; sliding-window and image-strip off (lightest\n\
-         > touch, for cost-sensitive sessions). Pick with `profile = \"…\"` in your\n\
+         > (32 KB / keep 6) + a *conservative* thinking_strip (keep 8) + reprune;\n\
+         > sliding-window, stale_reads, stale_input_cap, and image-strip off (lightest\n\
+         > touch, least pruning). Pick with `profile = \"…\"` in your\n\
          > config. Their *cost* behaviour is not what you'd guess — see §5.\n"
     );
 

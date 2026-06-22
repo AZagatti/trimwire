@@ -2,7 +2,7 @@
 
 > **TL;DR** — request size **0–99% lighter** by session shape (nothing when
 > there's no redundancy); the point is **context-window headroom**, not money;
-> cost is non-monotonic (wash-to-loss short, ≈ −52% at 256 turns); **sub-2 ms**
+> cost is non-monotonic (wash-to-loss short, ≈ −55% at 256 turns — §6b computes −54.6%); **sub-2 ms**
 > overhead; orphan-free + `system` untouched on every corpus + a 3,000-body fuzz.
 
 Deterministic synthetic `/v1/messages` bodies fed through the real strategy
@@ -114,8 +114,9 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 > (`*screenshot*`/`*navigate*`/`*click*`/`*browser_act*`/`Grep`),
 > and reprune on — cleans hardest while keeping reference-data MCP results.
 > **`gentle`** = dedup + failed-input-purge + a *conservative* bloat_cap
-> (32 KB / keep 6) + reprune; sliding-window and image-strip off (lightest
-> touch, for cost-sensitive sessions). Pick with `profile = "…"` in your
+> (32 KB / keep 6) + a *conservative* thinking_strip (keep 8) + reprune;
+> sliding-window, stale_reads, stale_input_cap, and image-strip off (lightest
+> touch, least pruning). Pick with `profile = "…"` in your
 > config. Their *cost* behaviour is not what you'd guess — see §5.
 
 ## 3. Per-strategy contribution (default config)
@@ -306,21 +307,21 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 
 | Corpus | Body | min | median | mean | p99 | stddev | round spread |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| `pure_chat_floor` | 11.0 KB | 0.014 | 0.016 | 0.018 | 0.050 | 0.010 | 0.015–0.017 ms |
-| `exempt_heavy` | 58.8 KB | 0.109 | 0.125 | 0.143 | 0.315 | 0.070 | 0.116–0.148 ms |
-| `read_heavy` | 85.3 KB | 0.239 | 0.263 | 0.297 | 0.601 | 0.093 | 0.259–0.271 ms |
-| `unique_bash_spam` | 223.6 KB | 0.454 | 0.493 | 0.566 | 1.228 | 0.359 | 0.482–0.629 ms |
-| `at_the_boundary` | 145.1 KB | 0.269 | 0.300 | 0.335 | 0.735 | 0.133 | 0.294–0.316 ms |
-| `repeated_grep` | 31.3 KB | 0.137 | 0.151 | 0.170 | 0.360 | 0.057 | 0.147–0.160 ms |
-| `coding` | 49.5 KB | 0.222 | 0.245 | 0.278 | 0.578 | 0.123 | 0.241–0.263 ms |
-| `mixed_realistic` | 364.5 KB | 0.908 | 1.002 | 1.127 | 2.176 | 0.290 | 0.961–1.314 ms |
-| `mcp_non_playwright` | 131.1 KB | 0.292 | 0.324 | 0.364 | 0.720 | 0.129 | 0.318–0.344 ms |
-| `long_running` | 135.2 KB | 0.390 | 0.416 | 0.458 | 0.894 | 0.165 | 0.412–0.436 ms |
-| `resumed_session` | 187.9 KB | 0.749 | 0.813 | 0.885 | 1.646 | 0.206 | 0.806–0.832 ms |
-| `browser_heavy` | 424.7 KB | 0.727 | 0.811 | 0.925 | 1.804 | 0.256 | 0.767–1.054 ms |
-| `giant_paste` | 509.7 KB | 0.853 | 0.974 | 1.092 | 2.127 | 0.399 | 0.923–1.274 ms |
-| `stale_input_heavy` | 15.8 KB | 0.063 | 0.073 | 0.082 | 0.177 | 0.104 | 0.067–0.083 ms |
-| `thinking_heavy` | 14.0 KB | 0.069 | 0.081 | 0.096 | 0.226 | 0.094 | 0.075–0.099 ms |
+| `pure_chat_floor` | 11.0 KB | 0.015 | 0.017 | 0.021 | 0.049 | 0.013 | 0.016–0.020 ms |
+| `exempt_heavy` | 58.8 KB | 0.110 | 0.124 | 0.141 | 0.294 | 0.123 | 0.119–0.152 ms |
+| `read_heavy` | 85.3 KB | 0.241 | 0.266 | 0.299 | 0.637 | 0.096 | 0.262–0.280 ms |
+| `unique_bash_spam` | 223.6 KB | 0.460 | 0.529 | 0.597 | 1.105 | 0.249 | 0.495–0.640 ms |
+| `at_the_boundary` | 145.1 KB | 0.267 | 0.300 | 0.339 | 0.687 | 0.111 | 0.294–0.347 ms |
+| `repeated_grep` | 31.3 KB | 0.141 | 0.156 | 0.177 | 0.370 | 0.082 | 0.151–0.172 ms |
+| `coding` | 49.5 KB | 0.227 | 0.252 | 0.284 | 0.563 | 0.125 | 0.247–0.293 ms |
+| `mixed_realistic` | 364.5 KB | 0.907 | 1.019 | 1.144 | 2.222 | 0.328 | 0.964–1.305 ms |
+| `mcp_non_playwright` | 131.1 KB | 0.296 | 0.327 | 0.364 | 0.713 | 0.109 | 0.324–0.340 ms |
+| `long_running` | 135.2 KB | 0.395 | 0.427 | 0.473 | 0.874 | 0.157 | 0.422–0.452 ms |
+| `resumed_session` | 187.9 KB | 0.758 | 0.840 | 0.924 | 1.668 | 0.230 | 0.824–0.859 ms |
+| `browser_heavy` | 424.7 KB | 0.746 | 0.850 | 0.960 | 2.098 | 0.312 | 0.793–1.043 ms |
+| `giant_paste` | 509.7 KB | 0.887 | 0.977 | 1.096 | 2.085 | 0.270 | 0.927–1.289 ms |
+| `stale_input_heavy` | 15.8 KB | 0.064 | 0.074 | 0.086 | 0.209 | 0.116 | 0.069–0.088 ms |
+| `thinking_heavy` | 14.0 KB | 0.072 | 0.094 | 0.099 | 0.198 | 0.079 | 0.079–0.105 ms |
 
 > Milliseconds for the whole transform (parse → prune → re-serialize), 5
 > rounds × {2000 | 200 for the big body} iterations after warm-up. Off the

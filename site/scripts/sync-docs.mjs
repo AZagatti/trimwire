@@ -30,6 +30,8 @@ const outDir = join(__dirname, "..", "src", "content", "docs", "guides");
 // GitHub-only, and the maintainer's planning/research notes live in the
 // gitignored `internal/` folder — neither is published to the site.
 const DOCS = [
+  ["OVERVIEW.md", "What is trimwire?", 0],
+  ["FOR-AGENTS.md", "For agents (LLMs)", 12],
   ["FAQ.md", "FAQ & Trust", 1],
   ["SUMMARIZER.md", "Summarizer (optional)", 2],
   ["TELEMETRY.md", "Telemetry (share stats)", 3],

@@ -26,7 +26,8 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     /// Pruning profile: `"default"` (aggressive, all eight cache-safe strategies — the
     /// shipped default) or `"gentle"` (lightest touch: dedup + purge + conservative
-    /// bloat_cap, no sliding-window or image-strip). Seeds the strategy knobs
+    /// bloat_cap + conservative thinking_strip (keep 8); no sliding-window, stale_reads,
+    /// stale_input_cap, or image-strip). Seeds the strategy knobs
     /// below; explicit keys still override it. `None` ⇒ `"default"`.
     pub profile: Option<String>,
     pub server: ServerConfig,
@@ -801,16 +802,18 @@ pub const PROFILES: &[&str] = &["default", "gentle"];
 /// still be overridden. This is the **single source of truth** for the presets
 /// — the install template and the benchmark both derive from it.
 ///
-/// - `"default"` — aggressive (the shipped default, good for Max / quota-rich):
+/// - `"default"` — aggressive (the shipped default), cleanest context:
 ///   all eight cache-safe strategies with tight knobs (incl. `stale_input_cap`
 ///   and `stale_reads`). `sliding_window` denylists throwaway
-///   verb-class tools (`*screenshot*`, `*navigate*`, `*click*`, `*act*`, `Grep`)
+///   verb-class tools (`*screenshot*`, `*navigate*`, `*click*`, `*browser_act*`, `Grep`)
 ///   so reference-data MCP results (e.g. DB queries) are preserved while
 ///   browser-automation noise is pruned.
-/// - `"gentle"` — lightest touch (good for Pro / pay-per-token):
+/// - `"gentle"` — lightest touch (least pruning, least rot protection):
 ///   `cross_turn_dedup` + `failed_input_purge` + conservative `bloat_cap`
-///   (high threshold, large keep-recent window) so the session still trims
-///   genuinely oversized results; `sliding_window` and `image_strip` are off.
+///   (high threshold, large keep-recent window) + conservative `thinking_strip`
+///   (keep_recent=8) so the session still trims genuinely oversized results and
+///   old reasoning; `sliding_window`, `stale_reads`, `stale_input_cap`, and
+///   `image_strip` are off.
 ///
 /// An unrecognised name falls back to `"default"`.
 pub fn profile_baseline(name: &str) -> Config {

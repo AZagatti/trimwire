@@ -7,9 +7,10 @@ head:
     content: "trimwire — keep Claude Code's context lean"
 hero:
   tagline: >
-    Claude Code sessions degrade as context fills up. trimwire prunes the
-    dead weight on every request — silently, in under 2 ms, with no
-    certificate, no restart, and no credential changes. The same gateway
+    Claude Code sessions fill up with redundant context — old reads, superseded
+    tool output, stale reasoning. trimwire prunes the
+    dead weight on every request — silently, typically in under 2 ms (host-dependent),
+    with no certificate, no restart, and no credential changes. The same gateway
     pattern as LiteLLM, Vercel AI Gateway, and Cloudflare AI Gateway.
   actions:
     - text: Get started
@@ -38,6 +39,10 @@ Every Claude Code session piles up dead weight: re-reads of files you've since
 edited, old tool output that scrolled off three tools ago, reasoning blocks from
 problems already solved. All of it ships to Anthropic on **every** request,
 crowding out the context that actually matters right now.
+
+New here? Read **[What is trimwire?](/guides/overview/)** — what it is, recommended
+defaults, what the numbers mean, and the limits.<br />
+Building an agent? See **[For agents (LLMs)](/guides/for-agents/)** for a machine-readable summary.
 
 ## Transparent by design
 
@@ -112,7 +117,7 @@ forwards your original bytes unchanged. The worst case is "no pruning this turn.
   </Card>
   <Card title="ToS-safe (API keys)">
     `ANTHROPIC_BASE_URL` is Anthropic's documented gateway mechanism. Claude Code
-    stays verbatim; `system` is never altered. On a Pro/Max OAuth subscription
+    stays verbatim; `system` is never altered on the default path. On a Pro/Max OAuth subscription
     it's a greyer area — see [FAQ & Trust](/guides/faq/).
   </Card>
   <Card title="Try it risk-free">

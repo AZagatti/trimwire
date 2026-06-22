@@ -411,7 +411,7 @@ pub fn doctor() -> Result<()> {
                 } else {
                     println!(
                         "{} summarizer.local.model = {m} is unvalidated — summary fidelity is \
-                         unverified for it (approved: qwen3.5:4b, qwen3.5:2b)",
+                         unverified for it (approved: qwen3.5:4b, qwen3.5:4b-q8_0, qwen3.5:9b, qwen3.5:2b)",
                         render::warn()
                     );
                 }
@@ -555,13 +555,14 @@ const CONFIG_TEMPLATE: &str = r#"# trimwire configuration. See https://github.co
 # A per-project ./.trimwire.toml overrides these; TRIMWIRE_* env vars win last.
 
 # Pruning profile — the one knob most people need:
-#   "default"  aggressive (the shipped default, good for Max / quota-rich):
+#   "default"  aggressive (the shipped default), cleanest context:
 #              all eight cache-safe strategies with tight knobs. Sliding window denylists
 #              throwaway browser-automation verbs (*screenshot*, *navigate*,
 #              *click*, *browser_act*, Grep) while preserving reference-data MCP results.
-#   "gentle"   lightest touch (good for Pro / pay-per-token): de-duplication
+#   "gentle"   lightest touch (least pruning): de-duplication
 #              of repeated calls + dropping old failed inputs + conservative
-#              bloat-cap (>32 KB). No sliding window or image stripping.
+#              bloat-cap (>32 KB) + conservative thinking_strip (keep 8).
+#              No sliding window, stale_reads, stale_input_cap, or image stripping.
 profile = "default"
 
 [server]
@@ -605,7 +606,7 @@ retain_days = 365
 # # Local ollama backend (engine = "local"):
 # [summarizer.local]
 # endpoint       = "http://localhost:11434"
-# model          = "qwen3.5:4b"             # only harm-validated model; don't downgrade
+# model          = "qwen3.5:4b"             # default harm-validated model (others approved: qwen3.5:4b-q8_0, qwen3.5:9b); don't downgrade
 #
 # # Cloud API backend — define one or more named providers:
 # # PRIVACY: the prunable slice is sent to your chosen provider to be summarized.

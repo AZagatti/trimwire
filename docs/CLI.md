@@ -395,7 +395,7 @@ trimwire man --out ./man/      # write all pages for packaging
 |---|---|
 | `ANTHROPIC_BASE_URL` | Points Claude Code at the trimwire gateway. Set automatically by `trimwire install`; `unset` it to send Claude Code straight to Anthropic. (`trimwire off` only stops the gateway — with this var still set, calls then fail until `trimwire on` or you unset it.) |
 | `TRIMWIRE_LOG` | Log verbosity for the gateway: `warn` (default), `info`, `debug`. Logs go to stderr. Example: `TRIMWIRE_LOG=info trimwire run` (the foreground gateway picks up the env). |
-| `TRIMWIRE_AUDIT` | Opt-in metadata-only wire audit: append one JSONL line per request describing its *shape* (counts/flags + cache-prefix structure, never content) to `<file>`. Same as `--audit <file>`. See [CONFIGURATION.md](../CONFIGURATION.md). Off when unset |
+| `TRIMWIRE_AUDIT` | Opt-in metadata-only wire audit: append one JSONL line per request describing its *shape* (counts/flags + cache-prefix structure, never content) to `<file>`. Same as `--audit <file>`. See [CONFIGURATION.md](https://github.com/AZagatti/trimwire/blob/main/CONFIGURATION.md). Off when unset |
 
 ---
 

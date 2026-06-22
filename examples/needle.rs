@@ -212,8 +212,8 @@ fn main() {
     }
     println!(
         "\n> `default` = aggressive (all eight cache-safe strategies, verb-class denylist, thinking_strip on).\n\
-         > `gentle` = conservative (dedup + failed_input_purge + bloat_cap@32KB; \
-         stale_input_cap/stale_reads/sliding_window/image_strip/thinking_strip off).\n\
+         > `gentle` = conservative (dedup + failed_input_purge + bloat_cap@32KB + thinking_strip@keep8; \
+         stale_input_cap/stale_reads/sliding_window/image_strip off).\n\
          > NEEDLE_MIDDLE drop is bloat_cap (head+tail only) — only offload-to-artifact recovers it.\n\
          > NEEDLE_FAILCMD drop is failed_input_purge blanking input — shape-preserving purge keeps it.\n\
          > NEEDLE_READ_STALE drops in `default` (stale_reads), survives in `gentle`. NEEDLE_READ_LIVE / \
