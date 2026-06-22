@@ -31,10 +31,20 @@ jobs:
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: write
       pull-requests: read
     steps:
+      # Fail fast BEFORE checkout/toolchain so a missing PAT can't waste setup time.
+      - name: Require RELEASE_PLZ_TOKEN
+        env:
+          PAT: ${{ secrets.RELEASE_PLZ_TOKEN }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "::error::RELEASE_PLZ_TOKEN (PAT) is not set. A release created with the default GITHUB_TOKEN does not trigger release.yml, so no binaries would attach. Refusing to publish a binary-less release." >&2
+            exit 1
+          fi
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -47,12 +57,13 @@ jobs:
         with:
           command: release
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: write
       pull-requests: write
@@ -72,5 +83,6 @@ jobs:
         with:
           command: release-pr
         env:
+          # Opening a release PR with GITHUB_TOKEN is harmless; only the publish step (release-plz-release) needs the PAT.
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
