@@ -205,7 +205,15 @@ pub fn doctor(strict: bool) -> Result<()> {
         println!();
         println!("→ run `trimwire install` to set up the gateway, shell env, and starter config.");
         println!("→ run `trimwire doctor` again after install to verify the setup.");
-        return Ok(()); // exit 0 — pre-install is not a failure
+        if strict {
+            // Pre-install is an advisory state (not installed / gateway down / env
+            // unset). `--strict` exists for CI / scripted health checks, which must
+            // fail when trimwire isn't set up at all — matching the documented
+            // contract in docs/CLI.md. Plain `doctor` still returns 0 below so
+            // `trimwire doctor && claude` works on a fresh machine.
+            std::process::exit(1);
+        }
+        return Ok(()); // exit 0 — pre-install is not a failure (non-strict default)
     }
 
     // ── Installed (or partial) — run the full health check ─────────────────

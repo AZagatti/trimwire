@@ -215,6 +215,32 @@ fn doctor_pre_install_exits_zero() {
     );
 }
 
+/// Regression (release-polish): in the pre-install state (no config, no env,
+/// gateway down) plain `doctor` exits 0 — but `doctor --strict` must exit
+/// non-zero, matching the documented `--strict` contract in docs/CLI.md (it's
+/// for CI / scripted health checks, which should fail when trimwire isn't set up
+/// at all). The pre-install early-return previously bypassed the strict check.
+#[test]
+fn doctor_strict_pre_install_exits_nonzero() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(bin())
+        .args(["doctor", "--strict"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .output()
+        .expect("spawn doctor --strict");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !out.status.success(),
+        "doctor --strict must exit non-zero in pre-install state. got: {s}"
+    );
+    assert!(
+        s.contains("not installed yet"),
+        "still prints pre-install guidance: {s}"
+    );
+}
+
 /// `trimwire doctor` — installed-but-gateway-not-running: config file EXISTS (so
 /// it's not pre-install), but the gateway is not up and `ANTHROPIC_BASE_URL` is
 /// not set. Both are ADVISORY/recoverable, so doctor exits 0 (so that

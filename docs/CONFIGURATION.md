@@ -193,6 +193,12 @@ Elides an old `Read` whose file was later superseded (re-read / Write / Edit on
 the same path), and demand-pages the *last* read of a path once it exceeds
 `page_min_bytes`. Never breaks a tool pair.
 
+**Hot-path guard:** a path the model has `Read` **more than once** in the session
+is never demand-paged. Paging the current view of a file the model keeps needing
+would just force another re-read (paged out again next turn) — a read-spiral. So
+demand-paging only pages genuinely one-shot large reads; a file you keep
+re-reading is treated as hot and left verbatim.
+
 ```toml
 [strategies.stale_reads]
 enabled = true
