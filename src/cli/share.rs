@@ -589,6 +589,9 @@ fn read_or_create_install_id(data_dir: &std::path::Path) -> Result<String> {
     let write_result = (|| -> Result<()> {
         let mut f =
             std::fs::File::create(&tmp).with_context(|| format!("create tmp {}", tmp.display()))?;
+        // Tighten BEFORE writing + rename so the install-id is never briefly
+        // world-readable at the final path (rename preserves the inode's mode).
+        let _ = trimwire::fsperm::restrict_to_owner(&tmp);
         f.write_all(hex_id.as_bytes())
             .with_context(|| format!("write tmp {}", tmp.display()))?;
         std::fs::rename(&tmp, &path)
@@ -600,6 +603,9 @@ fn read_or_create_install_id(data_dir: &std::path::Path) -> Result<String> {
         std::fs::write(&path, hex_id.as_bytes())
             .with_context(|| format!("write install id to {}", path.display()))?;
     }
+    // Owner-only perms (0600 on Unix): the install-id is an HMAC key (never transmitted);
+    // keep it off other local users' eyes. Best-effort, on the final path.
+    let _ = trimwire::fsperm::restrict_to_owner(&path);
     Ok(hex_id)
 }
 

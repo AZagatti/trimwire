@@ -104,6 +104,11 @@ impl Ledger {
         }
         let conn =
             Connection::open(&path).with_context(|| format!("open ledger {}", path.display()))?;
+        // Owner-only perms (0600 on Unix): the ledger holds no message content, but on a
+        // shared host it should not be world-readable. Best-effort — a perms failure must
+        // not disable the ledger. (The WAL/SHM sidecars inherit umask and carry the same
+        // content-free page data; the durable store is this main DB file.)
+        let _ = crate::fsperm::restrict_to_owner(&path);
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "busy_timeout", 5000)?;

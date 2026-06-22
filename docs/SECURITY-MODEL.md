@@ -54,7 +54,12 @@ Two opt-in features can send data, and only when you turn them on:
 - **The optional wire audit** (`--audit` / `TRIMWIRE_AUDIT`, off by default)
   writes one JSONL line per request with *shape metadata only* — counts, sizes,
   flags, the model, the `anthropic-beta` header, and a session id — and **never**
-  message content, tool input, or result text. It's a local debugging aid.
+  message content, tool input, or result text. It's a local debugging aid. The
+  one structural identifier worth noting: it records the request's tool-definition
+  *names*, which for MCP servers look like `mcp__<server>__<tool>` and can reveal
+  configured MCP server names — so treat the audit file like your MCP config. It
+  is created owner-only (`0600` on Unix), as are the ledger DB and the telemetry
+  install-id.
 - **Your transcripts are untouched.** trimwire shapes the request on the wire; it
   never writes to your `~/.claude` session files. (The separate, explicit
   `trimwire sweep` command is the only thing that edits on-disk transcripts, and
