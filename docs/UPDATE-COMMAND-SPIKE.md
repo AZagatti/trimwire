@@ -1,5 +1,10 @@
 # Design spike: `trimwire update` (self-updater)
 
+> **Internal maintainer design note — NOT a user guide and NOT a committed
+> roadmap.** Nothing here is promised or scheduled. For how to update trimwire
+> today, see [FAQ.md](FAQ.md#how-do-i-install-it). This file exists to capture the
+> security/design questions an updater would have to answer before it could be built.
+
 **Status:** spike / needs owner sign-off (product + security decision). Not implemented.
 **Audit item:** P2-11 (no `trimwire update`/`upgrade`; update path was buried).
 

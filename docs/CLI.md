@@ -59,13 +59,13 @@ Diagnose the setup: config, active profile, gateway health, `ANTHROPIC_BASE_URL`
 
 | Flag | Description |
 |---|---|
-| `--strict` | Exit 1 on advisory warnings (gateway not running / `ANTHROPIC_BASE_URL` unset or pointing elsewhere) as well as hard failures — for CI / scripted health checks |
+| `--strict` | Exit 1 when trimwire is not installed yet, on advisory warnings (gateway not running / `ANTHROPIC_BASE_URL` unset or pointing elsewhere), and on hard failures — for CI / scripted health checks |
 
 **Exit-code contract:**
 
 - Exit 0 by default for advisory states (gateway not yet started, `ANTHROPIC_BASE_URL` not set in this shell). These are normal right after install while the service is warming up, so `trimwire doctor && claude` works without failing.
 - Exit 1 on hard failures: a config that won't load/parse, an unparseable listen address, or a disqualified summarizer model.
-- With `--strict`: exit 1 on any advisory warning **or** hard failure — use this in CI health checks.
+- With `--strict`: exit 1 when trimwire is **not installed yet**, on any advisory warning, **or** on a hard failure — use this in CI health checks.
 
 ```sh
 trimwire doctor              # advisory warnings exit 0 (safe for post-install scripts)

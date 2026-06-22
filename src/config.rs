@@ -1036,11 +1036,19 @@ impl Config {
         // the trusted value (global config / `TRIMWIRE_*` env), then the built-in default.
         // (`/` is intentionally NOT allowed: callers add the `http://` scheme prefix AFTER
         // this validation, so a valid host:port never needs a slash.)
+        // The charset allowlist is the shell-injection guard; the SocketAddr parse is
+        // the correctness guard. `listen` is a LOCAL bind address parsed as a
+        // `std::net::SocketAddr` (IP:port) by every downstream consumer (install /
+        // service / run / status). A hostname like `localhost:8765` passes the charset
+        // filter but is NOT a valid SocketAddr — without this it would be accepted here,
+        // then silently skip the service install and hard-fail `on`/`status`/`run`.
+        // Require an IP:port up front and fall back to the trusted/default value.
         let is_unsafe_listen = |s: &str| {
             s.is_empty()
                 || s.chars().any(|c| {
                     !(c.is_ascii_alphanumeric() || matches!(c, ':' | '.' | '-' | '[' | ']' | '_'))
                 })
+                || s.parse::<std::net::SocketAddr>().is_err()
         };
         if is_unsafe_listen(&cfg.server.listen) {
             let trusted_listen: String = trusted
@@ -1052,8 +1060,9 @@ impl Config {
                 trusted_listen
             };
             eprintln!(
-                "[trimwire] ignoring `listen` with characters not valid in a host:port \
-                 (only [0-9A-Za-z], `.:-[]_` allowed); using {safe_listen}"
+                "[trimwire] ignoring invalid `listen` — it must be a numeric IP:port \
+                 (e.g. 127.0.0.1:8765 or [::1]:8765), not a hostname, and may not contain \
+                 shell metacharacters; using {safe_listen}"
             );
             cfg.server.listen = safe_listen;
         }
@@ -1968,18 +1977,39 @@ fallback = ["ghost-provider"]
 
     #[test]
     #[allow(clippy::result_large_err)] // figment::Jail's closure dictates the Result type
-    fn load_accepts_valid_ipv6_and_hostname_listen() {
-        // The allowlist must NOT reject legitimate host:port values (IPv6 brackets,
-        // hostnames with dashes/underscores).
-        for ok in ["[::1]:8765", "localhost:8765", "my-host_1:9000"] {
+    fn load_accepts_ipv4_and_ipv6_listen() {
+        // Valid numeric IP:port values (IPv4, IPv6 brackets, wildcard) must be preserved.
+        for ok in ["127.0.0.1:8765", "[::1]:8765", "0.0.0.0:9000", "[::]:8765"] {
             figment::Jail::expect_with(|jail| {
                 jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
                 jail.create_file(".trimwire.toml", &format!("[server]\nlisten = {ok:?}\n"))?;
                 let cfg = Config::load().expect("load");
                 assert_eq!(
                     cfg.server.listen, ok,
-                    "valid listen {ok:?} must be preserved"
+                    "valid IP:port listen {ok:?} must be preserved"
                 );
+                Ok(())
+            });
+        }
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // figment::Jail's closure dictates the Result type
+    fn load_rejects_hostname_listen() {
+        // `listen` is a local bind address parsed as a SocketAddr by install/service/run;
+        // a hostname passes the charset filter but is NOT a valid SocketAddr, so it must
+        // fall back to the default rather than be accepted and silently fail downstream.
+        for bad in ["localhost:8765", "my-host_1:9000", "example.com:8765"] {
+            figment::Jail::expect_with(|jail| {
+                jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
+                jail.create_file(".trimwire.toml", &format!("[server]\nlisten = {bad:?}\n"))?;
+                let cfg = Config::load().expect("load");
+                assert_eq!(
+                    cfg.server.listen, "127.0.0.1:8765",
+                    "hostname listen {bad:?} must fall back to the default IP:port"
+                );
+                // And the fallback is itself a valid SocketAddr.
+                assert!(cfg.server.listen.parse::<std::net::SocketAddr>().is_ok());
                 Ok(())
             });
         }
