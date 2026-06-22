@@ -8,7 +8,7 @@
 //! UserPromptSubmit) hook; it stays silent when healthy and emits a visible
 //! `systemMessage` only when something's wrong. It never blocks the prompt.
 
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 
 use anyhow::Result;
 
@@ -16,7 +16,17 @@ use trimwire::config::Config;
 
 /// Read the hook JSON on stdin (ignored — we only need our own state), and emit
 /// a warning iff trimwire is set-but-down. Exit 0 either way.
+///
+/// TTY guard: if stdin is a terminal (the user ran `trimwire hook` by hand),
+/// print a usage note and return immediately instead of blocking forever.
 pub fn hook() -> Result<()> {
+    if std::io::stdin().is_terminal() {
+        println!(
+            "trimwire hook reads Claude Code hook JSON on stdin; it's meant to be wired as a \
+             hook, not run by hand — see docs/CONFIGURATION.md"
+        );
+        return Ok(());
+    }
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
 

@@ -417,7 +417,7 @@ export function renderEmptyState(root: HTMLElement): void {
     "This leaderboard fills in as people opt in. Contribute the first anonymous, content-free row from a local run:";
   const code = document.createElement("code");
   code.className = "tw-empty-cmd";
-  code.textContent = "trimwire share benchmark";
+  code.textContent = "trimwire share benchmark --yes";
   const link = document.createElement("a");
   link.href = "/guides/benchmark/";
   link.textContent = "How the benchmark works →";

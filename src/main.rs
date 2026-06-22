@@ -232,7 +232,10 @@ enum Cmd {
         boot: bool,
     },
 
-    /// Remove the service, GUI env hooks, and lingering that `install` set up.
+    /// Remove the service and GUI/login env hooks that `install` set up.
+    /// Does NOT edit your shell rc — the `# >>> trimwire >>>` block that
+    /// exports ANTHROPIC_BASE_URL is left in place; delete it by hand (the
+    /// command prints the exact lines), then restart your shell.
     #[command(display_order = 11)]
     Uninstall,
 
@@ -251,7 +254,13 @@ enum Cmd {
 
     /// Diagnose the setup: config, gateway health, env wiring, ledger.
     #[command(display_order = 15)]
-    Doctor,
+    Doctor {
+        /// Exit 1 on advisory warnings (gateway not running / ANTHROPIC_BASE_URL
+        /// unset) as well as hard failures — for CI / scripted health checks.
+        /// Without this flag, advisory states exit 0.
+        #[arg(long)]
+        strict: bool,
+    },
 
     // ---- INSPECT (display_order 20-23) -------------------------------------
     /// Show the savings ledger.
@@ -447,7 +456,9 @@ elvish  — source inline from rc.elv:\n\
     },
 
     /// Start the gateway in the background, then launch `claude` pointed at it.
-    #[command(hide = true)]
+    /// Good for a one-shot run without installing the always-on service.
+    /// Any positional args are forwarded to `claude` (e.g. `trimwire run -- -p prompt`).
+    #[command(display_order = 16)]
     Run {
         /// Args forwarded to `claude`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -458,8 +469,11 @@ elvish  — source inline from rc.elv:\n\
         audit: Option<String>,
     },
 
-    /// Claude Code hook: warn in-session if trimwire is set but not serving (reads JSON on stdin).
-    #[command(hide = true)]
+    /// Claude Code hook: warn in-session when trimwire is configured but not
+    /// serving. Wire as a SessionStart (and/or UserPromptSubmit) hook — reads
+    /// Claude Code hook JSON on stdin, emits a systemMessage only when the
+    /// gateway is down. Silent when healthy. See docs/CONFIGURATION.md.
+    #[command(display_order = 17)]
     Hook,
 }
 
@@ -482,7 +496,7 @@ fn main() -> Result<()> {
         Cmd::On => cli::on(),
         Cmd::Off => cli::off(),
         Cmd::Status => cli::status(),
-        Cmd::Doctor => cli::doctor(),
+        Cmd::Doctor { strict } => cli::doctor(strict),
 
         // INSPECT
         Cmd::Stats {

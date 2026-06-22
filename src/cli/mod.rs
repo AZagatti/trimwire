@@ -128,7 +128,10 @@ pub fn off() -> Result<()> {
                 "    • `unset ANTHROPIC_BASE_URL` to send Claude Code straight to Anthropic in this shell"
             );
             println!(
-                "  (`trimwire uninstall` removes the service but leaves the rc block — it prints the exact lines to delete by hand.)"
+                "  Note: every new shell you open also exports ANTHROPIC_BASE_URL from the \
+                 `# >>> trimwire >>>` block in your shell rc — unset only fixes the current shell. \
+                 To stop ALL shells routing through trimwire, remove that rc block by hand \
+                 (or run `trimwire uninstall`, which prints the exact lines to delete)."
             );
         }
         Err(e) => {
@@ -160,7 +163,9 @@ pub fn status() -> Result<()> {
 ///   claude` works even right after install while the service is warming up.
 /// - exit 1 (✗ lines) only on a genuine hard failure: a config file that won't
 ///   load/parse, an unparseable listen address, or a disqualified summarizer model.
-pub fn doctor() -> Result<()> {
+/// - with `--strict`: advisory states (gateway not running / `ANTHROPIC_BASE_URL`
+///   unset) also exit 1 — for CI / scripted health checks.
+pub fn doctor(strict: bool) -> Result<()> {
     use trimwire::config::Config;
 
     println!("trimwire doctor\n");
@@ -207,8 +212,10 @@ pub fn doctor() -> Result<()> {
     // Accumulate hard failures (✗) across every check, then exit non-zero at the
     // end so `trimwire doctor && claude` / CI healthchecks work. We must NOT
     // return Err for this — anyhow would print an ugly "Error:" line after the
-    // clean diagnostic. Advisory warnings (⚠) never set this.
+    // clean diagnostic. Advisory warnings (⚠) never set `failed`; they set
+    // `warned` so that `--strict` can exit 1 on them too.
     let mut failed = false;
+    let mut warned = false;
 
     let cfg = match Config::load() {
         Ok(c) => {
@@ -249,11 +256,13 @@ pub fn doctor() -> Result<()> {
                 // Not running yet is recoverable (user just needs `trimwire on`).
                 // Don't set failed=true so `trimwire doctor && claude` still works
                 // when the gateway hasn't been started yet after install.
+                // With --strict, set warned=true so the caller can exit 1.
                 println!(
                     "{} gateway not responding on {addr} — start it with `trimwire on` (service) \
                      or `trimwire run`",
                     render::warn()
                 );
+                warned = true;
             }
             match std::env::var("ANTHROPIC_BASE_URL") {
                 Ok(v) if base_url_matches(&v, addr) => {
@@ -267,11 +276,13 @@ pub fn doctor() -> Result<()> {
                         "{} ANTHROPIC_BASE_URL = {v} — does not match the gateway addr {addr}",
                         render::warn()
                     );
+                    warned = true;
                 }
                 Err(_) => {
                     // Not set in the current shell is recoverable (the env var is
                     // written to the shell rc by `trimwire install`; opening a new
                     // terminal or sourcing the rc fixes it). Don't set failed=true.
+                    // With --strict, set warned=true so the caller can exit 1.
                     println!(
                         "{} ANTHROPIC_BASE_URL not set in THIS shell — Claude Code launched here \
                          won't route through trimwire (install adds it to new shells; an IDE/app \
@@ -279,6 +290,7 @@ pub fn doctor() -> Result<()> {
                          export ANTHROPIC_BASE_URL='http://{addr}'",
                         render::warn()
                     );
+                    warned = true;
                 }
             }
         }
@@ -441,10 +453,12 @@ pub fn doctor() -> Result<()> {
         }
     }
 
-    // Non-zero exit on any hard failure (✗) so scripts/CI can gate on it. Exit
-    // cleanly (no anyhow error blast); flush first so no buffered line is lost
-    // when stdout is piped (process::exit skips destructors).
-    if failed {
+    // Non-zero exit on any hard failure (✗) so scripts/CI can gate on it. With
+    // --strict, also exit 1 on advisory warnings (⚠) so CI health checks fail
+    // fast when the gateway is down or ANTHROPIC_BASE_URL is unset. Exit cleanly
+    // (no anyhow error blast); flush first so no buffered line is lost when stdout
+    // is piped (process::exit skips destructors).
+    if failed || (strict && warned) {
         use std::io::Write;
         let _ = std::io::stdout().flush();
         std::process::exit(1);

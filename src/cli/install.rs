@@ -31,7 +31,12 @@ pub fn install(boot: bool) -> Result<()> {
     let listen = Config::load()
         .map(|c| c.server.listen)
         .unwrap_or_else(|_| "127.0.0.1:8765".to_owned());
-    let block = rc_block(&format!("http://{listen}"));
+    let base_url = format!("http://{listen}");
+    let block = if is_fish_shell() {
+        rc_block_fish(&base_url)
+    } else {
+        rc_block(&base_url)
+    };
 
     match shell_rc_path() {
         Some(rc) => {
@@ -505,7 +510,8 @@ fn ensure_rc_block(existing: &str, block: &str) -> Option<String> {
     Some(out)
 }
 
-/// Best-effort shell rc path from `$SHELL` (`~/.zshrc` / `~/.bashrc`).
+/// Best-effort shell rc path from `$SHELL` (`~/.zshrc` / `~/.bashrc` /
+/// `~/.config/fish/config.fish`).
 fn shell_rc_path() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
     let shell = std::env::var("SHELL").unwrap_or_default();
@@ -513,15 +519,64 @@ fn shell_rc_path() -> Option<PathBuf> {
         ".zshrc"
     } else if shell.ends_with("bash") {
         ".bashrc"
+    } else if shell.ends_with("fish") {
+        ".config/fish/config.fish"
     } else {
         return None;
     };
     Some(Path::new(&home).join(file))
 }
 
+/// Returns `true` when the current shell is fish (detected via `$SHELL`),
+/// mirroring `detected_shell_hint()`.
+fn is_fish_shell() -> bool {
+    std::env::var("SHELL").unwrap_or_default().ends_with("fish")
+}
+
+/// The guarded shell-rc block for fish: uses `set -gx` syntax.
+fn rc_block_fish(base_url: &str) -> String {
+    format!(
+        "{RC_MARKER_START}\n\
+         # ANTHROPIC_BASE_URL routes Claude Code through the local trimwire gateway.\n\
+         # ENABLE_TOOL_SEARCH re-enables Claude Code's web search, which it disables\n\
+         # whenever ANTHROPIC_BASE_URL is set (see docs/FAQ.md).\n\
+         set -gx ANTHROPIC_BASE_URL '{base_url}'\nset -gx ENABLE_TOOL_SEARCH true\n{RC_MARKER_END}\n"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fish_rc_block_uses_set_gx_syntax() {
+        let block = rc_block_fish("http://127.0.0.1:8765");
+        // Fish uses `set -gx`, not `export`.
+        assert!(
+            block.contains("set -gx ANTHROPIC_BASE_URL 'http://127.0.0.1:8765'"),
+            "fish block must use set -gx for ANTHROPIC_BASE_URL"
+        );
+        assert!(
+            block.contains("set -gx ENABLE_TOOL_SEARCH true"),
+            "fish block must use set -gx for ENABLE_TOOL_SEARCH"
+        );
+        assert!(
+            !block.contains("export "),
+            "fish block must not contain bash-style export"
+        );
+        // Still wrapped in the idempotent markers.
+        assert!(block.contains(RC_MARKER_START) && block.contains(RC_MARKER_END));
+        // Idempotent when re-applied.
+        let updated = ensure_rc_block("# existing\n", &block).expect("should add");
+        assert!(ensure_rc_block(&updated, &block).is_none());
+    }
+
+    #[test]
+    fn bash_zsh_rc_block_uses_export_syntax() {
+        let block = rc_block("http://127.0.0.1:8765");
+        assert!(block.contains("export ANTHROPIC_BASE_URL='http://127.0.0.1:8765'"));
+        assert!(!block.contains("set -gx"));
+    }
 
     #[test]
     fn rc_block_added_once_then_idempotent() {
