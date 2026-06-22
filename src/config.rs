@@ -1979,7 +1979,7 @@ fallback = ["ghost-provider"]
     #[allow(clippy::result_large_err)] // figment::Jail's closure dictates the Result type
     fn load_accepts_ipv4_and_ipv6_listen() {
         // Valid numeric IP:port values (IPv4, IPv6 brackets, wildcard) must be preserved.
-        for ok in ["127.0.0.1:8765", "[::1]:8765", "0.0.0.0:9000"] {
+        for ok in ["127.0.0.1:8765", "[::1]:8765", "0.0.0.0:9000", "[::]:8765"] {
             figment::Jail::expect_with(|jail| {
                 jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
                 jail.create_file(".trimwire.toml", &format!("[server]\nlisten = {ok:?}\n"))?;

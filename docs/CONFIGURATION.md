@@ -64,11 +64,13 @@ affects pruning; `upstream` stays global-only).
 
 ```toml
 [server]
-listen   = "127.0.0.1:8765"          # address:port the gateway binds
+listen   = "127.0.0.1:8765"          # numeric IP:port the gateway binds
 upstream = "https://api.anthropic.com" # where slimmed requests are forwarded
 ```
 
-If you change `listen`, set `ANTHROPIC_BASE_URL` to match.
+`listen` must be a **numeric IP:port** (e.g. `127.0.0.1:8765` or `[::1]:8765`),
+not a hostname — `localhost:8765` is rejected (it falls back to the default with
+a warning). If you change `listen`, set `ANTHROPIC_BASE_URL` to match.
 
 ## Strategies
 
@@ -196,8 +198,9 @@ the same path), and demand-pages the *last* read of a path once it exceeds
 **Hot-path guard:** a path the model has `Read` **more than once** in the session
 is never demand-paged. Paging the current view of a file the model keeps needing
 would just force another re-read (paged out again next turn) — a read-spiral. So
-demand-paging only pages genuinely one-shot large reads; a file you keep
-re-reading is treated as hot and left verbatim.
+demand-paging only pages genuinely one-shot large reads; the *current* view of a
+file you keep re-reading is left verbatim (only demand-paging is suppressed —
+superseded *earlier* reads of that path are still elided as usual).
 
 ```toml
 [strategies.stale_reads]
