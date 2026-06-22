@@ -37,6 +37,21 @@ norm() { sed '/^## 7\. Gateway overhead/,$d' "$1"; }
 
 if diff <(norm "$COMMITTED") <(norm "$FRESH") > /tmp/bench_drift.diff 2>&1; then
   echo "[bench-drift] OK — RESULTS.md matches current bench output (timing section ignored)."
+  # Also guard the hand-written corpus COUNT in benchmark/README.md against the
+  # real number of corpora (audit P2-1: that prose used to drift — it said
+  # "Twelve" when the bench had 15). Count corpus rows in §1 of the fresh output.
+  README="$ROOT/benchmark/README.md"
+  # shellcheck disable=SC2016  # the grep pattern is a literal regex (no shell expansion intended)
+  corpus_count="$(sed -n '/^## 1\./,/^## 2\./p' "$FRESH" | grep -c '^| `[a-z_0-9]\+`')"
+  if [ -f "$README" ] && [ "$corpus_count" -gt 0 ]; then
+    if ! grep -q "${corpus_count} deterministic synthetic profiles" "$README"; then
+      echo "[bench-drift] FAIL: benchmark/README.md corpus count is stale —"
+      echo "    the bench has ${corpus_count} corpora but README does not say"
+      echo "    \"${corpus_count} deterministic synthetic profiles\". Update the Corpora section."
+      exit 1
+    fi
+    echo "[bench-drift] OK — benchmark/README.md states the correct corpus count (${corpus_count})."
+  fi
   exit 0
 fi
 
