@@ -1,7 +1,7 @@
 //! Install receipt — a small JSON record of HOW trimwire was installed.
 //!
 //! Written by `scripts/install.sh` (the curl|sh installer) and refreshed by
-//! `trimwire install`. A future `trimwire update` reads it to decide whether
+//! `trimwire install`. `trimwire upgrade` reads it to decide whether
 //! self-update is allowed (only a managed `method = "script"` install is
 //! self-replaceable) or whether to refuse and redirect the user to their
 //! package manager. A **missing or unparseable receipt is non-fatal** and means
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// reader can migrate or ignore older receipts.
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// Managed install via `scripts/install.sh` — self-updatable by a future updater.
+/// Managed install via `scripts/install.sh` — self-updatable by `trimwire upgrade`.
 pub const METHOD_SCRIPT: &str = "script";
 /// Anything else (cargo, `cargo binstall`, manual download): not a managed
 /// install, so NOT self-updatable. The default when no prior receipt exists.
@@ -116,7 +116,7 @@ fn tmp_path(path: &Path) -> PathBuf {
 /// [`METHOD_UNKNOWN`]. Refreshes path/version/target/timestamp. Best-effort —
 /// returns the I/O error for the caller to ignore.
 ///
-/// CAVEAT for a future `trimwire update`: `method` is preserved blindly, so a
+/// CAVEAT for `trimwire upgrade`: `method` is preserved blindly, so a
 /// `method="script"` receipt can go stale if the user later `cargo install`s
 /// over the same path. The receipt is therefore NOT a sufficient authority on
 /// its own — before self-replacing, the updater MUST also verify the binary it's

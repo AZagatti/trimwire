@@ -13,8 +13,8 @@ pub mod fsperm;
 pub mod ledger;
 pub mod pairing;
 pub mod proxy;
-/// Install receipt: a small JSON record of how trimwire was installed, used by a
-/// future `trimwire update` to decide whether self-update is allowed. See
+/// Install receipt: a small JSON record of how trimwire was installed, used by
+/// `trimwire upgrade` to decide whether self-update is allowed. See
 /// `src/receipt.rs`.
 pub mod receipt;
 pub mod reprune;
@@ -33,7 +33,7 @@ pub mod update;
 /// `x86_64-unknown-linux-gnu` — embedded at build time by `build.rs` from
 /// Cargo's `TARGET`.
 ///
-/// This is the asset-selection primitive a future `trimwire update` will use to
+/// This is the asset-selection primitive `trimwire upgrade` uses to
 /// pick the right `trimwire-<triple>.<ext>` GitHub release artifact (the asset
 /// names produced by `.github/workflows/release.yml`). Today it is surfaced in
 /// `trimwire doctor` for bug reports. Returns `"unknown"` only if `TARGET` was
@@ -45,7 +45,7 @@ pub fn build_target() -> &'static str {
 #[cfg(test)]
 mod build_target_tests {
     /// The embedded triple must be present and consistent with the arch/OS this
-    /// test binary is actually running on — so the future updater downloads the
+    /// test binary is actually running on — so `trimwire upgrade` downloads the
     /// matching asset rather than a wrong-platform one.
     #[test]
     fn build_target_present_and_consistent_with_cfg() {

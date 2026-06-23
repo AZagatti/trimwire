@@ -194,8 +194,15 @@ jobs:
           MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
         run: |
           set -euo pipefail
+          # Both secrets are REQUIRED: the signing key is password-protected, so
+          # MINISIGN_PASSWORD is needed to decrypt it. Fail fast (and fail-closed)
+          # if either is missing rather than publishing an unsigned release.
           if [ -z "${MINISIGN_SECRET_KEY:-}" ]; then
             echo "::error::MINISIGN_SECRET_KEY is not set — refusing to publish an unsigned signed-update release. Configure the signing secret (docs/UPDATE-COMMAND-SPIKE.md) and re-run." >&2
+            exit 1
+          fi
+          if [ -z "${MINISIGN_PASSWORD:-}" ]; then
+            echo "::error::MINISIGN_PASSWORD is not set — the signing key is password-protected and can't be used without it. Configure the secret (docs/UPDATE-COMMAND-SPIKE.md) and re-run." >&2
             exit 1
           fi
           umask 077
@@ -207,9 +214,10 @@ jobs:
           signed=0
           for f in trimwire-*.tar.gz trimwire-*.zip; do
             # -H = prehashed (the client requires it; legacy signatures are rejected).
-            # printf '%s\n' (with newline) so a future password-protected key reads
-            # cleanly from stdin; harmless for the current passwordless (-W) key.
-            printf '%s\n' "${MINISIGN_PASSWORD:-}" | \
+            # The password-protected key is decrypted by piping MINISIGN_PASSWORD on
+            # stdin (GitHub-hosted runners have no tty, so minisign reads it there);
+            # the trailing newline terminates the password line.
+            printf '%s\n' "$MINISIGN_PASSWORD" | \
               minisign -S -H -s "$key" -m "$f" -x "$f.minisig" \
                 -c "trimwire $TAG release archive" -t "trimwire $TAG $f"
             signed=$((signed + 1))
@@ -260,8 +268,9 @@ jobs:
           esac
 
       # Prove the build provenance is actually published + verifiable for the
-      # exact published archive — the same check a future updater (and any user)
-      # runs. Independent of the `.sha256` step above (provenance vs integrity).
+      # exact published archive — the public/CI provenance bar any user with `gh`
+      # can run. (The client `trimwire upgrade` verifies the minisign signature
+      # instead — see the next step.) Independent of the `.sha256` step above.
       - name: Verify artifact attestation (provenance)
         run: |
           set -euo pipefail

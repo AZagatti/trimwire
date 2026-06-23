@@ -37,8 +37,10 @@ release** (not done in this PR). **Audit item:** P2-11.
 logic (§2) is **done** (4a, shipped). Client-side verification (§3 —
 **minisign signature against a pinned key + the `.sha256`**, see D1), **atomic
 replace** (§4), **service restart** (§5), and **rollback** (§6) are **implemented
-in this open/draft PR** for Linux (4b/4c). What's left is the **owner setup**
-(generate + pin the signing key) and the fenced **4d** (Windows/macOS). See the
+in this open/draft PR** for Linux (4b/4c). Owner setup (signing key generated,
+CI secrets `MINISIGN_SECRET_KEY`/`MINISIGN_PASSWORD` set, public key pinned) is
+**done**; what's left is **cutting a signed release** and the fenced **4d**
+(Windows/macOS). See the
 phased plan + owner decisions below.
 
 > **Verifier MUST pin the workflow identity, not just the repo.** `gh attestation
@@ -193,13 +195,17 @@ are configured, and `PINNED_PUBKEY` is set (key id `9DD74C076C33E227`). The firs
 published release will carry `.minisig` files; clients verify them against the
 pinned key.
 
-1. ✅ **Key generated** (passwordless, for CI): `minisign -G -W -p trimwire.pub -s trimwire.key`.
-2. ✅ **CI secrets configured** — `MINISIGN_SECRET_KEY` (+ `MINISIGN_PASSWORD`)
-   are set on the repo (confirmed via `gh secret list`). Signing is **mandatory
-   and fail-closed**: the `release.yml` `sign` job FAILS the release run if the
-   secret is absent (it never publishes unsigned archives), signs every archive
-   (`-H` prehashed), and the `verify` job re-verifies a `.minisig` against the
-   pinned public key — so a green run guarantees signed, key-matching archives.
+1. ✅ **Key generated** (password-protected): `minisign -G -p trimwire.pub -s trimwire.key`
+   (prompts for a passphrase). Both the secret key and its passphrase are required
+   to sign.
+2. ✅ **CI secrets configured** — `MINISIGN_SECRET_KEY` AND `MINISIGN_PASSWORD`
+   (the key's passphrase) are BOTH set on the repo (confirmed via `gh secret
+   list`); both are required since the key is password-protected. Signing is
+   **mandatory and fail-closed**: the `release.yml` `sign` job FAILS the release
+   run if either secret is absent (it never publishes unsigned archives), signs
+   every archive (`-H` prehashed), and the `verify` job re-verifies a `.minisig`
+   against the pinned public key — so a green run guarantees signed, key-matching
+   archives.
 3. ✅ **Public key pinned** — the base64 payload line of `trimwire.pub` is in
    `PINNED_PUBKEY` (`src/update.rs`); a unit test asserts it parses, and the
    release `verify` job verifies a real `.minisig` against `trimwire.pub`.

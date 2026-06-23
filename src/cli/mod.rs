@@ -174,8 +174,8 @@ pub fn doctor(strict: bool) -> Result<()> {
 
     println!("trimwire doctor\n");
 
-    // Build platform — handy in bug reports, and the asset-selection primitive a
-    // future `trimwire update` uses to pick the matching release artifact.
+    // Build platform — handy in bug reports, and the asset-selection primitive
+    // `trimwire upgrade` uses to pick the matching release artifact.
     // Printed before the install-state branch so it always shows.
     println!(
         "{} platform: {}",
@@ -185,7 +185,7 @@ pub fn doctor(strict: bool) -> Result<()> {
 
     // Install receipt — how the binary was installed (written by the curl|sh
     // installer / refreshed by `trimwire install`). Absent is normal for
-    // cargo/manual installs and is non-fatal. A future `trimwire update` reads
+    // cargo/manual installs and is non-fatal. `trimwire upgrade` reads
     // this to decide whether self-update is allowed.
     match trimwire::receipt::load() {
         Some(r) => println!(
