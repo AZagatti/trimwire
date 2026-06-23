@@ -37,7 +37,7 @@ pub use stats::stats;
 pub use statusline::statusline;
 pub use summarizer::{summarizer_probe, summarizer_setup, summarizer_status};
 pub use sweep::{sweep_all, sweep_file, sweep_list, sweep_undo};
-pub use update::update;
+pub use update::{update, upgrade};
 
 use std::path::Path;
 

@@ -97,8 +97,8 @@ independent verification mechanisms, which answer different questions:
   bar anyone with `gh` can check.
 - **`.minisig` signature — provenance the updater checks (no `gh` needed).** The
   release `sign` job signs each archive with **minisign** (Ed25519); the matching
-  public key is **pinned in the `trimwire` binary**. `trimwire update --dry-run`
-  / `--apply` verify this signature offline against the pinned key — defending
+  public key is **pinned in the `trimwire` binary**. `trimwire upgrade --dry-run`
+  / `trimwire upgrade` verify this signature offline against the pinned key — defending
   against a swapped/forged asset without requiring `gh` or a round-trip to
   GitHub's attestation store. (Why minisign and not native Sigstore: the
   `sigstore` crate can't verify GitHub attestations at our MSRV — see
@@ -127,8 +127,8 @@ A successful run prints the verified provenance (the build workflow + source
 commit). The release pipeline's own `verify` job runs this check on every
 release event (currently against the Linux x86_64 asset; every platform's
 attestation is independently verifiable with the command above), so a release
-whose provenance can't be verified fails loudly. Separately, `trimwire update`
-(`--dry-run`/`--apply`) verifies the **minisign** signature against the pinned
+whose provenance can't be verified fails loudly. Separately, `trimwire upgrade`
+(`--dry-run` to verify only) checks the **minisign** signature against the pinned
 key before trusting or installing a download — fail-closed if it can't — see
 [`UPDATE-COMMAND-SPIKE.md`](UPDATE-COMMAND-SPIKE.md).
 

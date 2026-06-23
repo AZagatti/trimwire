@@ -35,18 +35,18 @@ binary in place (your config and shell rc are untouched):
   [releases/latest](https://github.com/AZagatti/trimwire/releases/latest) and
   replace the binary on your `PATH`.
 
-`trimwire update` (alias `upgrade`) **checks** whether a newer release is
-available — for a `curl | sh` install it reports the available version; for
-cargo/manual installs it prints the per-method paths above.
-`trimwire update --dry-run` downloads the latest release and verifies its
-checksum + signature without changing anything. On a managed (`curl | sh`)
-**Linux** install, `trimwire update --apply` self-updates: it verifies the
-download (SHA-256 + a minisign signature against a key pinned in the binary),
-atomically replaces the binary, restarts the service, and rolls back if the new
-build isn't healthy (`--yes` to skip the confirmation prompt). Self-update is
-fail-closed and **requires the maintainer to have published a signing key** — if
-none is pinned yet it refuses with "no pinned update-signing key", so use the
-per-method update above. macOS/Windows and cargo/manual installs always use the
+`trimwire update` **checks** whether a newer release is available (read-only) —
+for a `curl | sh` install it reports the available version; for cargo/manual
+installs it prints the per-method paths above. It never downloads or changes
+anything. `trimwire upgrade --dry-run` downloads the latest release and verifies
+its checksum + signature without changing anything. On a managed (`curl | sh`)
+**Linux** install, `trimwire upgrade` self-updates: it verifies the download
+(SHA-256 + a minisign signature against a key pinned in the binary), atomically
+replaces the binary, restarts the service, and rolls back if the new build isn't
+healthy (it asks before applying on a terminal; `--yes` skips the prompt).
+Self-update is fail-closed and **requires the maintainer to have published a
+signing key** — if none is pinned yet it refuses with "no pinned update-signing
+key", so use the per-method update above. macOS/Windows and cargo/manual installs always use the
 per-method update. See
 [`docs/UPDATE-COMMAND-SPIKE.md`](https://github.com/AZagatti/trimwire/blob/main/docs/UPDATE-COMMAND-SPIKE.md).
 After a manual update, restart with `trimwire off && trimwire on` (or open a new

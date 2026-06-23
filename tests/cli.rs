@@ -126,27 +126,40 @@ fn help_legend_covers_every_visible_command() {
     }
 }
 
-/// The `upgrade` alias reaches the same read-only check as `update` (here, the
-/// no-receipt refusal): exit 2, guidance on stderr, nothing on stdout.
+/// `update` and `upgrade` are now SEPARATE top-level commands (not aliases):
+/// both appear in `--help`, and `upgrade` has its own `--dry-run`/`--yes` flags
+/// while `update` does not advertise them. (Behavior is covered by the
+/// update/upgrade test sections below.)
 #[test]
-fn upgrade_alias_runs_the_update_check() {
-    let dir = tempfile::tempdir().unwrap();
-    let data = dir.path().join("data");
+fn update_and_upgrade_are_distinct_commands() {
     let out = Command::new(bin())
-        .arg("upgrade")
-        .env("HOME", dir.path())
-        .env("XDG_DATA_HOME", &data)
-        .env("XDG_CONFIG_HOME", dir.path().join(".config"))
-        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
+        .arg("--help")
         .output()
-        .expect("spawn trimwire upgrade");
-    assert_eq!(out.status.code(), Some(2), "no-receipt refuses with exit 2");
-    assert!(out.stdout.is_empty(), "guidance goes to stderr");
-    let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("no install receipt"), "got: {err}");
+        .expect("spawn trimwire --help");
+    let help = String::from_utf8_lossy(&out.stdout);
+    assert!(help.contains("update"), "update listed: {help}");
+    assert!(help.contains("upgrade"), "upgrade listed: {help}");
+
+    // `upgrade --help` advertises the state-changing flags…
+    let up = Command::new(bin())
+        .args(["upgrade", "--help"])
+        .output()
+        .expect("spawn trimwire upgrade --help");
+    let uph = String::from_utf8_lossy(&up.stdout);
     assert!(
-        err.contains("install.sh"),
-        "reuses per-method guidance: {err}"
+        uph.contains("--dry-run") && uph.contains("--yes"),
+        "upgrade exposes --dry-run/--yes: {uph}"
+    );
+
+    // …while `update --help` does NOT (the flags are hidden/deprecated there).
+    let upd = Command::new(bin())
+        .args(["update", "--help"])
+        .output()
+        .expect("spawn trimwire update --help");
+    let updh = String::from_utf8_lossy(&upd.stdout);
+    assert!(
+        !updh.contains("--apply"),
+        "update must not advertise --apply: {updh}"
     );
 }
 
@@ -1725,8 +1738,12 @@ fn update_reports_available_for_eligible_install() {
         "got: {s}"
     );
     assert!(
-        s.contains("--dry-run") && s.contains("--apply"),
-        "points at the verify + apply paths: {s}"
+        s.contains("trimwire upgrade --dry-run") && s.contains("trimwire upgrade"),
+        "check-only output points at the upgrade command: {s}"
+    );
+    assert!(
+        !s.contains("--apply"),
+        "the removed --apply flag must not be advertised: {s}"
     );
 }
 
@@ -1757,18 +1774,19 @@ fn update_network_failure_is_nonfatal() {
     assert!(err.contains("couldn't check for updates"), "got: {err}");
 }
 
-// ---- `trimwire update --dry-run` (4b: verify) -----------------------------
+// ---- `trimwire update` deprecated apply/verify flags → redirect to upgrade ----
 
-/// Build an `update` Command wired to a fake server for both API + downloads,
-/// with stdin nulled (so `is_terminal()` is false — a non-interactive shell).
-fn update_cmd(
+/// Build a `<verb>` Command (update|upgrade) wired to a fake server for both API
+/// + downloads, with stdin nulled (so `is_terminal()` is false — non-interactive).
+fn upd_cmd(
+    verb: &str,
     home: &std::path::Path,
     data_home: &std::path::Path,
     base: &str,
     args: &[&str],
 ) -> Command {
     let mut c = Command::new(bin());
-    c.arg("update")
+    c.arg(verb)
         .args(args)
         .env("HOME", home)
         .env("XDG_DATA_HOME", data_home)
@@ -1779,14 +1797,39 @@ fn update_cmd(
     c
 }
 
-/// `--dry-run` on a correctly-signed release → exit 0, "verified".
+/// The verify/apply flags were removed from `update` (they live on `upgrade`):
+/// passing one is a clean exit-2 redirect, never a download or apply.
 #[test]
-fn update_dry_run_verifies_a_signed_release() {
+fn update_apply_verify_flags_redirect_to_upgrade() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    for (flag, want) in [
+        ("--dry-run", "trimwire upgrade --dry-run"),
+        ("--apply", "trimwire upgrade"),
+        ("--yes", "trimwire upgrade --yes"),
+    ] {
+        let out = upd_cmd("update", dir.path(), &data, "http://127.0.0.1:1", &[flag])
+            .output()
+            .expect("spawn");
+        assert_eq!(out.status.code(), Some(2), "update {flag} → exit 2");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains(want),
+            "update {flag} redirects to `{want}`: {err}"
+        );
+    }
+}
+
+// ---- `trimwire upgrade --dry-run` (4b: verify) ----------------------------
+
+/// `upgrade --dry-run` on a correctly-signed release → exit 0, "verified".
+#[test]
+fn upgrade_dry_run_verifies_a_signed_release() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
     let fx = signed_fixture(b"trimwire fake archive payload");
     let gh = FakeGitHub::with_release("v999.0.0", fx.release);
-    let out = update_cmd(dir.path(), &data, &gh.base(), &["--dry-run"])
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
         .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
         .output()
         .expect("spawn");
@@ -1795,15 +1838,15 @@ fn update_dry_run_verifies_a_signed_release() {
     assert!(s.contains("verified"), "stdout: {s}");
 }
 
-/// `--dry-run` with no pinned key → fail closed (exit 1), never "verified".
+/// `upgrade --dry-run` with no pinned key → fail closed (exit 1), never "verified".
 #[test]
-fn update_dry_run_fails_closed_without_pinned_key() {
+fn upgrade_dry_run_fails_closed_without_pinned_key() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
     let fx = signed_fixture(b"trimwire fake archive payload");
     let gh = FakeGitHub::with_release("v999.0.0", fx.release);
     // No TRIMWIRE_UPDATE_PUBKEY → this build has no key to verify against.
-    let out = update_cmd(dir.path(), &data, &gh.base(), &["--dry-run"])
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
         .output()
         .expect("spawn");
     assert_eq!(out.status.code(), Some(1), "no key → fail closed");
@@ -1811,17 +1854,17 @@ fn update_dry_run_fails_closed_without_pinned_key() {
     assert!(err.contains("NOT verified"), "got: {err}");
 }
 
-/// `--dry-run` where the archive bytes don't match the signed digest → fail
+/// `upgrade --dry-run` where the archive doesn't match the signed digest → fail
 /// closed at the checksum gate (exit 1).
 #[test]
-fn update_dry_run_fails_closed_on_tampered_artifact() {
+fn upgrade_dry_run_fails_closed_on_tampered_artifact() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
     let mut fx = signed_fixture(b"trimwire fake archive payload");
     // Tamper the served archive AFTER signing/checksumming.
     fx.release.archive = b"a different, malicious payload".to_vec();
     let gh = FakeGitHub::with_release("v999.0.0", fx.release);
-    let out = update_cmd(dir.path(), &data, &gh.base(), &["--dry-run"])
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
         .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
         .output()
         .expect("spawn");
@@ -1830,51 +1873,58 @@ fn update_dry_run_fails_closed_on_tampered_artifact() {
     assert!(err.contains("NOT verified"), "got: {err}");
 }
 
-/// `--dry-run` with a MISSING `.minisig` (server 404s it) → fail closed (exit 1),
-/// never silently skip the signature.
+/// `upgrade --dry-run` with a MISSING `.minisig` (server 404s it) → fail closed
+/// (exit 1), never silently skip the signature.
 #[test]
-fn update_dry_run_fails_closed_on_missing_signature() {
+fn upgrade_dry_run_fails_closed_on_missing_signature() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
     let mut fx = signed_fixture(b"trimwire fake archive payload");
     fx.release.minisig = None; // server returns 404 for the .minisig
     let gh = FakeGitHub::with_release("v999.0.0", fx.release);
-    let out = update_cmd(dir.path(), &data, &gh.base(), &["--dry-run"])
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
         .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
         .output()
         .expect("spawn");
     assert_eq!(out.status.code(), Some(1), "missing sig → fail closed");
 }
 
-/// `--dry-run` with the server unreachable → fail closed (exit 1).
+/// `upgrade --dry-run` with the server unreachable → fail closed (exit 1).
 #[test]
-fn update_dry_run_network_failure_fails_closed() {
+fn upgrade_dry_run_network_failure_fails_closed() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
-    let out = update_cmd(dir.path(), &data, "http://127.0.0.1:1", &["--dry-run"])
-        .env(
-            "TRIMWIRE_UPDATE_PUBKEY",
-            "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3",
-        )
-        .output()
-        .expect("spawn");
+    let out = upd_cmd(
+        "upgrade",
+        dir.path(),
+        &data,
+        "http://127.0.0.1:1",
+        &["--dry-run"],
+    )
+    .env(
+        "TRIMWIRE_UPDATE_PUBKEY",
+        "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3",
+    )
+    .output()
+    .expect("spawn");
     assert_eq!(out.status.code(), Some(1), "network failure → fail closed");
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("NOT verified"), "got: {err}");
 }
 
-// ---- `trimwire update --apply` / `--yes` (4c: apply, draft) ----------------
+// ---- `trimwire upgrade` (4c: apply, draft) --------------------------------
 
-/// No receipt → apply refuses (exit 2) before any download, nothing changed.
+/// No receipt → upgrade refuses (exit 2) before any download, nothing changed.
 #[test]
-fn update_apply_refuses_without_receipt() {
+fn upgrade_refuses_without_receipt() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
-    let out = update_cmd(
+    let out = upd_cmd(
+        "upgrade",
         dir.path(),
         &data,
         "http://127.0.0.1:1",
-        &["--apply", "--yes"],
+        &["--yes"],
     )
     .output()
     .expect("spawn");
@@ -1883,16 +1933,16 @@ fn update_apply_refuses_without_receipt() {
     assert!(err.contains("no install receipt"), "got: {err}");
 }
 
-/// Eligible install but a non-interactive shell WITHOUT `--yes` → refuse (exit 2)
-/// rather than apply unattended. (stdin is nulled, so not a TTY.)
+/// Eligible install but a non-interactive shell with bare `upgrade` (no `--yes`)
+/// → refuse (exit 2) rather than apply unattended. (stdin is nulled, not a TTY.)
 #[test]
-fn update_apply_non_interactive_requires_yes() {
+fn upgrade_non_interactive_requires_yes() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
     write_script_receipt(&data);
     let fx = signed_fixture(b"trimwire fake archive payload");
     let gh = FakeGitHub::with_release("v999.0.0", fx.release);
-    let out = update_cmd(dir.path(), &data, &gh.base(), &["--apply"])
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &[])
         .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
         .output()
         .expect("spawn");
@@ -1909,14 +1959,14 @@ fn update_apply_non_interactive_requires_yes() {
 }
 
 /// Eligible + `--yes`, but the latest release is NOT newer → no-op (exit 0),
-/// nothing applied. Proves `--yes` never blindly reinstalls/downgrades.
+/// nothing applied. Proves `upgrade --yes` never blindly reinstalls/downgrades.
 #[test]
-fn update_apply_yes_is_noop_when_current() {
+fn upgrade_yes_is_noop_when_current() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
     write_script_receipt(&data);
     let gh = FakeGitHub::start("v0.0.1"); // older than the test binary
-    let out = update_cmd(dir.path(), &data, &gh.base(), &["--yes"])
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--yes"])
         .output()
         .expect("spawn");
     assert_eq!(out.status.code(), Some(0), "current → no-op exit 0");
@@ -1927,12 +1977,12 @@ fn update_apply_yes_is_noop_when_current() {
 /// Eligible + `--yes` but no pinned key → refuse (exit 2): can't verify, won't
 /// apply (fail closed), even though a newer version exists.
 #[test]
-fn update_apply_refuses_without_pinned_key() {
+fn upgrade_refuses_without_pinned_key() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
     write_script_receipt(&data);
     let gh = FakeGitHub::start("v999.0.0");
-    let out = update_cmd(dir.path(), &data, &gh.base(), &["--yes"])
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--yes"])
         .output()
         .expect("spawn");
     assert_eq!(out.status.code(), Some(2), "no key → refuse");
@@ -1946,13 +1996,13 @@ fn update_apply_refuses_without_pinned_key() {
 /// running test binary. Exercises every gate the real apply runs.
 #[cfg(target_os = "linux")]
 #[test]
-fn update_apply_reaches_replace_after_verification() {
+fn upgrade_reaches_replace_after_verification() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
     write_script_receipt(&data);
     let fx = signed_fixture(b"trimwire fake archive payload");
     let gh = FakeGitHub::with_release("v999.0.0", fx.release);
-    let out = update_cmd(dir.path(), &data, &gh.base(), &["--yes"])
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--yes"])
         .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
         .env("TRIMWIRE_UPDATE_DRYRUN_APPLY", "1") // test seam: stop before swap
         .output()

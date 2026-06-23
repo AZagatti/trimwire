@@ -201,7 +201,7 @@ enum ShareAction {
     about = "Local gateway that prunes Claude Code context on every API call.",
     after_help = "\
 Commands by group:\n\
-\x20 LIFECYCLE    install · uninstall · update · on · off · status · doctor · run\n\
+\x20 LIFECYCLE    install · uninstall · update · upgrade · on · off · status · doctor · run\n\
 \x20 INSPECT      stats · recall · preview · dashboard\n\
 \x20 SUMMARIZER   summarizer  (setup · status · benchmark · probe)\n\
 \x20 SHARE        share  (enable · disable · stats · benchmark)   — opt-in, content-free\n\
@@ -478,27 +478,38 @@ elvish  — source inline from rc.elv:\n\
     #[command(display_order = 17)]
     Hook,
 
-    /// Check for, verify, and (on managed Linux installs) apply a new release.
-    /// With no flags it's a read-only version check (curl|sh installs report the
-    /// available version; cargo/manual installs get the right update command).
-    /// `--dry-run` downloads the latest release and verifies its checksum +
-    /// signature without changing anything; `--apply`/`--yes` self-update (Linux
-    /// managed installs only). See docs/UPDATE-COMMAND-SPIKE.md.
-    #[command(display_order = 18, alias = "upgrade")]
+    /// Check whether a newer trimwire release is available (read-only). Never
+    /// downloads artifacts and never changes anything — use `trimwire upgrade` to
+    /// verify or apply an update. For a curl|sh install it reports the available
+    /// version; for cargo/manual installs it prints the right update command. See
+    /// docs/UPDATE-COMMAND-SPIKE.md.
+    #[command(display_order = 18)]
     Update {
-        /// Download the latest release for this platform and verify its SHA-256
-        /// checksum + minisign signature against the pinned key, then report
-        /// verified / NOT verified. Changes nothing on disk; never applies.
-        #[arg(long, conflicts_with_all = ["apply", "yes"])]
+        /// Deprecated: verification moved to `trimwire upgrade --dry-run`.
+        #[arg(long, hide = true)]
         dry_run: bool,
-        /// Apply the update: download, verify (checksum + pinned-key signature),
-        /// then atomically replace the binary and restart the service. On a
-        /// terminal this prompts for confirmation first (use `--yes` to skip the
-        /// prompt / for non-interactive use). Linux managed installs only.
-        #[arg(long)]
+        /// Deprecated: applying moved to `trimwire upgrade`.
+        #[arg(long, hide = true)]
         apply: bool,
-        /// Skip the apply confirmation prompt (non-interactive apply). Implies
-        /// `--apply`.
+        /// Deprecated: applying moved to `trimwire upgrade --yes`.
+        #[arg(long, hide = true)]
+        yes: bool,
+    },
+
+    /// Download, verify, and apply a new trimwire release (managed Linux installs
+    /// only). With no flags it applies after a `[y/N]` confirmation on a terminal;
+    /// `--dry-run` downloads + verifies the latest release (SHA-256 + minisign
+    /// signature against the pinned key) WITHOUT changing anything; `--yes`
+    /// applies non-interactively. Always fail-closed: nothing is replaced unless
+    /// the download verifies. See docs/UPDATE-COMMAND-SPIKE.md.
+    #[command(display_order = 19)]
+    Upgrade {
+        /// Verify the latest release (checksum + signature) without replacing
+        /// anything. Reports verified / NOT verified; changes nothing on disk.
+        #[arg(long, conflicts_with = "yes")]
+        dry_run: bool,
+        /// Apply without the confirmation prompt (required for non-interactive
+        /// use).
         #[arg(long)]
         yes: bool,
     },
@@ -665,6 +676,7 @@ fn main() -> Result<()> {
             apply,
             yes,
         } => cli::update(dry_run, apply, yes),
+        Cmd::Upgrade { dry_run, yes } => cli::upgrade(dry_run, yes),
     }
 }
 

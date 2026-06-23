@@ -6,14 +6,18 @@
 > security/design questions an updater would have to answer before it could be built.
 
 **Status:** phase **4a SHIPPED** (read-only check). Phases **4b (verify) + 4c
-(apply)** are **implemented in an OPEN/DRAFT PR — NOT merged, NOT released.** 4b
-adds `trimwire update --dry-run` (download + verify SHA-256 **and** a minisign
-signature against a pinned key, fail-closed). 4c adds `--apply`/`--yes`
-(verified atomic replace + restart + rollback; Linux + managed installs only).
-**The pinned public key is not yet set** (`PINNED_PUBKEY` is empty), so in a real
-build verification fails closed until the owner generates a signing key, adds the
-CI secret, and pins the public key (see **Release signing — owner setup** below).
-**Audit item:** P2-11.
+(apply)** are **implemented in an OPEN/DRAFT PR — NOT merged, NOT released.** The
+command surface mirrors `apt`: **`trimwire update`** stays read-only (check only,
+never downloads or changes anything); **`trimwire upgrade`** is the
+state-changing command. 4b adds `trimwire upgrade --dry-run` (download + verify
+SHA-256 **and** a minisign signature against a pinned key, fail-closed). 4c adds
+`trimwire upgrade` (TTY-confirmed) / `trimwire upgrade --yes` (non-interactive)
+= verified atomic replace + restart + rollback; Linux + managed installs only.
+The old `update --dry-run`/`--apply`/`--yes` flags are deprecated and redirect to
+`upgrade`. **The pinned public key is not yet set** (`PINNED_PUBKEY` is empty), so
+in a real build verification fails closed until the owner generates a signing
+key, adds the CI secret, and pins the public key (see **Release signing — owner
+setup** below). **Audit item:** P2-11.
 
 **Prerequisites already shipped (don't re-do):**
 - **Target triple** embedded in the binary (`trimwire::build_target()`, shown in
@@ -142,14 +146,14 @@ trust + atomicity design, which is an owner decision.
 Phase **4a is shipped**; **4b + 4c are implemented in this open/draft PR** (not
 merged, not released).
 
-- **4a (SHIPPED) — read-only check.** `trimwire update`/`upgrade`:
+- **4a (SHIPPED) — read-only check.** `trimwire update`:
   resolve+canonicalize `current_exe()` (abort on `(deleted)`), read the receipt,
   refuse (exit 2 + the per-method guidance) unless the install is self-updatable
   (`method="script"` + `binary_path == canonical current_exe()` + target match +
   parent writable), then query the latest GitHub release and report
   current/available (exit 0). Network failure is non-fatal. `/healthz` includes a
   `version` field (for 4c's post-restart check).
-- **4b (IMPLEMENTED, draft) — verify.** `trimwire update --dry-run` downloads the
+- **4b (IMPLEMENTED, draft) — verify.** `trimwire upgrade --dry-run` downloads the
   latest release archive + `.sha256` + `.minisig` (following the
   `releases/<tag>/download/` redirect, HTTPS-only, size-capped), then verifies
   **checksum** (`sha2`) **then** the **minisign signature** against the pinned key
@@ -158,10 +162,11 @@ merged, not released).
   failure. Reports verified (exit 0) or NOT verified (exit 1). No apply. Pure
   gates in `trimwire::update` (`verify_sha256`, `verify_minisig`,
   `verify_artifact`, `VerifyError`); I/O in `src/cli/update.rs`.
-- **4c (IMPLEMENTED, draft) — apply (Linux).** `--apply` (TTY-confirmed) /
-  `--yes` (non-interactive): re-checks eligibility, requires a pinned key,
-  enforces **strictly-greater** version (anti-downgrade), downloads + verifies
-  (4b), extracts via `tar`, then atomic replace — temp in the **same dir** →
+- **4c (IMPLEMENTED, draft) — apply (Linux).** `trimwire upgrade` (TTY-confirmed,
+  prompts BEFORE downloading) / `trimwire upgrade --yes` (non-interactive):
+  re-checks eligibility, requires a pinned key, enforces **strictly-greater**
+  version (anti-downgrade), downloads + verifies (4b), extracts via `tar`, then
+  atomic replace — temp in the **same dir** →
   `fchmod 0755` → `fsync(file)` → copy old to `<exe>.bak` → `rename()` →
   `fsync(dir)`. Restart: `service::off()` → `on()` → poll `/healthz` until the
   served `version` == target. Rollback on any health failure: `off()` → restore

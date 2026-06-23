@@ -1,14 +1,18 @@
-//! `trimwire update` / `upgrade` — the updater's impure I/O layer.
+//! `trimwire update` / `trimwire upgrade` — the updater's impure I/O layer.
+//! Two distinct commands (the pure decision logic lives in `trimwire::update`):
 //!
-//! Three modes (the pure decision logic lives in `trimwire::update`):
-//!   1. default — READ-ONLY check: resolve + canonicalize the running binary,
-//!      confirm it's a managed (`script`) install, and report current/available.
-//!   2. `--dry-run` (4b) — download the latest release archive + `.sha256` +
-//!      `.minisig`, verify the checksum AND the minisign signature against the
-//!      pinned key, and report verified / NOT verified. Changes nothing.
-//!   3. `--apply` / `--yes` (4c) — after the same verification, atomically
-//!      replace the binary and restart the service, rolling back on any health
-//!      failure. Linux + managed installs only; refuses otherwise.
+//! - **`update`** — READ-ONLY check: resolve + canonicalize the running binary,
+//!   confirm it's a managed (`script`) install, and report current/available.
+//!   Never downloads artifacts, never changes anything. (The old apply/verify
+//!   flags redirect to `upgrade`.)
+//! - **`upgrade`** — the state-changing command:
+//!   - `--dry-run` (4b) — download the latest release archive + `.sha256` +
+//!     `.minisig`, verify the checksum AND the minisign signature against the
+//!     pinned key, and report verified / NOT verified. Changes nothing.
+//!   - default / `--yes` (4c) — after the same verification, atomically replace
+//!     the binary and restart the service, rolling back on any health failure.
+//!     A terminal prompts for confirmation first; `--yes` skips it (required for
+//!     non-interactive use). Linux + managed installs only; refuses otherwise.
 //!
 //! Fail-closed everywhere: nothing is replaced unless the download verified
 //! against the pinned key. See `docs/UPDATE-COMMAND-SPIKE.md`.
@@ -308,7 +312,7 @@ fn verify_latest_release(pinned_tag: Option<String>) -> std::result::Result<DryR
 fn run_dry_run() -> i32 {
     match verify_latest_release(None) {
         Err(e) => {
-            eprintln!("trimwire update --dry-run: {e}\n→ treating as NOT verified (fail-closed).");
+            eprintln!("trimwire upgrade --dry-run: {e}\n→ treating as NOT verified (fail-closed).");
             1
         }
         Ok(o) => match o.result {
@@ -378,7 +382,7 @@ fn run_check() -> ! {
     if elig != upd::Eligibility::Eligible {
         eprintln!(
             "{}\n\n{}\n\nTo verify the next release before updating manually:\n\
-             \x20     trimwire update --dry-run",
+             \x20     trimwire upgrade --dry-run",
             upd::refusal_reason(&elig, &exe_str, &receipt_path),
             upd::manual_update_guidance()
         );
@@ -399,8 +403,8 @@ fn run_check() -> ! {
             let cur = upd::parse_version(current).expect("own version parses");
             if upd::is_newer(latest, cur) {
                 println!(
-                    "trimwire {} is available (you have {current}).\n  • verify it:  trimwire update --dry-run\n  \
-                     • apply it:   trimwire update --apply",
+                    "trimwire {} is available (you have {current}).\n  • verify it:  trimwire upgrade --dry-run\n  \
+                     • apply it:   trimwire upgrade",
                     tag.trim_start_matches('v')
                 );
             } else {
@@ -411,17 +415,37 @@ fn run_check() -> ! {
     }
 }
 
-/// `trimwire update [--dry-run | --apply [--yes] | --yes]` (alias `upgrade`).
-/// Default = read-only check. `--dry-run` = verify the latest release.
-/// `--apply`/`--yes` = self-update (Linux managed installs only).
+/// `trimwire update` — read-only check ONLY. The download/verify/apply flags
+/// moved to `trimwire upgrade`; if a deprecated flag is passed here we redirect
+/// (exit 2) rather than silently ignore it. Default = the read-only check.
 pub fn update(dry_run: bool, apply: bool, yes: bool) -> Result<()> {
+    if dry_run || apply || yes {
+        // `update` no longer downloads or applies anything — point at `upgrade`.
+        let suggestion = if dry_run {
+            "trimwire upgrade --dry-run"
+        } else if yes {
+            "trimwire upgrade --yes"
+        } else {
+            "trimwire upgrade"
+        };
+        eprintln!(
+            "trimwire update is a read-only check and no longer downloads or applies updates.\n\
+             Use `{suggestion}` instead."
+        );
+        std::process::exit(2);
+    }
+    run_check()
+}
+
+/// `trimwire upgrade` — the state-changing command. `--dry-run` downloads +
+/// verifies the latest release without changing anything; otherwise it applies,
+/// asking for confirmation on a terminal unless `--yes`. Linux + managed installs
+/// only; fail-closed.
+pub fn upgrade(dry_run: bool, yes: bool) -> Result<()> {
     if dry_run {
         std::process::exit(run_dry_run());
     }
-    if apply || yes {
-        std::process::exit(run_apply(yes));
-    }
-    run_check()
+    std::process::exit(run_apply(yes))
 }
 
 // ── 4c: apply (self-update) ───────────────────────────────────────────────────
@@ -467,7 +491,7 @@ fn run_apply(yes: bool) -> i32 {
     // Windows running-exe lock are out of scope — refuse, don't half-do it).
     if !cfg!(target_os = "linux") {
         return apply_refuse(&format!(
-            "trimwire update --apply: self-update is only supported on Linux right now. \
+            "trimwire upgrade: self-update is only supported on Linux right now. \
              Update manually:\n\n{}",
             upd::manual_update_guidance()
         ));
@@ -479,7 +503,7 @@ fn run_apply(yes: bool) -> i32 {
         Ok(v) => v,
         Err(msg) => {
             return apply_refuse(&format!(
-                "trimwire update --apply: {msg}\n\n{}",
+                "trimwire upgrade: {msg}\n\n{}",
                 upd::manual_update_guidance()
             ));
         }
@@ -488,7 +512,7 @@ fn run_apply(yes: bool) -> i32 {
         // Lead with the command so the user sees `--apply` was understood and
         // deliberately refused (not silently ignored), then the precise reason.
         return apply_refuse(&format!(
-            "trimwire update --apply: cannot self-update this install.\n{}\n\n{}",
+            "trimwire upgrade: cannot self-update this install.\n{}\n\n{}",
             upd::refusal_reason(&elig, &exe_str, &receipt_path),
             upd::manual_update_guidance()
         ));
@@ -501,7 +525,7 @@ fn run_apply(yes: bool) -> i32 {
         Some(t) => t,
         None => {
             eprintln!(
-                "trimwire update --apply: couldn't reach GitHub to check the latest release \
+                "trimwire upgrade: couldn't reach GitHub to check the latest release \
                  (fail-closed)."
             );
             return 1;
@@ -518,9 +542,7 @@ fn run_apply(yes: bool) -> i32 {
             return 0;
         }
         None => {
-            eprintln!(
-                "trimwire update --apply: couldn't parse the latest tag '{tag}' (fail-closed)."
-            );
+            eprintln!("trimwire upgrade: couldn't parse the latest tag '{tag}' (fail-closed).");
             return 1;
         }
     }
@@ -528,21 +550,28 @@ fn run_apply(yes: bool) -> i32 {
     // A pinned key is mandatory — no key ⇒ can't verify ⇒ won't apply.
     if pinned_pubkey().is_none() {
         return apply_refuse(
-            "trimwire update --apply: this build has no pinned update-signing key, so a download \
+            "trimwire upgrade: this build has no pinned update-signing key, so a download \
              can't be verified — refusing to self-update (fail-closed). See \
              docs/UPDATE-COMMAND-SPIKE.md.",
         );
     }
 
-    // Confirmation: a non-interactive shell requires --yes; never apply unattended
-    // without it. Checked before the (multi-MB) archive download so the refusal
-    // avoids a pointless transfer — the version check above is a single small GET.
-    let interactive = std::io::stdin().is_terminal();
-    if !yes && !interactive {
-        return apply_refuse(
-            "trimwire update --apply: refusing to self-update without confirmation in a \
-             non-interactive shell. Re-run with --yes to apply unattended.",
-        );
+    // Confirmation BEFORE any (multi-MB) download: a non-interactive shell needs
+    // --yes; an interactive one is prompted now, so answering "no" costs no
+    // download (the version check above was a single small GET).
+    if !yes {
+        if !std::io::stdin().is_terminal() {
+            return apply_refuse(
+                "trimwire upgrade: refusing to self-update without confirmation in a \
+                 non-interactive shell. Re-run with --yes to apply unattended.",
+            );
+        }
+        if !confirm(&format!(
+            "Upgrade trimwire {current} → {tag} and restart the service?"
+        )) {
+            println!("Cancelled. Nothing was changed.");
+            return 0;
+        }
     }
 
     // Download + verify (checksum THEN pinned-key signature). The verified bytes
@@ -553,26 +582,16 @@ fn run_apply(yes: bool) -> i32 {
             Ok(bytes) => bytes,
             Err(ve) => {
                 eprintln!(
-                    "trimwire update --apply: download did NOT verify — {ve}\n→ refusing to apply (fail-closed)."
+                    "trimwire upgrade: download did NOT verify — {ve}\n→ refusing to apply (fail-closed)."
                 );
                 return 1;
             }
         },
         Err(e) => {
-            eprintln!("trimwire update --apply: {e}\n→ refusing to apply (fail-closed).");
+            eprintln!("trimwire upgrade: {e}\n→ refusing to apply (fail-closed).");
             return 1;
         }
     };
-
-    // Interactive confirmation (only reached on a TTY without --yes).
-    if !yes
-        && !confirm(&format!(
-            "Update trimwire {current} → {tag} and restart the service?"
-        ))
-    {
-        println!("Cancelled. Nothing was changed.");
-        return 0;
-    }
 
     apply_verified(&exe, &archive, &tag, current)
 }
@@ -606,7 +625,7 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
     let new_bytes = match extract_trimwire(archive) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("trimwire update --apply: {e}\n→ nothing was changed (fail-closed).");
+            eprintln!("trimwire upgrade: {e}\n→ nothing was changed (fail-closed).");
             return 1;
         }
     };
@@ -616,7 +635,7 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
         Ok(b) => b,
         Err(e) => {
             eprintln!(
-                "trimwire update --apply: failed to replace the binary: {e}\n→ nothing was changed (fail-closed)."
+                "trimwire upgrade: failed to replace the binary: {e}\n→ nothing was changed (fail-closed)."
             );
             return 1;
         }
@@ -636,7 +655,7 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
         }
         Err(restart_err) => {
             eprintln!(
-                "trimwire update --apply: the updated gateway did not come up healthy ({restart_err})."
+                "trimwire upgrade: the updated gateway did not come up healthy ({restart_err})."
             );
             eprintln!("→ rolling back to the previous binary…");
             match rollback(exe, &bak, addr) {
@@ -669,7 +688,7 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
 fn apply_verified(_exe: &std::path::Path, _archive: &[u8], _tag: &str, _old_version: &str) -> i32 {
     // Unreachable: run_apply refuses non-Linux before this. Present so the crate
     // compiles on every target.
-    apply_refuse("trimwire update --apply: self-update is only supported on Linux right now.")
+    apply_refuse("trimwire upgrade: self-update is only supported on Linux right now.")
 }
 
 /// Extract the single `trimwire` member from a `.tar.gz` to memory via `tar`.
