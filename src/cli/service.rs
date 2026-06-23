@@ -606,6 +606,9 @@ pub(crate) fn healthz_ok(addr: SocketAddr) -> bool {
 /// (4c) to confirm the freshly-restarted service is actually running the new
 /// build before declaring success. Parses the JSON body's `"version"` value with
 /// a tiny dependency-free scan (the body is the gateway's own small response).
+/// Linux-only: the apply path (its sole caller) is gated to Linux, so this would
+/// be dead code elsewhere (`-D dead-code`).
+#[cfg(target_os = "linux")]
 pub(crate) fn healthz_version(addr: SocketAddr) -> Option<String> {
     use std::io::{Read, Write};
     let mut s =
