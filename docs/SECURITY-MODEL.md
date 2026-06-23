@@ -101,7 +101,14 @@ requires `gh` ≥ 2.49 and `gh auth login` (verification queries GitHub's
 attestation store):
 
 ```sh
-# After downloading e.g. trimwire-x86_64-unknown-linux-gnu.tar.gz from the release:
+# After downloading e.g. trimwire-x86_64-unknown-linux-gnu.tar.gz from the release.
+# Recommended — also pins the signer to this repo's release workflow (not just the
+# repo), so it proves the asset was built by release.yml specifically:
+gh attestation verify trimwire-x86_64-unknown-linux-gnu.tar.gz \
+  --repo AZagatti/trimwire \
+  --signer-workflow AZagatti/trimwire/.github/workflows/release.yml
+
+# Quick form — proves only that some workflow in this repo attested the asset:
 gh attestation verify trimwire-x86_64-unknown-linux-gnu.tar.gz --repo AZagatti/trimwire
 ```
 

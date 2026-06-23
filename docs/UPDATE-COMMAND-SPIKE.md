@@ -32,11 +32,14 @@ handling (§7) — plus the version-check/no-op logic (§2). None are started.
 
 > **Verifier MUST pin the workflow identity, not just the repo.** `gh attestation
 > verify --repo AZagatti/trimwire` only proves the attestation belongs to this
-> repo — any workflow in the repo could attest an arbitrary binary. The client
-> verifier (and ideally the release `verify` job) must also assert the signer
-> workflow is `.github/workflows/release.yml` (e.g. `--signer-workflow` /
-> `--cert-identity`, or inspect the attestation's `builder.id`). Capture this
-> before the updater PR opens.
+> repo — any workflow in the repo could attest an arbitrary binary. The check must
+> also assert the signer workflow is `.github/workflows/release.yml` via
+> `--signer-workflow <owner>/<repo>/.github/workflows/release.yml` (path-based, so
+> stable across tags — unlike `--cert-identity`, which embeds the ref).
+> **Status:** the release `verify` job now pins this (`--signer-workflow` +
+> `--deny-self-hosted-runners`), and SECURITY-MODEL.md's recommended user command
+> does too. The **future client-side updater MUST do the same** before trusting a
+> download — don't regress to `--repo`-only.
 
 ## Problem
 

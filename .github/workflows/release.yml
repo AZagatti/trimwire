@@ -124,10 +124,11 @@ jobs:
 
       # Cryptographic build provenance for the EXACT archive bytes we upload (the
       # subject is the asset + its digest). Verifiable later with `gh attestation
-      # verify <asset> --repo AZagatti/trimwire`. This adds provenance (proves
-      # WHO/WHAT built it) on top of — not instead of — the same-origin `.sha256`
-      # (which only proves transit integrity). Attest the archive before upload so
-      # the attested digest matches what users download.
+      # verify <asset> --repo AZagatti/trimwire --signer-workflow
+      # AZagatti/trimwire/.github/workflows/release.yml`. This adds provenance
+      # (proves WHO/WHAT built it) on top of — not instead of — the same-origin
+      # `.sha256` (which only proves transit integrity). Attest the archive before
+      # upload so the attested digest matches what users download.
       - name: Attest build provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
@@ -177,5 +178,13 @@ jobs:
           asset="trimwire-x86_64-unknown-linux-gnu.tar.gz"
           # Present from the previous step; re-download if this job is re-run alone.
           [ -f "$asset" ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset"
-          gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY"
+          # Pin the signer to THIS repo's release.yml (not just --repo, which would
+          # accept any workflow in the repo) so the check actually proves "built by
+          # the release workflow", and reject any self-hosted-runner signer (the
+          # build matrix is GitHub-hosted only). --signer-workflow is path-based, so
+          # it's stable across tags.
+          gh attestation verify "$asset" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --deny-self-hosted-runners
           echo "provenance attestation verified for $asset"
