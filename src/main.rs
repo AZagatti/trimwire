@@ -478,12 +478,12 @@ elvish  — source inline from rc.elv:\n\
     #[command(display_order = 17)]
     Hook,
 
-    /// Check whether a newer trimwire release is available (read-only). For a
-    /// curl|sh install it reports the available version; for cargo/manual installs
-    /// it prints the right update command. `--dry-run` downloads the latest
-    /// release and verifies its checksum + signature without changing anything;
-    /// `--apply`/`--yes` self-update (Linux managed installs only). See
-    /// docs/UPDATE-COMMAND-SPIKE.md.
+    /// Check for, verify, and (on managed Linux installs) apply a new release.
+    /// With no flags it's a read-only version check (curl|sh installs report the
+    /// available version; cargo/manual installs get the right update command).
+    /// `--dry-run` downloads the latest release and verifies its checksum +
+    /// signature without changing anything; `--apply`/`--yes` self-update (Linux
+    /// managed installs only). See docs/UPDATE-COMMAND-SPIKE.md.
     #[command(display_order = 18, alias = "upgrade")]
     Update {
         /// Download the latest release for this platform and verify its SHA-256

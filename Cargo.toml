@@ -108,6 +108,9 @@ pretty_assertions = "1"
 # `minisign-verify` verifies. sha2/hex compute the published `.sha256` the fake
 # release server serves (normal deps aren't in scope for the integration-test
 # crate, so they're re-declared here).
+# minisign 0.9.1 (dev-only; signs the update-verification fixtures). No declared
+# MSRV; confirmed 1.85-compatible (resolver + MSRV CI). Pulls scrypt/rpassword/
+# ct-codecs as transitive dev-deps; none ship in the release binary.
 minisign = "0.9.1"
 sha2 = "0.11"
 hex = "0.4"

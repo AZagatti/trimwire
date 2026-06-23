@@ -236,18 +236,24 @@ struct DryRunOutcome {
     result: std::result::Result<Vec<u8>, upd::VerifyError>,
 }
 
-/// Download the latest release's archive + `.sha256` + `.minisig` for this
-/// platform and verify them. Pure decision in [`trimwire::update::verify_artifact`];
-/// this only does the I/O. Returns `Err` for any orchestration failure (no
-/// network, no releases, download/timeout) — which the caller treats as NOT
-/// verified (fail closed). A present-but-bad artifact comes back as
-/// `Ok(outcome)` whose `result` is the specific [`upd::VerifyError`].
-fn verify_latest_release() -> std::result::Result<DryRunOutcome, String> {
+/// Download a release's archive + `.sha256` + `.minisig` for this platform and
+/// verify them. Pure decision in [`trimwire::update::verify_artifact`]; this only
+/// does the I/O. `pinned_tag` lets a caller (the apply path) pass an
+/// already-resolved tag so the version it confirms/installs is the SAME one the
+/// rest of the flow used — `None` resolves the latest here (the `--dry-run` use).
+/// Returns `Err` for any orchestration failure (no network, no releases,
+/// download/timeout) — which the caller treats as NOT verified (fail closed). A
+/// present-but-bad artifact comes back as `Ok(outcome)` whose `result` is the
+/// specific [`upd::VerifyError`].
+fn verify_latest_release(pinned_tag: Option<String>) -> std::result::Result<DryRunOutcome, String> {
     let target = trimwire::build_target();
     let asset = upd::asset_name(target);
-    let tag = fetch_latest_tag().ok_or(
-        "couldn't determine the latest release (GitHub unreachable, rate-limited, or no releases)",
-    )?;
+    let tag = match pinned_tag {
+        Some(t) => t,
+        None => fetch_latest_tag().ok_or(
+            "couldn't determine the latest release (GitHub unreachable, rate-limited, or no releases)",
+        )?,
+    };
 
     // No pinned key ⇒ verification can't succeed regardless; report it without a
     // pointless download.
@@ -300,7 +306,7 @@ fn verify_latest_release() -> std::result::Result<DryRunOutcome, String> {
 /// `--dry-run`: verify the latest release without changing anything. Returns the
 /// process exit code: 0 = verified, 1 = NOT verified (any failure). Fail-closed.
 fn run_dry_run() -> i32 {
-    match verify_latest_release() {
+    match verify_latest_release(None) {
         Err(e) => {
             eprintln!("trimwire update --dry-run: {e}\n→ treating as NOT verified (fail-closed).");
             1
@@ -371,7 +377,8 @@ fn run_check() -> ! {
     };
     if elig != upd::Eligibility::Eligible {
         eprintln!(
-            "{}\n\n{}",
+            "{}\n\n{}\n\nTo verify the next release before updating manually:\n\
+             \x20     trimwire update --dry-run",
             upd::refusal_reason(&elig, &exe_str, &receipt_path),
             upd::manual_update_guidance()
         );
@@ -478,8 +485,10 @@ fn run_apply(yes: bool) -> i32 {
         }
     };
     if elig != upd::Eligibility::Eligible {
+        // Lead with the command so the user sees `--apply` was understood and
+        // deliberately refused (not silently ignored), then the precise reason.
         return apply_refuse(&format!(
-            "{}\n\n{}",
+            "trimwire update --apply: cannot self-update this install.\n{}\n\n{}",
             upd::refusal_reason(&elig, &exe_str, &receipt_path),
             upd::manual_update_guidance()
         ));
@@ -526,7 +535,8 @@ fn run_apply(yes: bool) -> i32 {
     }
 
     // Confirmation: a non-interactive shell requires --yes; never apply unattended
-    // without it. (Checked before any download so the refusal is fast + testable.)
+    // without it. Checked before the (multi-MB) archive download so the refusal
+    // avoids a pointless transfer — the version check above is a single small GET.
     let interactive = std::io::stdin().is_terminal();
     if !yes && !interactive {
         return apply_refuse(
@@ -536,8 +546,9 @@ fn run_apply(yes: bool) -> i32 {
     }
 
     // Download + verify (checksum THEN pinned-key signature). The verified bytes
-    // are exactly what we install.
-    let archive = match verify_latest_release() {
+    // are exactly what we install. Pass the tag we already resolved so the version
+    // we install + health-check is the same one checked above (no second fetch).
+    let archive = match verify_latest_release(Some(tag.clone())) {
         Ok(o) => match o.result {
             Ok(bytes) => bytes,
             Err(ve) => {
@@ -636,7 +647,10 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
                     1
                 }
                 Err(rb) => {
-                    // Never swallow a rollback failure — the user must act.
+                    // Never swallow a rollback failure — the user must act. Exit 3
+                    // (distinct from the clean-rollback 1) so wrapping automation can
+                    // tell "safe failure, old version running" from "indeterminate
+                    // state, manual restore needed".
                     eprintln!(
                         "CRITICAL: rollback FAILED ({rb}). The previous binary is saved at {}. \
                          Restore it manually and run `trimwire on`:\n    cp {} {} && trimwire on",
@@ -644,7 +658,7 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
                         bak.display(),
                         exe.display()
                     );
-                    1
+                    3
                 }
             }
         }
@@ -661,8 +675,18 @@ fn apply_verified(_exe: &std::path::Path, _archive: &[u8], _tag: &str, _old_vers
 /// Extract the single `trimwire` member from a `.tar.gz` to memory via `tar`.
 #[cfg(target_os = "linux")]
 fn extract_trimwire(archive: &[u8]) -> std::result::Result<Vec<u8>, String> {
+    use std::io::Write;
     let tmp = std::env::temp_dir().join(format!("trimwire-update-{}.tar.gz", std::process::id()));
-    std::fs::write(&tmp, archive).map_err(|e| format!("write temp archive: {e}"))?;
+    // create_new (O_EXCL) so a pre-planted symlink at this path can't redirect the
+    // write to an attacker-chosen file (matches `atomic_replace`'s discipline).
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .map_err(|e| format!("create temp archive: {e}"))?;
+    f.write_all(archive)
+        .map_err(|e| format!("write temp archive: {e}"))?;
+    drop(f);
     let out = std::process::Command::new("tar")
         .arg("-xzOf")
         .arg(&tmp)

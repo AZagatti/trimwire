@@ -179,9 +179,8 @@ jobs:
             echo "have=true" >> "$GITHUB_OUTPUT"
           else
             echo "have=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::MINISIGN_SECRET_KEY is not set — skipping release signing. \
-              trimwire self-update verification fails closed until a signing key + a pinned \
-              public key are configured (docs/UPDATE-COMMAND-SPIKE.md)."
+            # Single line: ::warning:: annotations stop at the first newline.
+            echo "::warning::MINISIGN_SECRET_KEY is not set — skipping release signing; trimwire self-update verification fails closed until a signing key + pinned public key are configured (docs/UPDATE-COMMAND-SPIKE.md)."
           fi
 
       - name: Install minisign

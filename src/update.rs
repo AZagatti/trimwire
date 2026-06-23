@@ -248,11 +248,13 @@ pub fn expected_sha256(sha256_file: &str, asset: &str) -> Option<String> {
             continue;
         }
         match parts.next() {
-            // `<hex>  <name>` — accept when the name matches the asset. The
-            // sha256sum format may prefix the name with `*` (binary mode).
+            // `<hex>  <name>` — accept only on an EXACT name match (after dropping
+            // the sha256sum `*` binary-mode marker and a leading `./`). A suffix
+            // match would let a crafted `evil-<asset>` entry in a multi-file
+            // manifest satisfy the checksum gate for the wrong file.
             Some(name) => {
-                let name = name.trim_start_matches('*');
-                if name == asset || name.ends_with(asset) {
+                let name = name.trim_start_matches('*').trim_start_matches("./");
+                if name == asset {
                     return Some(hash.to_ascii_lowercase());
                 }
             }

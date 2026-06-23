@@ -185,10 +185,10 @@ check is unaffected.
 2. **Add CI secrets** in the repo: `MINISIGN_SECRET_KEY` = the full contents of
    `trimwire.key` (and `MINISIGN_PASSWORD` if you used a password-protected key).
    The `sign` job writes the `.minisig` for each archive on the next release.
-3. **Pin the public key**: paste the **second line** of `trimwire.pub` (the
-   base64 payload, no comment line) into `PINNED_PUBKEY` in `src/update.rs`, then
-   cut a release built from that commit. From then on, every client verifies
-   downloads against this key.
+3. **Pin the public key**: open `trimwire.pub` and copy the line that is the
+   **base64 key payload** (the line that does NOT start with `untrusted comment:`)
+   into `PINNED_PUBKEY` in `src/update.rs`, then cut a release built from that
+   commit. From then on, every client verifies downloads against this key.
 4. **Keep `trimwire.key` offline** (password manager / hardware token), never in
    the repo. **Rotation:** repeat 1–3 and publish the new public key in a minor
    release; old clients keep trusting the old key until they update through it, so

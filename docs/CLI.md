@@ -87,7 +87,7 @@ Check for, verify, and (on managed Linux installs) apply a new release. `upgrade
 
 **`trimwire update --dry-run`** — download the latest release for your platform and verify its checksum + signature **without changing anything**. Exit **0** = `verified ✓`; exit **1** = `NOT verified` (mismatch, missing/invalid signature, no pinned key, or network failure). Safe to run on any install.
 
-**`trimwire update --apply`** (alias trigger `--yes`) — self-update. After the same verification it atomically replaces the binary and restarts the service, rolling back to the previous binary if the restarted gateway isn't healthy. **Linux + managed installs only.** On a terminal it asks for confirmation first; `--yes` skips the prompt (required for non-interactive use). Refuses (exit 2) on macOS/Windows, non-managed installs, non-writable locations, or a non-interactive shell without `--yes`. Never downgrades (only a strictly-newer release applies).
+**`trimwire update --apply`** — self-update. After the same verification it atomically replaces the binary and restarts the service, rolling back to the previous binary if the restarted gateway isn't healthy. **Linux + managed installs only.** On a terminal it asks for confirmation first; pass `--yes` to skip the prompt (`--yes` on its own also implies `--apply`, so `trimwire update --yes` self-updates non-interactively). Refuses (exit 2) on macOS/Windows, non-managed installs, non-writable locations, or a non-interactive shell without `--yes`. Never downgrades (only a strictly-newer release applies). Exit codes: 0 success/no-op, 1 verification failed or rolled back cleanly, 2 refused, 3 rollback failed (manual restore needed).
 
 ```sh
 trimwire update             # check only
