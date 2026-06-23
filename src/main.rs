@@ -480,12 +480,25 @@ elvish  — source inline from rc.elv:\n\
 
     /// Check whether a newer trimwire release is available (read-only). For a
     /// curl|sh install it reports the available version; for cargo/manual installs
-    /// it prints the right update command. Self-update (`--yes`) is not implemented
-    /// yet — see docs/UPDATE-COMMAND-SPIKE.md.
+    /// it prints the right update command. `--dry-run` downloads the latest
+    /// release and verifies its checksum + signature without changing anything;
+    /// `--apply`/`--yes` self-update (Linux managed installs only). See
+    /// docs/UPDATE-COMMAND-SPIKE.md.
     #[command(display_order = 18, alias = "upgrade")]
     Update {
-        /// (reserved) Apply the update. Not implemented yet — this build only
-        /// checks; `--yes` prints how to update manually and exits non-zero.
+        /// Download the latest release for this platform and verify its SHA-256
+        /// checksum + minisign signature against the pinned key, then report
+        /// verified / NOT verified. Changes nothing on disk; never applies.
+        #[arg(long, conflicts_with_all = ["apply", "yes"])]
+        dry_run: bool,
+        /// Apply the update: download, verify (checksum + pinned-key signature),
+        /// then atomically replace the binary and restart the service. On a
+        /// terminal this prompts for confirmation first (use `--yes` to skip the
+        /// prompt / for non-interactive use). Linux managed installs only.
+        #[arg(long)]
+        apply: bool,
+        /// Skip the apply confirmation prompt (non-interactive apply). Implies
+        /// `--apply`.
         #[arg(long)]
         yes: bool,
     },
@@ -647,7 +660,11 @@ fn main() -> Result<()> {
         } => cli::serve(listen, upstream, audit),
         Cmd::Run { args, audit } => cli::run(&args, audit),
         Cmd::Hook => cli::hook(),
-        Cmd::Update { yes } => cli::update(yes),
+        Cmd::Update {
+            dry_run,
+            apply,
+            yes,
+        } => cli::update(dry_run, apply, yes),
     }
 }
 

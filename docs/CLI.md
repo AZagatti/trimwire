@@ -59,7 +59,7 @@ Diagnose the setup: config, active profile, gateway health, `ANTHROPIC_BASE_URL`
 
 Immediately below the header, a `platform:` line reports the build **platform** — the target triple the binary was compiled for (e.g. `platform: x86_64-unknown-linux-gnu`) — which is useful in bug reports and identifies which release asset matches this binary.
 
-The next line reports the **install receipt** — how trimwire was installed. The `curl | sh` installer writes `$XDG_DATA_HOME/trimwire/install-receipt.json` (default `~/.local/share/trimwire/install-receipt.json`) with `method: "script"`; `trimwire install` refreshes it. A `cargo`/manual install has no receipt, so the line reads `install: no receipt recorded (manual or cargo install)` — that's expected and harmless. (This metadata is recorded for a possible future `trimwire update`; there is no self-updater today — see `trimwire update`.)
+The next line reports the **install receipt** — how trimwire was installed. The `curl | sh` installer writes `$XDG_DATA_HOME/trimwire/install-receipt.json` (default `~/.local/share/trimwire/install-receipt.json`) with `method: "script"`; `trimwire install` refreshes it. A `cargo`/manual install has no receipt, so the line reads `install: no receipt recorded (manual or cargo install)` — that's expected and harmless. (This metadata gates `trimwire update --apply`, which only self-updates a managed install — see `trimwire update`.)
 
 | Flag | Description |
 |---|---|
@@ -78,18 +78,25 @@ trimwire doctor --strict     # any warning or failure exits 1 (CI health checks)
 
 ### `trimwire update`
 
-**Read-only update check** — it does **not** self-update yet (no download, verification, or binary replacement; see [UPDATE-COMMAND-SPIKE.md](UPDATE-COMMAND-SPIKE.md) for the phased plan). `upgrade` is an alias.
+Check for, verify, and (on managed Linux installs) apply a new release. `upgrade` is an alias. Every path that touches the binary is **fail-closed**: nothing is replaced unless the download's SHA-256 **and** its minisign signature (verified against a key pinned in the binary) both pass. See [UPDATE-COMMAND-SPIKE.md](UPDATE-COMMAND-SPIKE.md).
 
-- If you installed via the `curl | sh` script (a managed install), it checks the latest GitHub release and tells you whether a newer version is available. Exits **0** ("already up to date" or "vNEW available").
-- For a `cargo`/manual install — or if it can't confirm a managed install — it prints the right update command for your method and **exits 2** (it won't self-update a binary it didn't place).
-- A failed network check (offline / rate-limited) is non-fatal: a clear message, exit 0, no partial state.
-- `--yes` is reserved for the future self-update; it is **not implemented yet** and currently prints the manual update path and exits 2.
+**`trimwire update`** — read-only check.
+- Managed (`curl | sh`) install: checks the latest GitHub release and reports whether a newer version is available (exit **0**).
+- `cargo`/manual install (or can't confirm a managed install): prints the right update command for your method and **exits 2** (it won't touch a binary it didn't place).
+- A failed network check (offline / rate-limited) is non-fatal: clear message, exit 0, no partial state.
+
+**`trimwire update --dry-run`** — download the latest release for your platform and verify its checksum + signature **without changing anything**. Exit **0** = `verified ✓`; exit **1** = `NOT verified` (mismatch, missing/invalid signature, no pinned key, or network failure). Safe to run on any install.
+
+**`trimwire update --apply`** (alias trigger `--yes`) — self-update. After the same verification it atomically replaces the binary and restarts the service, rolling back to the previous binary if the restarted gateway isn't healthy. **Linux + managed installs only.** On a terminal it asks for confirmation first; `--yes` skips the prompt (required for non-interactive use). Refuses (exit 2) on macOS/Windows, non-managed installs, non-writable locations, or a non-interactive shell without `--yes`. Never downgrades (only a strictly-newer release applies).
 
 ```sh
-trimwire update      # check only: reports availability, or prints how to update
+trimwire update             # check only
+trimwire update --dry-run   # download + verify the latest release; change nothing
+trimwire update --apply     # verify, then replace + restart (confirms on a TTY)
+trimwire update --yes       # same, non-interactive (no prompt)
 ```
 
-For the full update guidance see the [FAQ](FAQ.md#how-do-i-install-it). After updating, restart the service with `trimwire off && trimwire on` so the new binary serves.
+> **Note:** self-update requires a published signing key. Until the maintainer pins one (see UPDATE-COMMAND-SPIKE.md, "Release signing — owner setup"), `--dry-run`/`--apply` fail closed with "no pinned update-signing key" — update via your install method instead (see the [FAQ](FAQ.md#how-do-i-install-it)).
 
 ---
 

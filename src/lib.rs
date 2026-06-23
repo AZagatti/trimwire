@@ -23,8 +23,10 @@ pub mod strategies;
 /// `[summarizer] engine` is not `"model-free"` in config. See `docs/SUMMARIZER.md`.
 pub mod summarizer;
 pub mod sweep;
-/// Self-update support (read-only check today; see `docs/UPDATE-COMMAND-SPIKE.md`).
-/// Pure decision logic; the impure CLI wrapper lives in `src/cli/update.rs`.
+/// Self-update support: version compare, asset selection, install eligibility,
+/// and artifact verification (SHA-256 + pinned-key minisign signature). Pure
+/// decision logic; the impure CLI wrapper (download/verify/apply) lives in
+/// `src/cli/update.rs`. See `docs/UPDATE-COMMAND-SPIKE.md`.
 pub mod update;
 
 /// The Rust target triple this binary was built for, e.g.

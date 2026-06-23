@@ -143,6 +143,84 @@ jobs:
             ${{ env.ASSET }}.sha256
           fail_on_unmatched_files: true
 
+  # Sign every release archive with minisign (Ed25519), producing a detached
+  # `<asset>.minisig` that `trimwire update --dry-run`/`--apply` verifies against
+  # a public key PINNED in the binary. This is PROVENANCE on top of the
+  # same-origin `.sha256` (transit integrity) and the GitHub attestation: an
+  # attacker who replaces a release asset + its checksum still can't forge a
+  # minisign signature without the owner's offline secret key.
+  #
+  # OWNER SETUP (until done, this job no-ops and self-update verification fails
+  # closed — see docs/UPDATE-COMMAND-SPIKE.md, "Release signing — owner setup"):
+  #   1. Generate a passwordless key:  minisign -G -W -p trimwire.pub -s trimwire.key
+  #   2. Repo secret MINISIGN_SECRET_KEY = the FULL contents of trimwire.key
+  #      (optionally MINISIGN_PASSWORD if you used a password-protected key).
+  #   3. Paste the SECOND line of trimwire.pub into `PINNED_PUBKEY` in
+  #      src/update.rs and ship a release built from it.
+  #   4. Keep trimwire.key OFFLINE (a password manager / hardware token); rotate
+  #      by repeating 1–3 and publishing the new pubkey in a minor release.
+  sign:
+    needs: build
+    name: sign release artifacts (minisign)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # download + upload release assets
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+      MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+    steps:
+      - name: Check for a signing key
+        id: check
+        run: |
+          if [ -n "${MINISIGN_SECRET_KEY:-}" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::MINISIGN_SECRET_KEY is not set — skipping release signing. \
+              trimwire self-update verification fails closed until a signing key + a pinned \
+              public key are configured (docs/UPDATE-COMMAND-SPIKE.md)."
+          fi
+
+      - name: Install minisign
+        if: steps.check.outputs.have == 'true'
+        run: sudo apt-get update && sudo apt-get install -y minisign
+
+      - name: Download release archives
+        if: steps.check.outputs.have == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p dist && cd dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'trimwire-*.tar.gz' --pattern 'trimwire-*.zip'
+
+      - name: Sign each archive (prehashed Ed25519)
+        if: steps.check.outputs.have == 'true'
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$(mktemp)"
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$key"
+          trap 'rm -f "$key"' EXIT
+          cd dist
+          for f in trimwire-*.tar.gz trimwire-*.zip; do
+            [ -e "$f" ] || continue
+            # -H = prehashed (the client requires it; legacy signatures are rejected).
+            printf '%s' "${MINISIGN_PASSWORD:-}" | \
+              minisign -S -H -s "$key" -m "$f" -x "$f.minisig" \
+                -c "trimwire $TAG release archive" -t "trimwire $TAG $f"
+          done
+
+      - name: Upload signatures
+        if: steps.check.outputs.have == 'true'
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          tag_name: ${{ env.TAG }}
+          files: dist/*.minisig
+          fail_on_unmatched_files: true
+
   verify:
     needs: build
     name: verify published asset

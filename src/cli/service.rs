@@ -601,6 +601,32 @@ pub(crate) fn healthz_ok(addr: SocketAddr) -> bool {
     buf.starts_with("HTTP/1.1 200")
 }
 
+/// Blocking `GET /healthz` that returns the served `version` field, or `None` if
+/// the gateway isn't answering or the body has no version. Used by the updater
+/// (4c) to confirm the freshly-restarted service is actually running the new
+/// build before declaring success. Parses the JSON body's `"version"` value with
+/// a tiny dependency-free scan (the body is the gateway's own small response).
+pub(crate) fn healthz_version(addr: SocketAddr) -> Option<String> {
+    use std::io::{Read, Write};
+    let mut s =
+        std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(500)).ok()?;
+    let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(500)));
+    let req = format!("GET /healthz HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+    s.write_all(req.as_bytes()).ok()?;
+    let mut buf = String::new();
+    let _ = s.read_to_string(&mut buf);
+    if !buf.starts_with("HTTP/1.1 200") {
+        return None;
+    }
+    // Body is `{"ok":true,"version":"X.Y.Z"}` — find the version value.
+    let body = buf.split("\r\n\r\n").nth(1).unwrap_or("");
+    let key = "\"version\":\"";
+    let start = body.find(key)? + key.len();
+    let rest = &body[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_owned())
+}
+
 // `getuid()` has no caller preconditions and can't fail or cause UB, so the
 // wrapper is a *safe* fn; the `unsafe` (and its opt-in) is confined to the FFI.
 #[cfg(target_os = "macos")]

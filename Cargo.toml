@@ -73,6 +73,7 @@ clap_complete = "4"
 clap_mangen = "0.3"
 listenfd = "1"
 dashmap = "6"
+minisign-verify = "0.2.5"
 
 # Used only for the launchd socket-activation FFI (launch_activate_socket).
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -102,6 +103,14 @@ wiremock = "=0.6.4"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "http2"] }
 tempfile = "3"
 pretty_assertions = "1"
+# Generate real release-signing fixtures for the `trimwire update` verification
+# tests: `minisign` signs (the prehashed `-H` form), and the runtime dep
+# `minisign-verify` verifies. sha2/hex compute the published `.sha256` the fake
+# release server serves (normal deps aren't in scope for the integration-test
+# crate, so they're re-declared here).
+minisign = "0.9.1"
+sha2 = "0.11"
+hex = "0.4"
 
 [profile.release]
 opt-level = 3

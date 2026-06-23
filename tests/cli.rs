@@ -1487,16 +1487,50 @@ fn summarizer_setup_api_primary_with_local_fallback() {
 
 // ---- `trimwire update` (read-only check, phase 4a) -------------------------
 
-/// Minimal fake GitHub releases API: every GET returns `{"tag_name":"<tag>"}`.
-/// Mirrors `FakeOllama` (TcpListener + thread + stop flag).
+/// A signed release the fake server can hand out (4b/4c). `minisig = None` lets a
+/// test simulate a MISSING signature (the `.minisig` route 404s).
+struct Release {
+    asset: String,
+    archive: Vec<u8>,
+    sha256: String,
+    minisig: Option<String>,
+}
+
+/// Fake GitHub for the updater tests. Routes by request path: `…/releases/latest`
+/// → `{"tag_name":"<tag>"}`; `…/<asset>.minisig` → the detached signature (404 if
+/// `minisig = None`); `…/<asset>.sha256` → the checksum file; `…/<asset>` → the
+/// archive bytes; anything else → 404. One base serves BOTH the API
+/// (`TRIMWIRE_UPDATE_API_BASE`) and the download host (`TRIMWIRE_UPDATE_DL_BASE`).
+/// Mirrors `FakeOllama` (listener + thread).
 struct FakeGitHub {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     handle: Option<std::thread::JoinHandle<()>>,
     port: u16,
 }
 
+fn http_resp(status: &str, ctype: &str, body: &[u8]) -> Vec<u8> {
+    let mut v = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    v.extend_from_slice(body);
+    v
+}
+
 impl FakeGitHub {
+    /// Releases API only (returns `tag` for `/releases/latest`); no downloadable
+    /// artifacts — used by the read-only check tests.
     fn start(tag: &str) -> Self {
+        Self::start_inner(tag, None)
+    }
+
+    /// Full release: API + downloadable archive/.sha256/.minisig.
+    fn with_release(tag: &str, rel: Release) -> Self {
+        Self::start_inner(tag, Some(rel))
+    }
+
+    fn start_inner(tag: &str, rel: Option<Release>) -> Self {
         use std::io::{Read, Write};
         use std::sync::Arc;
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -1504,7 +1538,7 @@ impl FakeGitHub {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         listener.set_nonblocking(true).unwrap();
-        let body = format!("{{\"tag_name\":\"{tag}\"}}");
+        let tag_json = format!("{{\"tag_name\":\"{tag}\"}}");
 
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
@@ -1513,15 +1547,33 @@ impl FakeGitHub {
                 match listener.accept() {
                     Ok((mut s, _)) => {
                         let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(50)));
-                        let mut buf = [0u8; 2048];
-                        let _ = s.read(&mut buf);
-                        let resp = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
-                             Content-Length: {}\r\nConnection: close\r\n\r\n{}",
-                            body.len(),
-                            body
-                        );
-                        let _ = s.write_all(resp.as_bytes());
+                        let mut buf = [0u8; 4096];
+                        let n = s.read(&mut buf).unwrap_or(0);
+                        let req = String::from_utf8_lossy(&buf[..n]);
+                        let path = req
+                            .lines()
+                            .next()
+                            .and_then(|l| l.split_whitespace().nth(1))
+                            .unwrap_or("");
+                        let resp = if path.ends_with("/releases/latest") {
+                            http_resp("200 OK", "application/json", tag_json.as_bytes())
+                        } else if let Some(r) = &rel {
+                            if path.ends_with(".minisig") {
+                                match &r.minisig {
+                                    Some(sig) => http_resp("200 OK", "text/plain", sig.as_bytes()),
+                                    None => http_resp("404 Not Found", "text/plain", b"no sig"),
+                                }
+                            } else if path.ends_with(".sha256") {
+                                http_resp("200 OK", "text/plain", r.sha256.as_bytes())
+                            } else if path.ends_with(&r.asset) {
+                                http_resp("200 OK", "application/octet-stream", &r.archive)
+                            } else {
+                                http_resp("404 Not Found", "text/plain", b"not found")
+                            }
+                        } else {
+                            http_resp("404 Not Found", "text/plain", b"not found")
+                        };
+                        let _ = s.write_all(&resp);
                         let _ = s.flush();
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -1549,6 +1601,41 @@ impl Drop for FakeGitHub {
         if let Some(h) = self.handle.take() {
             let _ = h.join();
         }
+    }
+}
+
+/// A real minisign-signed release fixture for this platform's asset name, plus
+/// the base64 public key to pin via `TRIMWIRE_UPDATE_PUBKEY`. Signs with the
+/// `minisign` dev-dep (the prehashed `-H` form the release workflow emits).
+struct SignedFixture {
+    release: Release,
+    pubkey: String,
+}
+
+fn signed_fixture(archive: &[u8]) -> SignedFixture {
+    use minisign::{KeyPair, sign};
+    use sha2::{Digest, Sha256};
+
+    let asset = trimwire::update::asset_name(env!("TRIMWIRE_TARGET"));
+    let kp = KeyPair::generate_unencrypted_keypair().expect("keypair");
+    let sig_box = sign(
+        Some(&kp.pk),
+        &kp.sk,
+        std::io::Cursor::new(archive),
+        Some("trusted comment: trimwire integration test"),
+        None,
+    )
+    .expect("sign");
+    let minisig: String = sig_box.into();
+    let sha = hex::encode(Sha256::digest(archive));
+    SignedFixture {
+        release: Release {
+            sha256: format!("{sha}  {asset}\n"),
+            asset,
+            archive: archive.to_vec(),
+            minisig: Some(minisig),
+        },
+        pubkey: kp.pk.to_base64(),
     }
 }
 
@@ -1638,8 +1725,8 @@ fn update_reports_available_for_eligible_install() {
         "got: {s}"
     );
     assert!(
-        s.contains("--yes"),
-        "points at the (future) apply flag: {s}"
+        s.contains("--dry-run") && s.contains("--apply"),
+        "points at the verify + apply paths: {s}"
     );
 }
 
@@ -1670,22 +1757,212 @@ fn update_network_failure_is_nonfatal() {
     assert!(err.contains("couldn't check for updates"), "got: {err}");
 }
 
-/// `--yes` is reserved (no apply path yet) → exit 2 with a clear "not implemented".
+// ---- `trimwire update --dry-run` (4b: verify) -----------------------------
+
+/// Build an `update` Command wired to a fake server for both API + downloads,
+/// with stdin nulled (so `is_terminal()` is false — a non-interactive shell).
+fn update_cmd(
+    home: &std::path::Path,
+    data_home: &std::path::Path,
+    base: &str,
+    args: &[&str],
+) -> Command {
+    let mut c = Command::new(bin());
+    c.arg("update")
+        .args(args)
+        .env("HOME", home)
+        .env("XDG_DATA_HOME", data_home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env("TRIMWIRE_UPDATE_API_BASE", base)
+        .env("TRIMWIRE_UPDATE_DL_BASE", base)
+        .stdin(std::process::Stdio::null());
+    c
+}
+
+/// `--dry-run` on a correctly-signed release → exit 0, "verified".
 #[test]
-fn update_yes_is_not_implemented_yet() {
+fn update_dry_run_verifies_a_signed_release() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let fx = signed_fixture(b"trimwire fake archive payload");
+    let gh = FakeGitHub::with_release("v999.0.0", fx.release);
+    let out = update_cmd(dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
+        .output()
+        .expect("spawn");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(0), "verified → exit 0; stdout: {s}");
+    assert!(s.contains("verified"), "stdout: {s}");
+}
+
+/// `--dry-run` with no pinned key → fail closed (exit 1), never "verified".
+#[test]
+fn update_dry_run_fails_closed_without_pinned_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let fx = signed_fixture(b"trimwire fake archive payload");
+    let gh = FakeGitHub::with_release("v999.0.0", fx.release);
+    // No TRIMWIRE_UPDATE_PUBKEY → this build has no key to verify against.
+    let out = update_cmd(dir.path(), &data, &gh.base(), &["--dry-run"])
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(1), "no key → fail closed");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("NOT verified"), "got: {err}");
+}
+
+/// `--dry-run` where the archive bytes don't match the signed digest → fail
+/// closed at the checksum gate (exit 1).
+#[test]
+fn update_dry_run_fails_closed_on_tampered_artifact() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let mut fx = signed_fixture(b"trimwire fake archive payload");
+    // Tamper the served archive AFTER signing/checksumming.
+    fx.release.archive = b"a different, malicious payload".to_vec();
+    let gh = FakeGitHub::with_release("v999.0.0", fx.release);
+    let out = update_cmd(dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(1), "tampered → fail closed");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("NOT verified"), "got: {err}");
+}
+
+/// `--dry-run` with a MISSING `.minisig` (server 404s it) → fail closed (exit 1),
+/// never silently skip the signature.
+#[test]
+fn update_dry_run_fails_closed_on_missing_signature() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let mut fx = signed_fixture(b"trimwire fake archive payload");
+    fx.release.minisig = None; // server returns 404 for the .minisig
+    let gh = FakeGitHub::with_release("v999.0.0", fx.release);
+    let out = update_cmd(dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(1), "missing sig → fail closed");
+}
+
+/// `--dry-run` with the server unreachable → fail closed (exit 1).
+#[test]
+fn update_dry_run_network_failure_fails_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let out = update_cmd(dir.path(), &data, "http://127.0.0.1:1", &["--dry-run"])
+        .env(
+            "TRIMWIRE_UPDATE_PUBKEY",
+            "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3",
+        )
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(1), "network failure → fail closed");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("NOT verified"), "got: {err}");
+}
+
+// ---- `trimwire update --apply` / `--yes` (4c: apply, draft) ----------------
+
+/// No receipt → apply refuses (exit 2) before any download, nothing changed.
+#[test]
+fn update_apply_refuses_without_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let out = update_cmd(
+        dir.path(),
+        &data,
+        "http://127.0.0.1:1",
+        &["--apply", "--yes"],
+    )
+    .output()
+    .expect("spawn");
+    assert_eq!(out.status.code(), Some(2), "no receipt → refuse");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("no install receipt"), "got: {err}");
+}
+
+/// Eligible install but a non-interactive shell WITHOUT `--yes` → refuse (exit 2)
+/// rather than apply unattended. (stdin is nulled, so not a TTY.)
+#[test]
+fn update_apply_non_interactive_requires_yes() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    write_script_receipt(&data);
+    let fx = signed_fixture(b"trimwire fake archive payload");
+    let gh = FakeGitHub::with_release("v999.0.0", fx.release);
+    let out = update_cmd(dir.path(), &data, &gh.base(), &["--apply"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
+        .output()
+        .expect("spawn");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "non-interactive without --yes → refuse"
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("without confirmation") && err.contains("--yes"),
+        "got: {err}"
+    );
+}
+
+/// Eligible + `--yes`, but the latest release is NOT newer → no-op (exit 0),
+/// nothing applied. Proves `--yes` never blindly reinstalls/downgrades.
+#[test]
+fn update_apply_yes_is_noop_when_current() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    write_script_receipt(&data);
+    let gh = FakeGitHub::start("v0.0.1"); // older than the test binary
+    let out = update_cmd(dir.path(), &data, &gh.base(), &["--yes"])
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(0), "current → no-op exit 0");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("already up to date"), "got: {s}");
+}
+
+/// Eligible + `--yes` but no pinned key → refuse (exit 2): can't verify, won't
+/// apply (fail closed), even though a newer version exists.
+#[test]
+fn update_apply_refuses_without_pinned_key() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
     write_script_receipt(&data);
     let gh = FakeGitHub::start("v999.0.0");
-    let out = Command::new(bin())
-        .args(["update", "--yes"])
-        .env("HOME", dir.path())
-        .env("XDG_DATA_HOME", &data)
-        .env("XDG_CONFIG_HOME", dir.path().join(".config"))
-        .env("TRIMWIRE_UPDATE_API_BASE", gh.base())
+    let out = update_cmd(dir.path(), &data, &gh.base(), &["--yes"])
         .output()
         .expect("spawn");
-    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(out.status.code(), Some(2), "no key → refuse");
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("isn't implemented yet"), "got: {err}");
+    assert!(err.contains("no pinned update-signing key"), "got: {err}");
+}
+
+/// FULL apply path, end to end, with the localhost-only test seam that stops
+/// right before the binary swap: eligible + newer + verified + `--yes` →
+/// reaches the apply stage (exit 0, "would replace"), WITHOUT overwriting the
+/// running test binary. Exercises every gate the real apply runs.
+#[cfg(target_os = "linux")]
+#[test]
+fn update_apply_reaches_replace_after_verification() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    write_script_receipt(&data);
+    let fx = signed_fixture(b"trimwire fake archive payload");
+    let gh = FakeGitHub::with_release("v999.0.0", fx.release);
+    let out = update_cmd(dir.path(), &data, &gh.base(), &["--yes"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
+        .env("TRIMWIRE_UPDATE_DRYRUN_APPLY", "1") // test seam: stop before swap
+        .output()
+        .expect("spawn");
+    let s = String::from_utf8_lossy(&out.stdout);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "verified apply reaches the swap stage; stdout: {s} stderr: {err}"
+    );
+    assert!(s.contains("would replace"), "stdout: {s}");
 }

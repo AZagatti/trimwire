@@ -36,14 +36,21 @@ binary in place (your config and shell rc are untouched):
   replace the binary on your `PATH`.
 
 `trimwire update` (alias `upgrade`) **checks** whether a newer release is
-available (read-only) — for a `curl | sh` install it reports the available
-version; for cargo/manual installs it prints the same per-method paths above. It
-does **not** self-update yet (no download/replace); a self-replacing binary needs
-signature verification and atomic-swap design first, so for now you still update
-with the method above. See the design notes in
+available — for a `curl | sh` install it reports the available version; for
+cargo/manual installs it prints the per-method paths above.
+`trimwire update --dry-run` downloads the latest release and verifies its
+checksum + signature without changing anything. On a managed (`curl | sh`)
+**Linux** install, `trimwire update --apply` self-updates: it verifies the
+download (SHA-256 + a minisign signature against a key pinned in the binary),
+atomically replaces the binary, restarts the service, and rolls back if the new
+build isn't healthy (`--yes` to skip the confirmation prompt). Self-update is
+fail-closed and **requires the maintainer to have published a signing key** — if
+none is pinned yet it refuses with "no pinned update-signing key", so use the
+per-method update above. macOS/Windows and cargo/manual installs always use the
+per-method update. See
 [`docs/UPDATE-COMMAND-SPIKE.md`](https://github.com/AZagatti/trimwire/blob/main/docs/UPDATE-COMMAND-SPIKE.md).
-After updating, restart the service with `trimwire off && trimwire on` (or open a
-new shell) so the new binary is the one serving.
+After a manual update, restart with `trimwire off && trimwire on` (or open a new
+shell) so the new binary serves.
 
 ## Is trimwire safe to use with my Claude subscription? (Terms of Service)
 
