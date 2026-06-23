@@ -172,14 +172,32 @@ fn pinned_pubkey() -> Option<String> {
 }
 
 /// Hard cap on a downloaded artifact (releases are a few MB; this only guards
-/// against a hostile/broken server streaming unbounded data).
+/// against a hostile/broken server streaming unbounded data into memory).
 const MAX_DOWNLOAD_BYTES: usize = 200 * 1024 * 1024;
+
+/// The effective download cap. A localhost-only override
+/// (`TRIMWIRE_UPDATE_MAX_BYTES`) lets integration tests trip the cap with small
+/// fixtures; in production (`api_base()` is never localhost) it's the const.
+fn max_download_bytes() -> usize {
+    if is_localhost_base(&api_base()) {
+        if let Some(n) = std::env::var("TRIMWIRE_UPDATE_MAX_BYTES")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+        {
+            return n;
+        }
+    }
+    MAX_DOWNLOAD_BYTES
+}
 
 /// GET `url`, following up to 5 redirects (GitHub's release-download URL 302s to
 /// an asset CDN), returning the body bytes. Redirects must stay on HTTPS (no
-/// downgrade), except a localhost test base may redirect to localhost. Any
-/// failure is returned as a short string — every caller treats an error as "not
-/// verified / do not apply" (fail closed).
+/// downgrade), except a localhost test base may redirect to localhost. The size
+/// cap is enforced TWICE: a declared `Content-Length` over the cap is rejected
+/// before reading any body, and the body is streamed frame-by-frame with a
+/// running accumulated-byte limit (so a server that lies about / omits
+/// Content-Length still can't push us past the cap). Any failure is returned as a
+/// short string — every caller treats an error as "not verified / do not apply".
 async fn download_bytes(
     client: &trimwire::proxy::upstream::UpstreamClient,
     url: &str,
@@ -188,6 +206,7 @@ async fn download_bytes(
     use hyper::Request;
     use hyper::body::Bytes;
 
+    let cap = max_download_bytes();
     let allow_plain = is_localhost_base(url);
     let mut url = url.to_owned();
     for _ in 0..6 {
@@ -219,16 +238,33 @@ async fn download_bytes(
         if !status.is_success() {
             return Err(format!("HTTP {status}"));
         }
-        let bytes = resp
-            .into_body()
-            .collect()
-            .await
-            .map_err(|e| format!("download body error: {e}"))?
-            .to_bytes();
-        if bytes.len() > MAX_DOWNLOAD_BYTES {
-            return Err("download exceeds the size cap".to_owned());
+        // Pre-check a declared Content-Length so we reject an oversized download
+        // before reading a single body byte. (Nested `if let` — no let-chains at
+        // MSRV 1.85.)
+        let declared_len = resp
+            .headers()
+            .get(hyper::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok());
+        if let Some(len) = declared_len {
+            if len > cap as u64 {
+                return Err("download exceeds the size cap (Content-Length)".to_owned());
+            }
         }
-        return Ok(bytes.to_vec());
+        // Stream frame-by-frame, enforcing the cap as we accumulate — defends
+        // against a missing or lying Content-Length.
+        let mut body = resp.into_body();
+        let mut buf: Vec<u8> = Vec::new();
+        while let Some(next) = body.frame().await {
+            let frame = next.map_err(|e| format!("download body error: {e}"))?;
+            if let Ok(chunk) = frame.into_data() {
+                if buf.len() + chunk.len() > cap {
+                    return Err("download exceeds the size cap".to_owned());
+                }
+                buf.extend_from_slice(&chunk);
+            }
+        }
+        return Ok(buf);
     }
     Err("too many redirects".to_owned())
 }
@@ -260,6 +296,15 @@ fn verify_latest_release(pinned_tag: Option<String>) -> std::result::Result<DryR
             "couldn't determine the latest release (GitHub unreachable, rate-limited, or no releases)",
         )?,
     };
+
+    // Strict tag gate: only an exact `vMAJOR.MINOR.PATCH` stable tag may be used
+    // to build an asset URL — reject prereleases / build metadata / anything odd
+    // so release-metadata weirdness can't steer the download (fail closed).
+    if !upd::is_stable_release_tag(&tag) {
+        return Err(format!(
+            "refusing to use release tag '{tag}' — only stable vMAJOR.MINOR.PATCH releases are self-updatable"
+        ));
+    }
 
     // No pinned key ⇒ verification can't succeed regardless; report it without a
     // pointless download.
@@ -533,6 +578,15 @@ fn run_apply(yes: bool) -> i32 {
             return 1;
         }
     };
+    // Strict tag gate before the tag steers anything (URL, version compare,
+    // restart check) — reject anything but an exact stable vMAJOR.MINOR.PATCH.
+    if !upd::is_stable_release_tag(&tag) {
+        eprintln!(
+            "trimwire upgrade: latest release tag '{tag}' is not a stable vMAJOR.MINOR.PATCH \
+             release — refusing to self-update (fail-closed)."
+        );
+        return 1;
+    }
     match upd::parse_version(&tag) {
         Some(latest)
             if upd::is_newer(
@@ -660,7 +714,7 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
                 "trimwire upgrade: the updated gateway did not come up healthy ({restart_err})."
             );
             eprintln!("→ rolling back to the previous binary…");
-            match rollback(exe, &bak, addr) {
+            match rollback(exe, &bak, addr, old_version) {
                 Ok(()) => {
                     eprintln!(
                         "Rolled back to {old_version} and the service is healthy again. The update was NOT applied."
@@ -693,44 +747,73 @@ fn apply_verified(_exe: &std::path::Path, _archive: &[u8], _tag: &str, _old_vers
     apply_refuse("trimwire upgrade: self-update is only supported on Linux right now.")
 }
 
+/// A process-unique suffix (`<pid>.<nanos>`) for temp/backup file names, so each
+/// update attempt uses its own paths (no predictable, shared, or reused names).
+#[cfg(target_os = "linux")]
+fn unique_suffix() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{}.{}", std::process::id(), nanos)
+}
+
+/// Create a file with `O_CREAT|O_EXCL|O_WRONLY` — fails if the path already
+/// exists OR is a symlink, so it never follows or clobbers a pre-planted file.
+/// Used for every file the updater writes (new-binary temp, backup, extract temp).
+#[cfg(target_os = "linux")]
+fn create_excl(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+}
+
 /// Extract the single `trimwire` member from a `.tar.gz` to memory via `tar`.
+/// The temp archive is written to a unique O_EXCL path and removed on EVERY exit
+/// path (success or any failure — write, fsync, tar, empty).
 #[cfg(target_os = "linux")]
 fn extract_trimwire(archive: &[u8]) -> std::result::Result<Vec<u8>, String> {
     use std::io::Write;
-    let tmp = std::env::temp_dir().join(format!("trimwire-update-{}.tar.gz", std::process::id()));
-    // create_new (O_EXCL) so a pre-planted symlink at this path can't redirect the
-    // write to an attacker-chosen file (matches `atomic_replace`'s discipline).
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&tmp)
-        .map_err(|e| format!("create temp archive: {e}"))?;
-    f.write_all(archive)
-        .map_err(|e| format!("write temp archive: {e}"))?;
-    drop(f);
-    let out = std::process::Command::new("tar")
-        .arg("-xzOf")
-        .arg(&tmp)
-        .arg("trimwire")
-        .output();
-    let _ = std::fs::remove_file(&tmp);
-    let out = out.map_err(|e| format!("run tar: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "tar extraction failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    if out.stdout.is_empty() {
-        return Err("extracted binary is empty".to_owned());
-    }
-    Ok(out.stdout)
+    let tmp = std::env::temp_dir().join(format!("trimwire-update.{}.tar.gz", unique_suffix()));
+    let result = (|| -> std::result::Result<Vec<u8>, String> {
+        let mut f = create_excl(&tmp).map_err(|e| format!("create temp archive: {e}"))?;
+        f.write_all(archive)
+            .map_err(|e| format!("write temp archive: {e}"))?;
+        f.sync_all()
+            .map_err(|e| format!("fsync temp archive: {e}"))?;
+        drop(f);
+        let out = std::process::Command::new("tar")
+            .arg("-xzOf")
+            .arg(&tmp)
+            .arg("trimwire")
+            .output()
+            .map_err(|e| format!("run tar: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "tar extraction failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        if out.stdout.is_empty() {
+            return Err("extracted binary is empty".to_owned());
+        }
+        Ok(out.stdout)
+    })();
+    let _ = std::fs::remove_file(&tmp); // always clean up, success or failure
+    result
 }
 
-/// Atomic-ish replace on Linux: write `new_bytes` to a temp file in the SAME dir
-/// (so `rename` is on one filesystem — no EXDEV), `fchmod 0755`, fsync the file,
-/// back up the current binary to `<exe>.bak`, `rename` over the exe, fsync the
-/// dir. Returns the backup path. The running process keeps its open inode.
+/// Atomic-ish replace on Linux. In the binary's OWN directory (so `rename` stays
+/// on one filesystem — no EXDEV):
+///   1. write `new_bytes` to a unique O_EXCL temp → `fchmod 0755` → fsync;
+///   2. back up the CURRENT binary by reading its bytes and writing them to a
+///      FRESH unique O_EXCL `<name>.bak.<pid>.<nanos>` (never `fs::copy`, which
+///      follows/clobbers — and never a predictable/shared `.bak`);
+///   3. `rename(temp → exe)` (atomic) then fsync the dir.
+///
+/// Returns the backup path created by THIS attempt. Every failure path removes
+/// the temp (and, after it exists, the backup) so nothing is left staged.
 #[cfg(target_os = "linux")]
 fn atomic_replace(
     exe: &std::path::Path,
@@ -742,28 +825,55 @@ fn atomic_replace(
     let dir = exe
         .parent()
         .ok_or_else(|| "the binary has no parent directory".to_owned())?;
-    let tmp = dir.join(format!(".trimwire-update.{}", std::process::id()));
+    let name = exe
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "trimwire".to_owned());
+    let suffix = unique_suffix();
+    let tmp = dir.join(format!(".{name}.update.{suffix}"));
+    let bak = dir.join(format!("{name}.bak.{suffix}"));
 
-    {
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .map_err(|e| format!("create temp file: {e}"))?;
+    // 1. New binary → temp (O_EXCL). Clean up tmp on any failure here.
+    let write_tmp = (|| -> std::result::Result<(), String> {
+        let mut f = create_excl(&tmp).map_err(|e| format!("create temp file: {e}"))?;
         f.write_all(new_bytes)
             .map_err(|e| format!("write temp file: {e}"))?;
         f.set_permissions(std::fs::Permissions::from_mode(0o755))
             .map_err(|e| format!("chmod temp file: {e}"))?;
         f.sync_all().map_err(|e| format!("fsync temp file: {e}"))?;
+        Ok(())
+    })();
+    if let Err(e) = write_tmp {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
 
-    let bak = backup_path(exe);
-    if let Err(e) = std::fs::copy(exe, &bak) {
+    // 2. Back up the current binary into a fresh O_EXCL file (no follow/clobber).
+    let make_backup = (|| -> std::result::Result<(), String> {
+        let cur = std::fs::read(exe).map_err(|e| format!("read current binary: {e}"))?;
+        let mut bf = create_excl(&bak).map_err(|e| {
+            format!(
+                "create backup at {} (a stale file may exist there): {e}",
+                bak.display()
+            )
+        })?;
+        bf.write_all(&cur)
+            .map_err(|e| format!("write backup: {e}"))?;
+        bf.set_permissions(std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("chmod backup: {e}"))?;
+        bf.sync_all().map_err(|e| format!("fsync backup: {e}"))?;
+        Ok(())
+    })();
+    if let Err(e) = make_backup {
         let _ = std::fs::remove_file(&tmp);
-        return Err(format!("back up current binary: {e}"));
+        let _ = std::fs::remove_file(&bak);
+        return Err(e);
     }
+
+    // 3. Atomic swap.
     if let Err(e) = std::fs::rename(&tmp, exe) {
         let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(&bak);
         return Err(format!("rename new binary into place: {e}"));
     }
     if let Ok(d) = std::fs::File::open(dir) {
@@ -772,14 +882,17 @@ fn atomic_replace(
     Ok(bak)
 }
 
-/// `<exe>.bak` next to the binary.
+/// Restore a backup created by THIS update attempt over `exe` (atomic rename),
+/// then fsync the dir. Separated for unit testing (no service calls).
 #[cfg(target_os = "linux")]
-fn backup_path(exe: &std::path::Path) -> std::path::PathBuf {
-    let name = exe
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "trimwire".to_owned());
-    exe.with_file_name(format!("{name}.bak"))
+fn restore_backup(bak: &std::path::Path, exe: &std::path::Path) -> std::result::Result<(), String> {
+    std::fs::rename(bak, exe).map_err(|e| format!("restore backup: {e}"))?;
+    if let Some(d) = exe.parent() {
+        if let Ok(f) = std::fs::File::open(d) {
+            let _ = f.sync_all();
+        }
+    }
+    Ok(())
 }
 
 /// Restart the service and confirm the freshly-started gateway reports the target
@@ -806,27 +919,132 @@ fn restart_and_verify(
     ))
 }
 
-/// Roll back to the saved `.bak`: stop, restore, restart, re-check health. Any
-/// failure here is surfaced loudly (never swallowed).
+/// Roll back to the backup created by THIS attempt (`bak`): stop, restore that
+/// exact file, restart, and confirm the gateway is serving the OLD version again
+/// (not merely answering 200 — a 200 from some other binary on the port would be
+/// a false "recovered"). Any failure is surfaced loudly (never swallowed).
 #[cfg(target_os = "linux")]
 fn rollback(
     exe: &std::path::Path,
     bak: &std::path::Path,
     addr: std::net::SocketAddr,
+    old_version: &str,
 ) -> std::result::Result<(), String> {
     super::service::off().map_err(|e| format!("stop service: {e}"))?;
-    std::fs::rename(bak, exe).map_err(|e| format!("restore backup: {e}"))?;
-    if let Some(d) = exe.parent() {
-        if let Ok(f) = std::fs::File::open(d) {
-            let _ = f.sync_all();
-        }
-    }
+    restore_backup(bak, exe)?;
     super::service::on().map_err(|e| format!("start service: {e}"))?;
+    let want = upd::parse_version(old_version);
     for _ in 0..40 {
-        if super::service::healthz_ok(addr) {
-            return Ok(());
+        if let Some(v) = super::service::healthz_version(addr) {
+            if want.is_some() && upd::parse_version(&v) == want {
+                return Ok(());
+            }
         }
         std::thread::sleep(Duration::from_millis(250));
     }
-    Err("restored the previous binary but the gateway did not come back healthy".to_owned())
+    Err(format!(
+        "restored the previous binary but the gateway did not report the previous version ({old_version}) on /healthz"
+    ))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod apply_fs_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn tmpdir() -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("trimwire-applytest.{}", unique_suffix()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// `create_excl` must refuse an existing file AND a symlink (no follow / no
+    /// clobber) — the property the backup + temp writes rely on.
+    #[test]
+    fn create_excl_refuses_existing_and_symlink() {
+        let d = tmpdir();
+        let f = d.join("a");
+        std::fs::write(&f, b"x").unwrap();
+        assert!(create_excl(&f).is_err(), "must refuse an existing file");
+
+        let target = d.join("target");
+        std::fs::write(&target, b"secret").unwrap();
+        let link = d.join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(
+            create_excl(&link).is_err(),
+            "must refuse a symlink (no follow)"
+        );
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"secret",
+            "symlink target must be untouched"
+        );
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// Happy path: exe is swapped, the backup holds the OLD bytes at a FRESH unique
+    /// path (not the predictable `<exe>.bak`), a preexisting `<exe>.bak` is left
+    /// untouched, and no `.update.` temp is left behind.
+    #[test]
+    fn atomic_replace_swaps_backs_up_uniquely_and_cleans_temp() {
+        let d = tmpdir();
+        let exe = d.join("trimwire");
+        std::fs::write(&exe, b"OLD").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // A preexisting predictable-style backup must be irrelevant + untouched.
+        let predictable = d.join("trimwire.bak");
+        std::fs::write(&predictable, b"STALE").unwrap();
+
+        let bak = atomic_replace(&exe, b"NEW").expect("replace ok");
+        assert_eq!(std::fs::read(&exe).unwrap(), b"NEW", "exe replaced");
+        assert_eq!(
+            std::fs::read(&bak).unwrap(),
+            b"OLD",
+            "backup holds old bytes"
+        );
+        assert_ne!(
+            bak, predictable,
+            "backup is a fresh unique path, not the predictable .bak"
+        );
+        assert_eq!(
+            std::fs::read(&predictable).unwrap(),
+            b"STALE",
+            "preexisting .bak left untouched"
+        );
+        // New binary is executable.
+        let mode = std::fs::metadata(&exe).unwrap().permissions().mode();
+        assert_eq!(mode & 0o111, 0o111, "replaced binary is executable");
+        // No leftover temp.
+        let names: Vec<String> = std::fs::read_dir(&d)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            !names.iter().any(|n| n.contains(".update.")),
+            "temp file must be cleaned: {names:?}"
+        );
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// `restore_backup` brings back exactly the bytes from this attempt's backup
+    /// and consumes (renames) it.
+    #[test]
+    fn restore_backup_round_trips_and_consumes_backup() {
+        let d = tmpdir();
+        let exe = d.join("trimwire");
+        std::fs::write(&exe, b"OLD").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let bak = atomic_replace(&exe, b"NEW").unwrap();
+        assert_eq!(std::fs::read(&exe).unwrap(), b"NEW");
+        restore_backup(&bak, &exe).unwrap();
+        assert_eq!(
+            std::fs::read(&exe).unwrap(),
+            b"OLD",
+            "rollback restores the old bytes"
+        );
+        assert!(!bak.exists(), "rename consumed the backup");
+        std::fs::remove_dir_all(&d).ok();
+    }
 }

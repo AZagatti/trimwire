@@ -144,21 +144,19 @@ jobs:
           fail_on_unmatched_files: true
 
   # Sign every release archive with minisign (Ed25519), producing a detached
-  # `<asset>.minisig` that `trimwire update --dry-run`/`--apply` verifies against
-  # a public key PINNED in the binary. This is PROVENANCE on top of the
-  # same-origin `.sha256` (transit integrity) and the GitHub attestation: an
-  # attacker who replaces a release asset + its checksum still can't forge a
-  # minisign signature without the owner's offline secret key.
+  # `<asset>.minisig` that `trimwire upgrade --dry-run` / `trimwire upgrade`
+  # verify against a public key PINNED in the binary (and in `trimwire.pub`).
+  # This is PROVENANCE on top of the same-origin `.sha256` (transit integrity)
+  # and the GitHub attestation: an attacker who replaces a release asset + its
+  # checksum still can't forge a minisign signature without the owner's offline
+  # secret key.
   #
-  # OWNER SETUP (until done, this job no-ops and self-update verification fails
-  # closed — see docs/UPDATE-COMMAND-SPIKE.md, "Release signing — owner setup"):
-  #   1. Generate a passwordless key:  minisign -G -W -p trimwire.pub -s trimwire.key
-  #   2. Repo secret MINISIGN_SECRET_KEY = the FULL contents of trimwire.key
-  #      (optionally MINISIGN_PASSWORD if you used a password-protected key).
-  #   3. Paste the SECOND line of trimwire.pub into `PINNED_PUBKEY` in
-  #      src/update.rs and ship a release built from it.
-  #   4. Keep trimwire.key OFFLINE (a password manager / hardware token); rotate
-  #      by repeating 1–3 and publishing the new pubkey in a minor release.
+  # FAIL-CLOSED: signing is MANDATORY. If `MINISIGN_SECRET_KEY` is absent the job
+  # FAILS (the release run goes red) rather than publishing unsigned archives —
+  # so a "successful" run always means the archives are signed. The `verify` job
+  # then re-verifies a `.minisig` against the pinned public key before the run is
+  # green. Key generation / rotation lives in docs/UPDATE-COMMAND-SPIKE.md
+  # ("Release signing — owner setup"); the key + secrets are already configured.
   sign:
     needs: build
     name: sign release artifacts (minisign)
@@ -169,26 +167,11 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
-      MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
-      MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
     steps:
-      - name: Check for a signing key
-        id: check
-        run: |
-          if [ -n "${MINISIGN_SECRET_KEY:-}" ]; then
-            echo "have=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "have=false" >> "$GITHUB_OUTPUT"
-            # Single line: ::warning:: annotations stop at the first newline.
-            echo "::warning::MINISIGN_SECRET_KEY is not set — skipping release signing; trimwire self-update verification fails closed until a signing key + pinned public key are configured (docs/UPDATE-COMMAND-SPIKE.md)."
-          fi
-
       - name: Install minisign
-        if: steps.check.outputs.have == 'true'
         run: sudo apt-get update && sudo apt-get install -y minisign
 
       - name: Download release archives
-        if: steps.check.outputs.have == 'true'
         run: |
           set -euo pipefail
           mkdir -p dist && cd dist
@@ -196,24 +179,38 @@ jobs:
             --pattern 'trimwire-*.tar.gz' --pattern 'trimwire-*.zip'
 
       - name: Sign each archive (prehashed Ed25519)
-        if: steps.check.outputs.have == 'true'
+        # Secrets are scoped to THIS step only (not the job) — the install/download
+        # steps above never see them.
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
         run: |
           set -euo pipefail
+          if [ -z "${MINISIGN_SECRET_KEY:-}" ]; then
+            echo "::error::MINISIGN_SECRET_KEY is not set — refusing to publish an unsigned signed-update release. Configure the signing secret (docs/UPDATE-COMMAND-SPIKE.md) and re-run." >&2
+            exit 1
+          fi
           umask 077
           key="$(mktemp)"
           printf '%s\n' "$MINISIGN_SECRET_KEY" > "$key"
           trap 'rm -f "$key"' EXIT
           cd dist
+          shopt -s nullglob
+          signed=0
           for f in trimwire-*.tar.gz trimwire-*.zip; do
-            [ -e "$f" ] || continue
             # -H = prehashed (the client requires it; legacy signatures are rejected).
             printf '%s' "${MINISIGN_PASSWORD:-}" | \
               minisign -S -H -s "$key" -m "$f" -x "$f.minisig" \
                 -c "trimwire $TAG release archive" -t "trimwire $TAG $f"
+            signed=$((signed + 1))
           done
+          if [ "$signed" -eq 0 ]; then
+            echo "::error::no release archives found to sign for $TAG" >&2
+            exit 1
+          fi
+          echo "signed $signed archive(s)"
 
       - name: Upload signatures
-        if: steps.check.outputs.have == 'true'
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           tag_name: ${{ env.TAG }}
@@ -221,7 +218,7 @@ jobs:
           fail_on_unmatched_files: true
 
   verify:
-    needs: build
+    needs: [build, sign] # gate the release on signing succeeding too
     name: verify published asset
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -232,6 +229,12 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
+      # Need the repo's committed public key (`trimwire.pub`) to verify the
+      # `.minisig` independently of the binary.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
       - name: Download + smoke-test the published linux asset
         run: |
           set -euo pipefail
@@ -265,3 +268,21 @@ jobs:
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
             --deny-self-hosted-runners
           echo "provenance attestation verified for $asset"
+
+      # Re-verify the minisign signature against the PINNED public key (the exact
+      # check `trimwire upgrade` runs client-side). This gates the release on a
+      # valid, key-matching signature — so the run cannot go green if `sign`
+      # produced no/bad signatures, and it catches a PINNED_PUBKEY ↔ signing-key
+      # mismatch on the very first signed release.
+      - name: Verify minisign signature against the pinned public key
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y minisign
+          asset="trimwire-x86_64-unknown-linux-gnu.tar.gz"
+          [ -f "$asset" ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset.minisig"
+          # The pinned public key is the base64 payload line of the committed
+          # trimwire.pub (same value as PINNED_PUBKEY in src/update.rs).
+          pubkey="$(tail -n1 trimwire.pub)"
+          minisign -Vm "$asset" -P "$pubkey"
+          echo "minisign signature verified against the pinned public key for $asset"

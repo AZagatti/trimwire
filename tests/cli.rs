@@ -1530,29 +1530,52 @@ const HIT_ARCHIVE: usize = 0;
 const HIT_SHA: usize = 1;
 const HIT_SIG: usize = 2;
 
-fn http_resp(status: &str, ctype: &str, body: &[u8]) -> Vec<u8> {
-    let mut v = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    )
-    .into_bytes();
+/// How the fake server reports the archive's `Content-Length` — to exercise the
+/// downloader's two size-cap defenses.
+#[derive(Clone, Copy)]
+enum ArchiveCl {
+    /// Honest `Content-Length` = body length (normal).
+    Auto,
+    /// No `Content-Length` header → forces the streaming accumulation path.
+    Omit,
+    /// A (possibly lying/oversized) fixed `Content-Length` → exercises the
+    /// pre-read header check.
+    Fixed(u64),
+}
+
+fn http_resp_cl(status: &str, ctype: &str, body: &[u8], content_length: Option<u64>) -> Vec<u8> {
+    let mut head = format!("HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\n");
+    if let Some(n) = content_length {
+        head.push_str(&format!("Content-Length: {n}\r\n"));
+    }
+    head.push_str("Connection: close\r\n\r\n");
+    let mut v = head.into_bytes();
     v.extend_from_slice(body);
     v
+}
+
+fn http_resp(status: &str, ctype: &str, body: &[u8]) -> Vec<u8> {
+    http_resp_cl(status, ctype, body, Some(body.len() as u64))
 }
 
 impl FakeGitHub {
     /// Releases API only (returns `tag` for `/releases/latest`); no downloadable
     /// artifacts — used by the read-only check tests.
     fn start(tag: &str) -> Self {
-        Self::start_inner(tag, None)
+        Self::start_inner(tag, None, ArchiveCl::Auto)
     }
 
     /// Full release: API + downloadable archive/.sha256/.minisig.
     fn with_release(tag: &str, rel: Release) -> Self {
-        Self::start_inner(tag, Some(rel))
+        Self::start_inner(tag, Some(rel), ArchiveCl::Auto)
     }
 
-    fn start_inner(tag: &str, rel: Option<Release>) -> Self {
+    /// Full release with a chosen archive `Content-Length` behavior (size-cap tests).
+    fn with_release_cl(tag: &str, rel: Release, cl: ArchiveCl) -> Self {
+        Self::start_inner(tag, Some(rel), cl)
+    }
+
+    fn start_inner(tag: &str, rel: Option<Release>, archive_cl: ArchiveCl) -> Self {
         use std::io::{Read, Write};
         use std::sync::Arc;
         use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1599,7 +1622,12 @@ impl FakeGitHub {
                                 http_resp("200 OK", "text/plain", r.sha256.as_bytes())
                             } else if path.ends_with(&r.asset) {
                                 hits2[HIT_ARCHIVE].fetch_add(1, Ordering::Relaxed);
-                                http_resp("200 OK", "application/octet-stream", &r.archive)
+                                let cl = match archive_cl {
+                                    ArchiveCl::Auto => Some(r.archive.len() as u64),
+                                    ArchiveCl::Omit => None,
+                                    ArchiveCl::Fixed(n) => Some(n),
+                                };
+                                http_resp_cl("200 OK", "application/octet-stream", &r.archive, cl)
                             } else {
                                 http_resp("404 Not Found", "text/plain", b"not found")
                             }
@@ -2154,4 +2182,129 @@ fn upgrade_apply_redownloads_and_reverifies_after_dry_run() {
         (2, 2, 2),
         "apply re-downloads + re-verifies every artifact (no reuse of dry-run state)"
     );
+}
+
+// ---- download size cap (Content-Length pre-check + streaming accumulation) ----
+
+/// An oversized download with an honest `Content-Length` is rejected before the
+/// body is read (pre-check). Simulated by capping at a few bytes via the
+/// localhost-only `TRIMWIRE_UPDATE_MAX_BYTES` seam; the signed fixture archive
+/// exceeds it. Fail-closed (exit 1).
+#[test]
+fn upgrade_dry_run_rejects_oversized_content_length() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let fx = signed_fixture(b"trimwire fake archive payload well over eight bytes");
+    let gh = FakeGitHub::with_release("v999.0.0", fx.release); // ArchiveCl::Auto
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
+        .env("TRIMWIRE_UPDATE_MAX_BYTES", "8")
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(1), "oversized (CL) → fail closed");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("NOT verified"), "got: {err}");
+}
+
+/// An oversized download with NO `Content-Length` (chunked/close-delimited) is
+/// still rejected by the streaming accumulation limit, not just the header
+/// pre-check. Fail-closed (exit 1).
+#[test]
+fn upgrade_dry_run_rejects_oversized_without_content_length() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let fx = signed_fixture(b"trimwire fake archive payload well over eight bytes");
+    let gh = FakeGitHub::with_release_cl("v999.0.0", fx.release, ArchiveCl::Omit);
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
+        .env("TRIMWIRE_UPDATE_MAX_BYTES", "8")
+        .output()
+        .expect("spawn");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "oversized (no CL) → fail closed"
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("NOT verified"), "got: {err}");
+}
+
+/// A server that DECLARES a huge `Content-Length` (≫ the real 200 MB cap) while
+/// sending a tiny body is rejected by the header pre-check — at the default cap,
+/// no env override — so we never start reading an "oversized" body. Fail-closed.
+#[test]
+fn upgrade_dry_run_rejects_inflated_content_length_at_default_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let fx = signed_fixture(b"trimwire fake archive payload");
+    // Declare ~10 GB; the real body is a few bytes.
+    let gh = FakeGitHub::with_release_cl("v999.0.0", fx.release, ArchiveCl::Fixed(10_000_000_000));
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(1), "inflated CL → fail closed");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("NOT verified"), "got: {err}");
+}
+
+/// A normal-sized signed release still verifies under the default cap (sanity:
+/// the cap doesn't reject legitimate downloads).
+#[test]
+fn upgrade_dry_run_verifies_under_default_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let fx = signed_fixture(b"trimwire fake archive payload");
+    let gh = FakeGitHub::with_release("v999.0.0", fx.release);
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(0), "verified under default cap");
+    assert!(String::from_utf8_lossy(&out.stdout).contains("verified"));
+}
+
+// ---- strict self-update tag validation ----
+
+/// A non-stable latest tag (prerelease) must be refused by `upgrade --dry-run`
+/// before any asset URL is built — fail-closed (exit 1), even with a valid key.
+#[test]
+fn upgrade_dry_run_rejects_non_stable_tag() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let gh = FakeGitHub::start("v9.9.9-rc.1");
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env(
+            "TRIMWIRE_UPDATE_PUBKEY",
+            "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3",
+        )
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(1), "non-stable tag → fail closed");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("NOT verified") && err.contains("stable"),
+        "got: {err}"
+    );
+}
+
+/// `upgrade --yes` on an eligible install must also refuse a non-stable latest
+/// tag before downloading/applying — fail-closed (exit 1).
+#[cfg(target_os = "linux")]
+#[test]
+fn upgrade_apply_rejects_non_stable_tag() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    write_script_receipt(&data);
+    let gh = FakeGitHub::start("v9.9.9-rc.1");
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--yes"])
+        .env(
+            "TRIMWIRE_UPDATE_PUBKEY",
+            "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3",
+        )
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(1), "non-stable tag → fail closed");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("not a stable"), "got: {err}");
 }

@@ -195,14 +195,18 @@ pinned key.
 
 1. ✅ **Key generated** (passwordless, for CI): `minisign -G -W -p trimwire.pub -s trimwire.key`.
 2. ✅ **CI secrets configured** — `MINISIGN_SECRET_KEY` (+ `MINISIGN_PASSWORD`)
-   are set on the repo (confirmed via `gh secret list`). The `sign` job writes a
-   `.minisig` per archive on the next release.
+   are set on the repo (confirmed via `gh secret list`). Signing is **mandatory
+   and fail-closed**: the `release.yml` `sign` job FAILS the release run if the
+   secret is absent (it never publishes unsigned archives), signs every archive
+   (`-H` prehashed), and the `verify` job re-verifies a `.minisig` against the
+   pinned public key — so a green run guarantees signed, key-matching archives.
 3. ✅ **Public key pinned** — the base64 payload line of `trimwire.pub` is in
-   `PINNED_PUBKEY` (`src/update.rs`); a unit test asserts it parses.
+   `PINNED_PUBKEY` (`src/update.rs`); a unit test asserts it parses, and the
+   release `verify` job verifies a real `.minisig` against `trimwire.pub`.
 4. ☐ **Cut a signed release** (the remaining step; NOT done in this PR). The
-   first release is also the end-to-end proof that the pinned public key matches
-   the secret CI key — verify it before announcing, e.g.
-   `trimwire upgrade --dry-run` on a managed Linux install, or
+   release `verify` job now proves the pinned key matches the signing key on the
+   first signed release; for belt-and-braces also confirm one artifact before
+   announcing, e.g. `trimwire upgrade --dry-run` on a managed Linux install, or
    `minisign -Vm trimwire-<target>.tar.gz -P "$(tail -1 trimwire.pub)"`.
 
 **Key hygiene / rotation:** keep `trimwire.key` offline (password manager /

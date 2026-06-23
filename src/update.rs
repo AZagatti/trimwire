@@ -63,6 +63,32 @@ pub fn is_newer(latest: Version, current: Version) -> bool {
     latest > current
 }
 
+/// True only for an EXACT stable release tag: `vMAJOR.MINOR.PATCH` (a leading
+/// `v`/`V` is allowed, each component is non-empty ASCII digits, nothing else).
+/// Rejects prereleases (`v1.2.3-rc.1`), build metadata, extra components
+/// (`1.2.3.4`), short forms (`1.2`), and any garbage (`v1.2.3@evil`, spaces,
+/// newlines). The self-updater requires this before a tag is used to build an
+/// asset URL or to health-check a restart, so release-metadata weirdness can't
+/// steer the download or version comparison. (Stricter than [`parse_version`],
+/// which is deliberately tolerant for reading a binary's own `--version`.)
+pub fn is_stable_release_tag(s: &str) -> bool {
+    let core = s
+        .strip_prefix('v')
+        .or_else(|| s.strip_prefix('V'))
+        .unwrap_or(s);
+    let mut parts = core.split('.');
+    let (a, b, c) = (parts.next(), parts.next(), parts.next());
+    if parts.next().is_some() {
+        return false; // more than three components
+    }
+    match (a, b, c) {
+        (Some(a), Some(b), Some(c)) => [a, b, c]
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|x| x.is_ascii_digit())),
+        _ => false,
+    }
+}
+
 /// Release asset name for a target triple — `.zip` on Windows, `.tar.gz`
 /// elsewhere. Matches `release.yml`'s packaging + the installer. (Pure helper;
 /// not used by the read-only check, but the apply path will select the asset
@@ -387,6 +413,32 @@ mod tests {
         // equal and older are NOT newer (no spurious update; no downgrade).
         assert!(!is_newer(v(0, 3, 12), v(0, 3, 12)));
         assert!(!is_newer(v(0, 3, 11), v(0, 3, 12)));
+    }
+
+    #[test]
+    fn stable_release_tag_is_strict() {
+        // Accepted: exact vMAJOR.MINOR.PATCH (v/V optional).
+        for ok in ["v0.3.13", "0.3.13", "V1.0.0", "v10.20.30", "1.2.3"] {
+            assert!(is_stable_release_tag(ok), "should accept {ok}");
+        }
+        // Rejected: prerelease, build metadata, wrong arity, garbage, whitespace.
+        for bad in [
+            "v0.3.13-rc.1",
+            "0.4.0-beta",
+            "v1.2",
+            "1.2.3.4",
+            "v1.2.3@evil",
+            "v1.2.x",
+            "v1.2.3 ",
+            " v1.2.3",
+            "v1.2.3\n",
+            "latest",
+            "",
+            "v..",
+            "v1.2.",
+        ] {
+            assert!(!is_stable_release_tag(bad), "should reject {bad:?}");
+        }
     }
 
     #[test]

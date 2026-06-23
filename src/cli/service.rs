@@ -621,13 +621,19 @@ pub(crate) fn healthz_version(addr: SocketAddr) -> Option<String> {
     if !buf.starts_with("HTTP/1.1 200") {
         return None;
     }
-    // Body is `{"ok":true,"version":"X.Y.Z"}` — find the version value.
     let body = buf.split("\r\n\r\n").nth(1).unwrap_or("");
-    let key = "\"version\":\"";
-    let start = body.find(key)? + key.len();
-    let rest = &body[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_owned())
+    parse_healthz_version(body)
+}
+
+/// Extract the `version` string from a `/healthz` JSON body, robustly (a real
+/// JSON parse, not a substring scan — tolerant of whitespace / field reordering /
+/// extra fields). Returns `None` if the body isn't JSON or has no string
+/// `version`. Pure + unit-tested.
+pub(crate) fn parse_healthz_version(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+    v.get("version")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
 }
 
 // `getuid()` has no caller preconditions and can't fail or cause UB, so the
@@ -690,5 +696,25 @@ mod tests {
         let u = systemd_service_unit("/usr/local/bin/trimwire");
         assert!(!u.contains("[Install]"));
         assert!(u.contains("StartLimitBurst="));
+    }
+
+    #[test]
+    fn healthz_version_parses_json_robustly() {
+        // Compact (what the gateway emits).
+        assert_eq!(
+            parse_healthz_version("{\"ok\":true,\"version\":\"0.3.13\"}").as_deref(),
+            Some("0.3.13")
+        );
+        // Whitespace + reordered fields + extra field — still found.
+        assert_eq!(
+            parse_healthz_version("{\n  \"version\" : \"1.2.3\" ,\n  \"ok\": true\n}").as_deref(),
+            Some("1.2.3")
+        );
+        // Missing field / non-string version / not JSON → None (caller treats as
+        // "can't confirm", which fails the post-restart check → rollback).
+        assert_eq!(parse_healthz_version("{\"ok\":true}"), None);
+        assert_eq!(parse_healthz_version("{\"version\":123}"), None);
+        assert_eq!(parse_healthz_version("not json"), None);
+        assert_eq!(parse_healthz_version(""), None);
     }
 }
