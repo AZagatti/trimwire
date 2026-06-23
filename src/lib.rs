@@ -23,6 +23,9 @@ pub mod strategies;
 /// `[summarizer] engine` is not `"model-free"` in config. See `docs/SUMMARIZER.md`.
 pub mod summarizer;
 pub mod sweep;
+/// Self-update support (read-only check today; see `docs/UPDATE-COMMAND-SPIKE.md`).
+/// Pure decision logic; the impure CLI wrapper lives in `src/cli/update.rs`.
+pub mod update;
 
 /// The Rust target triple this binary was built for, e.g.
 /// `x86_64-unknown-linux-gnu` — embedded at build time by `build.rs` from
