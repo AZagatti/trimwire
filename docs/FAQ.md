@@ -21,6 +21,9 @@ If you used option 1 or 2, run `trimwire install` next — it wires Claude Code
 option 3 already runs that for you. Full walkthrough: the
 [README](https://github.com/AZagatti/trimwire#quickstart).
 
+To verify a downloaded binary's checksum and build provenance, see
+[Verifying a downloaded release](SECURITY-MODEL.md#verifying-a-downloaded-release).
+
 **To update**, re-run the same method you installed with — each overwrites the
 binary in place (your config and shell rc are untouched):
 

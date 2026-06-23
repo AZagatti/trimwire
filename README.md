@@ -35,6 +35,10 @@ sudo mv trimwire /usr/local/bin/                   # or any dir on your PATH
 trimwire --version                                 # prints version + git SHA
 ```
 
+Each release asset carries a `.sha256` checksum and a build-provenance
+attestation. To verify a manual download, see
+[Verifying a downloaded release](docs/SECURITY-MODEL.md#verifying-a-downloaded-release).
+
 **Have Rust?**
 
 ```bash

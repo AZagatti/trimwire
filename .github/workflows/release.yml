@@ -29,7 +29,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read # least privilege by default; jobs widen as needed
 
 # Serialize per tag: if a manual `workflow_dispatch` is fired while the automatic
 # `release: published` run for the same tag is in flight, the two would race on
@@ -67,6 +67,10 @@ jobs:
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    permissions:
+      contents: write # upload the release assets
+      id-token: write # OIDC: sign the build provenance (actions/attest-build-provenance)
+      attestations: write # write the attestation to the repo's attestation store
     strategy:
       fail-fast: false
       matrix:
@@ -118,6 +122,17 @@ jobs:
           "$hash  $asset" | Out-File -Encoding ascii "$asset.sha256"
           "ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      # Cryptographic build provenance for the EXACT archive bytes we upload (the
+      # subject is the asset + its digest). Verifiable later with `gh attestation
+      # verify <asset> --repo AZagatti/trimwire`. This adds provenance (proves
+      # WHO/WHAT built it) on top of — not instead of — the same-origin `.sha256`
+      # (which only proves transit integrity). Attest the archive before upload so
+      # the attested digest matches what users download.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: ${{ env.ASSET }}
+
       - name: Upload to release
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
@@ -133,12 +148,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: read # download the published asset
+      attestations: read # `gh attestation verify` reads the attestation store
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - name: Download + smoke-test the published linux asset
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           set -euo pipefail
           asset="trimwire-x86_64-unknown-linux-gnu.tar.gz"
@@ -151,3 +167,15 @@ jobs:
             *"${TAG#v}"*) echo "version matches tag $TAG" ;;
             *) echo "::error::published binary version '$ver' does not contain tag ${TAG#v}" >&2; exit 1 ;;
           esac
+
+      # Prove the build provenance is actually published + verifiable for the
+      # exact published archive — the same check a future updater (and any user)
+      # runs. Independent of the `.sha256` step above (provenance vs integrity).
+      - name: Verify artifact attestation (provenance)
+        run: |
+          set -euo pipefail
+          asset="trimwire-x86_64-unknown-linux-gnu.tar.gz"
+          # Present from the previous step; re-download if this job is re-run alone.
+          [ -f "$asset" ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset"
+          gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY"
+          echo "provenance attestation verified for $asset"
