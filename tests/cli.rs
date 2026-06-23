@@ -71,6 +71,61 @@ fn run_launches_claude_with_env_and_propagates_exit() {
     );
 }
 
+/// The `--help` "Commands by group" legend must mention every visible
+/// top-level command. Regression guard: when a command is unhidden (as `run`
+/// and `hook` were in v0.3.10), it must be added to the legend too — otherwise
+/// it shows in the flat `Commands:` list but is missing from the grouped
+/// summary users scan. Tokenize the legend and assert membership so any future
+/// unhidden command is caught.
+#[test]
+fn help_legend_covers_every_visible_command() {
+    let out = Command::new(bin())
+        .arg("--help")
+        .output()
+        .expect("spawn trimwire --help");
+    assert!(out.status.success(), "--help exits 0");
+    let help = String::from_utf8_lossy(&out.stdout);
+
+    // Visible top-level commands = the first token of each indented line in the
+    // `Commands:` block (up to the blank line before `Options:`). Excludes the
+    // clap-builtin `help`, which is intentionally absent from the legend.
+    let commands_block = help
+        .split("Commands:\n")
+        .nth(1)
+        .expect("`Commands:` section present");
+    // Relies on clap 4 emitting a blank line between the `Commands:` block and
+    // the `Options:` block — stable in clap 4's default help template.
+    let visible: Vec<&str> = commands_block
+        .lines()
+        .take_while(|l| !l.trim().is_empty())
+        .filter_map(|l| l.strip_prefix("  "))
+        .map(|l| l.split_whitespace().next().unwrap_or(""))
+        .filter(|c| !c.is_empty() && *c != "help")
+        .collect();
+    assert!(
+        visible.contains(&"run") && visible.contains(&"hook"),
+        "sanity: run + hook are visible top-level commands"
+    );
+
+    // The legend = everything after the "Commands by group:" heading. Tokenize
+    // on non-alphanumerics so parenthetical sub-actions don't cause false hits.
+    let legend = help
+        .split("Commands by group:")
+        .nth(1)
+        .expect("`Commands by group:` legend present");
+    let legend_tokens: std::collections::HashSet<&str> = legend
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    for cmd in &visible {
+        assert!(
+            legend_tokens.contains(cmd),
+            "visible command `{cmd}` is missing from the `Commands by group:` legend"
+        );
+    }
+}
+
 /// `trimwire install` writes a config + a guarded shell-rc block, and is
 /// idempotent on re-run (acceptance: "fresh install works end-to-end").
 #[test]

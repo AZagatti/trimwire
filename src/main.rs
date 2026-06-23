@@ -189,8 +189,10 @@ enum ShareAction {
 //
 // clap 4 does not natively group subcommands under separate headings in the
 // flat `Commands:` help section. We use `display_order` to sort commands into
-// logical groups (LIFECYCLE 10-15, INSPECT 20-23, SUMMARIZER 30, SHARE 40,
+// logical groups (LIFECYCLE 10-15, then `run` 16 + `hook` 17 surfaced near the
+// top for discoverability, INSPECT 20-23, SUMMARIZER 30, SHARE 40,
 // MAINTENANCE 50-51, SHELL 60-62) and document the groupings in `after_help`.
+// `run`/`hook` are listed under LIFECYCLE/SHELL respectively in that legend.
 
 #[derive(Parser)]
 #[command(
@@ -199,12 +201,12 @@ enum ShareAction {
     about = "Local gateway that prunes Claude Code context on every API call.",
     after_help = "\
 Commands by group:\n\
-\x20 LIFECYCLE    install · uninstall · on · off · status · doctor\n\
+\x20 LIFECYCLE    install · uninstall · on · off · status · doctor · run\n\
 \x20 INSPECT      stats · recall · preview · dashboard\n\
 \x20 SUMMARIZER   summarizer  (setup · status · benchmark · probe)\n\
 \x20 SHARE        share  (enable · disable · stats · benchmark)   — opt-in, content-free\n\
 \x20 MAINTENANCE  sweep (list/all/file/undo) · config (show/edit)\n\
-\x20 SHELL        statusline (add/wrap/remove) · completions · man\n\
+\x20 SHELL        statusline (add/wrap/remove) · hook · completions · man\n\
 \n\
 New-user flow:\n\
 \x20  trimwire install   →  source ~/.zshrc (or open a new terminal)   →  trimwire doctor   →  claude\n\
