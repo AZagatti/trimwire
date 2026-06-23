@@ -1,6 +1,6 @@
 [package]
 name = "trimwire"
-version = "0.3.12"
+version = "0.3.13"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Andre Zagatti <andre.zagatti1@gmail.com>"]
