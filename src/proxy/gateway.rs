@@ -590,12 +590,21 @@ fn error_response(
 /// the gateway is actually serving (fail-open is live), not just that something
 /// holds the port.
 fn health_response() -> Response<http_body_util::combinators::BoxBody<Bytes, BoxBodyError>> {
-    let boxed = Full::new(Bytes::from_static(b"ok"))
+    // JSON body carrying the running version so a client (e.g. `trimwire status`,
+    // and later a self-updater's post-restart check) can confirm WHICH binary is
+    // serving — not just that something holds the port. Back-compat: callers only
+    // assert the `200` status line (`service::healthz_ok`), so widening the body
+    // from `ok` to JSON is safe. `\"ok\":true` keeps a trivially-truthy field.
+    let body = format!(
+        "{{\"ok\":true,\"version\":\"{}\"}}",
+        env!("CARGO_PKG_VERSION")
+    );
+    let boxed = Full::new(Bytes::from(body))
         .map_err(|never: Infallible| match never {})
         .boxed();
     Response::builder()
         .status(StatusCode::OK)
-        .header(hyper::header::CONTENT_TYPE, "text/plain")
+        .header(hyper::header::CONTENT_TYPE, "application/json")
         .body(boxed)
         .expect("static health response")
 }
@@ -632,6 +641,22 @@ mod tests {
         let mut s = PruneState::default();
         s.set_idle_for_test(secs);
         s
+    }
+
+    #[test]
+    fn healthz_response_is_200_json_with_version() {
+        let resp = health_response();
+        // Status line unchanged → `service::healthz_ok` (which only checks 200)
+        // stays compatible.
+        assert_eq!(resp.status(), StatusCode::OK);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let bytes = rt.block_on(resp.into_body().collect()).unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["ok"], serde_json::Value::Bool(true));
+        assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
     }
 
     #[test]

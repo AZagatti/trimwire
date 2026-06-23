@@ -126,45 +126,28 @@ fn help_legend_covers_every_visible_command() {
     }
 }
 
-/// `trimwire update` (and its `upgrade` alias) is a help-only stub — there is
-/// no self-updater yet. It must print the actual update paths and exit non-zero
-/// (2), so a user typing the command they expect gets guidance instead of
-/// clap's bare "unrecognized subcommand", and a script doesn't read a missing
-/// updater as success.
+/// The `upgrade` alias reaches the same read-only check as `update` (here, the
+/// no-receipt refusal): exit 2, guidance on stderr, nothing on stdout.
 #[test]
-fn update_stub_prints_paths_and_exits_nonzero() {
-    for cmd in ["update", "upgrade"] {
-        let out = Command::new(bin())
-            .arg(cmd)
-            .output()
-            .unwrap_or_else(|_| panic!("spawn trimwire {cmd}"));
-        assert_eq!(
-            out.status.code(),
-            Some(2),
-            "`trimwire {cmd}` exits 2 (no-op, not success)"
-        );
-        // Guidance goes to stderr (non-success message), not stdout.
-        assert!(out.stdout.is_empty(), "`{cmd}` writes nothing to stdout");
-        let err = String::from_utf8_lossy(&out.stderr);
-        assert!(
-            err.contains("no built-in self-updater"),
-            "`{cmd}` explains there is no self-updater: {err}"
-        );
-        // Names each install method's update path.
-        assert!(err.contains("install.sh"), "`{cmd}` shows the curl|sh path");
-        assert!(
-            err.contains("cargo install trimwire"),
-            "`{cmd}` shows the cargo path"
-        );
-        assert!(
-            err.contains("releases/latest"),
-            "`{cmd}` shows the manual-asset path"
-        );
-        assert!(
-            err.contains("trimwire off && trimwire on"),
-            "`{cmd}` reminds to restart the service"
-        );
-    }
+fn upgrade_alias_runs_the_update_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let out = Command::new(bin())
+        .arg("upgrade")
+        .env("HOME", dir.path())
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CONFIG_HOME", dir.path().join(".config"))
+        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
+        .output()
+        .expect("spawn trimwire upgrade");
+    assert_eq!(out.status.code(), Some(2), "no-receipt refuses with exit 2");
+    assert!(out.stdout.is_empty(), "guidance goes to stderr");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("no install receipt"), "got: {err}");
+    assert!(
+        err.contains("install.sh"),
+        "reuses per-method guidance: {err}"
+    );
 }
 
 /// `trimwire install` writes a config + a guarded shell-rc block, and is
@@ -1500,4 +1483,209 @@ fn summarizer_setup_api_primary_with_local_fallback() {
         cfg.contains("listen = \"127.0.0.1:9999\""),
         "unrelated [server] preserved; got:\n{cfg}"
     );
+}
+
+// ---- `trimwire update` (read-only check, phase 4a) -------------------------
+
+/// Minimal fake GitHub releases API: every GET returns `{"tag_name":"<tag>"}`.
+/// Mirrors `FakeOllama` (TcpListener + thread + stop flag).
+struct FakeGitHub {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+    port: u16,
+}
+
+impl FakeGitHub {
+    fn start(tag: &str) -> Self {
+        use std::io::{Read, Write};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        listener.set_nonblocking(true).unwrap();
+        let body = format!("{{\"tag_name\":\"{tag}\"}}");
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        let handle = std::thread::spawn(move || {
+            while !stop2.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((mut s, _)) => {
+                        let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(50)));
+                        let mut buf = [0u8; 2048];
+                        let _ = s.read(&mut buf);
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        let _ = s.write_all(resp.as_bytes());
+                        let _ = s.flush();
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        FakeGitHub {
+            stop,
+            handle: Some(handle),
+            port,
+        }
+    }
+
+    fn base(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+}
+
+impl Drop for FakeGitHub {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+/// Write a `method="script"` receipt pointing at the test binary, so the running
+/// binary is treated as a managed (self-updatable) install.
+fn write_script_receipt(data_home: &std::path::Path) {
+    let dir = data_home.join("trimwire");
+    fs::create_dir_all(&dir).unwrap();
+    let exe = fs::canonicalize(bin()).unwrap();
+    let receipt = format!(
+        "{{\"schema_version\":1,\"method\":\"script\",\"binary_path\":\"{}\",\"version\":\"0.0.0\",\"target\":\"{}\",\"installed_at\":0}}",
+        exe.display(),
+        env!("TRIMWIRE_TARGET")
+    );
+    fs::write(dir.join("install-receipt.json"), receipt).unwrap();
+}
+
+fn run_update(
+    home: &std::path::Path,
+    data_home: &std::path::Path,
+    api_base: &str,
+) -> std::process::Output {
+    Command::new(bin())
+        .arg("update")
+        .env("HOME", home)
+        .env("XDG_DATA_HOME", data_home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env("TRIMWIRE_UPDATE_API_BASE", api_base)
+        .output()
+        .expect("spawn trimwire update")
+}
+
+/// No receipt → refuse (exit 2) with the per-method guidance, never a check.
+#[test]
+fn update_refuses_without_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let out = run_update(dir.path(), &data, "http://127.0.0.1:1");
+    assert_eq!(out.status.code(), Some(2), "no-receipt refuses with exit 2");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("no install receipt"), "got: {err}");
+    assert!(
+        err.contains("install.sh"),
+        "reuses per-method guidance: {err}"
+    );
+    assert!(out.stdout.is_empty());
+}
+
+/// cargo/manual (`method="unknown"`) → refuse (exit 2), not self-updatable.
+#[test]
+fn update_refuses_non_script_install() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let rcpt_dir = data.join("trimwire");
+    fs::create_dir_all(&rcpt_dir).unwrap();
+    let exe = fs::canonicalize(bin()).unwrap();
+    fs::write(
+        rcpt_dir.join("install-receipt.json"),
+        format!(
+            "{{\"schema_version\":1,\"method\":\"unknown\",\"binary_path\":\"{}\",\"version\":\"0.0.0\",\"target\":\"{}\",\"installed_at\":0}}",
+            exe.display(),
+            env!("TRIMWIRE_TARGET")
+        ),
+    )
+    .unwrap();
+    let out = run_update(dir.path(), &data, "http://127.0.0.1:1");
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("wasn't installed by the curl|sh installer"),
+        "got: {err}"
+    );
+}
+
+/// Eligible install + a newer release → exit 0, reports availability.
+#[test]
+fn update_reports_available_for_eligible_install() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    write_script_receipt(&data);
+    let gh = FakeGitHub::start("v999.0.0");
+    let out = run_update(dir.path(), &data, &gh.base());
+    assert_eq!(out.status.code(), Some(0), "available check exits 0");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.contains("999.0.0") && s.contains("is available"),
+        "got: {s}"
+    );
+    assert!(
+        s.contains("--yes"),
+        "points at the (future) apply flag: {s}"
+    );
+}
+
+/// Eligible install + an older/equal release → exit 0, "already up to date".
+#[test]
+fn update_reports_current_when_not_newer() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    write_script_receipt(&data);
+    let gh = FakeGitHub::start("v0.0.1"); // < the test binary's version
+    let out = run_update(dir.path(), &data, &gh.base());
+    assert_eq!(out.status.code(), Some(0));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("already up to date"), "got: {s}");
+}
+
+/// Eligible install but the check can't reach GitHub → exit 0, clear message,
+/// no partial-update state.
+#[test]
+fn update_network_failure_is_nonfatal() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    write_script_receipt(&data);
+    // Port 1 is not listening → connection fails fast.
+    let out = run_update(dir.path(), &data, "http://127.0.0.1:1");
+    assert_eq!(out.status.code(), Some(0), "network failure is non-fatal");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("couldn't check for updates"), "got: {err}");
+}
+
+/// `--yes` is reserved (no apply path yet) → exit 2 with a clear "not implemented".
+#[test]
+fn update_yes_is_not_implemented_yet() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    write_script_receipt(&data);
+    let gh = FakeGitHub::start("v999.0.0");
+    let out = Command::new(bin())
+        .args(["update", "--yes"])
+        .env("HOME", dir.path())
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CONFIG_HOME", dir.path().join(".config"))
+        .env("TRIMWIRE_UPDATE_API_BASE", gh.base())
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("isn't implemented yet"), "got: {err}");
 }

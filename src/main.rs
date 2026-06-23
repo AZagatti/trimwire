@@ -478,11 +478,17 @@ elvish  — source inline from rc.elv:\n\
     #[command(display_order = 17)]
     Hook,
 
-    /// Show how to update trimwire. There is no built-in self-updater yet, so
-    /// this prints the update path for each install method (curl|sh / cargo /
-    /// manual) and exits non-zero. See docs/UPDATE-COMMAND-SPIKE.md.
+    /// Check whether a newer trimwire release is available (read-only). For a
+    /// curl|sh install it reports the available version; for cargo/manual installs
+    /// it prints the right update command. Self-update (`--yes`) is not implemented
+    /// yet — see docs/UPDATE-COMMAND-SPIKE.md.
     #[command(display_order = 18, alias = "upgrade")]
-    Update,
+    Update {
+        /// (reserved) Apply the update. Not implemented yet — this build only
+        /// checks; `--yes` prints how to update manually and exits non-zero.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 // ---- main ------------------------------------------------------------------
@@ -641,7 +647,7 @@ fn main() -> Result<()> {
         } => cli::serve(listen, upstream, audit),
         Cmd::Run { args, audit } => cli::run(&args, audit),
         Cmd::Hook => cli::hook(),
-        Cmd::Update => cli::update(),
+        Cmd::Update { yes } => cli::update(yes),
     }
 }
 

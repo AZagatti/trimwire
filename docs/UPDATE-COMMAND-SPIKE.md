@@ -5,11 +5,12 @@
 > today, see [FAQ.md](FAQ.md#how-do-i-install-it). This file exists to capture the
 > security/design questions an updater would have to answer before it could be built.
 
-**Status:** spike / needs owner sign-off (product + security decision). The
-self-updater is not implemented; a help-only `trimwire update`/`upgrade` stub
-ships (it prints the update paths and exits 2 — see below).
-**Audit item:** P2-11 (partially resolved: `trimwire update`/`upgrade` stub added
-+ update paths documented; a real self-updater is still the open decision here).
+**Status:** phase **4a SHIPPED** — `trimwire update`/`upgrade` is now a **read-only
+update check** (no download/verify/replace/restart). The self-replacing updater
+(4b/4c) is **not** implemented; it remains owner-gated, but the two open design
+decisions are now made (see **Owner decisions** below).
+**Audit item:** P2-11 (read-only check shipped; the self-updater is the remaining
+work, with a reviewed plan recorded here as the source of truth).
 
 **Prerequisites already shipped (don't re-do):**
 - **Target triple** embedded in the binary (`trimwire::build_target()`, shown in
@@ -24,11 +25,12 @@ ships (it prints the update paths and exits 2 — see below).
   artifact attestations + a `verify` job runs `gh attestation verify`. `.sha256`
   retained for transit integrity.
 
-**What remains before a real `trimwire update` (PR 4):** client-side verification
-code (run `gh attestation verify` / verify the attestation **and** the `.sha256`
-before trusting a download), **atomic replace** (§4; Windows self-replace is the
-hard part), **service restart** (§5), **rollback** (§6), and **permissions**
-handling (§7) — plus the version-check/no-op logic (§2). None are started.
+**What remains before a real `trimwire update` (PR 4):** the version-check/no-op
+logic (§2) is **done** (phase 4a). Still to do: client-side verification code
+(native Sigstore — verify the attestation **and** the `.sha256` before trusting a
+download), **atomic replace** (§4; Windows self-replace is the hard part),
+**service restart** (§5), **rollback** (§6), and **permissions** handling (§7).
+See the phased plan + owner decisions below.
 
 > **Verifier MUST pin the workflow identity, not just the repo.** `gh attestation
 > verify --repo AZagatti/trimwire` only proves the attestation belongs to this
@@ -43,9 +45,11 @@ handling (§7) — plus the version-check/no-op logic (§2). None are started.
 
 ## Problem
 
-`trimwire update` (and `upgrade`) now exists as a **stub**: it prints the update
-paths and exits 2, but does **not** self-update. Today users still update by
-re-running their install method (documented in [FAQ.md](FAQ.md#how-do-i-install-it)):
+`trimwire update` (and `upgrade`) now performs a **read-only check** (phase 4a):
+for a managed (`curl|sh`) install it reports whether a newer release exists; for
+cargo/manual installs it prints the per-method update paths and exits 2. It does
+**not** self-update. Today users still update by re-running their install method
+(documented in [FAQ.md](FAQ.md#how-do-i-install-it)):
 
 - `curl … install.sh | sh` re-run (downloads the latest release binary + re-runs
   `trimwire install`),
@@ -95,38 +99,68 @@ trust + atomicity design, which is an owner decision.
    default), in-place replace needs the same privileges the install used; detect
    and message clearly rather than failing opaquely.
 
-## Options
+## Owner decisions (made — reviewed by 4 lenses)
 
-- **(A) Minimal updater** — download latest release asset over HTTPS, verify the
-  published `.sha256`, atomic-swap, restart the service, health-check + rollback.
-  *Bounded, no new infra.* Caveat: checksum-only integrity (same-origin) — no
-  defense against a compromised release. Acceptable only with an explicit
-  in-help caveat and HTTPS via the system trust store to `github.com` (ordinary
-  CA validation — *not* certificate pinning).
-- **(B) Signed updater — pipeline half SHIPPED.** Release **signing is now in
-  `release.yml`**: every archive is attested with **GitHub artifact
-  attestations** (`actions/attest-build-provenance`), verified by the `verify`
-  job via `gh attestation verify` — no external key to manage, free on public
-  repos, SLSA Build L2. What's left for (B) is the **client-side half**: have
-  `update` run the equivalent verification (attestation **and** `.sha256`, with
-  the workflow-identity pin noted above) before the swap. (minisign/cosign with a
-  pinned public key remains an alternative if you ever want offline verification,
-  at the cost of owning the key lifecycle.) *Strongest;* the right bar for a tool
-  that sits in the request path with the user's credential.
-- **(C) Status quo** — keep documenting the manual/`curl|sh`/`binstall` paths
-  (done in this PR), defer a built-in updater.
+- **D1 — client-side provenance verification = native Sigstore (with a
+  dependency/API spike before 4b).** Do **not** shell out to `gh` for the
+  trust-critical check: it's a PATH-hijack vector for a credential-path tool, and
+  requiring `gh` defeats the `curl|sh` audience. Verify the attestation natively
+  (Sigstore), enforcing the **workflow-identity pin** (`signer-workflow =
+  release.yml`, not just `--repo`), **deny self-hosted runners**, and confirm the
+  **attestation subject digest == the downloaded file's digest**. **Never** fall
+  back to checksum-only. A small spike sizes the `sigstore` crate dependency/API
+  before 4b commits to it.
+- **D2 — refuse macOS self-update in v1, same as Windows.** A downloaded binary
+  is quarantine/Gatekeeper-blocked from launching as a service unless notarized;
+  notarization is **out of scope**. v1 self-update is **Linux-only**; macOS +
+  Windows print the manual update path and exit 2.
 
-## Recommendation
+## PR4 plan (the self-updater) — phased, Unix-first
 
-Ship **(C) now** (done — update paths are documented). Target **(B)** for a
-built-in `trimwire update`. The pipeline signing is **already done** (attestations
-in `release.yml`); what remains for (B) is the client-side verifier plus the
-atomic-swap / restart / rollback / permissions work (see "What remains" above).
-**(A)** is no longer the relevant interim — since provenance now exists, an
-updater should verify it rather than settle for checksum-only.
+Phase **4a is implemented** (this PR): read-only check only.
 
-**Decision still required from the owner** before building the updater: approve
-implementing `trimwire update` itself (the client-side verify + atomic-swap +
-service-restart + rollback). This is a product/security call — the verification
-*foundation* is in place, but the self-replacing updater remains unimplemented by
-design.
+- **4a (DONE) — read-only check.** `trimwire update`/`upgrade`: resolve+canonicalize
+  `current_exe()` (abort on `(deleted)`), read the receipt, refuse (exit 2 + the
+  per-method guidance) unless the install is self-updatable (`method="script"` +
+  `binary_path == canonical current_exe()` + target match + parent writable),
+  then query the latest GitHub release and report current/available (exit 0).
+  Network failure is non-fatal. `--yes` is accepted but reports "not implemented
+  yet" (exit 2). `/healthz` now includes a `version` field (for 4c's post-restart
+  check). Pure logic in `trimwire::update`; impure I/O in `src/cli/update.rs`.
+- **4b (gated on D1) — verify pipeline.** Download archive + `.sha256` via the
+  `releases/latest/download/` redirect; verify checksum (`sha2`) **and** native
+  Sigstore provenance (workflow-pinned, deny self-hosted, subject-digest bound);
+  extract (shell out to `tar`). No replace yet. Fail-closed at every gate;
+  **strictly-greater** version required (anti-downgrade).
+- **4c (gated on D1+D2) — apply (Linux).** Atomic replace: temp in the **same
+  dir** as the exe → `fchmod 0755` → `fsync(file)` → `rename()` → `fsync(dir)`;
+  keep `<exe>.bak`. Restart: `service::off()` → `on()` → poll `healthz_ok()` →
+  verify `/healthz` version == target. Rollback on any failure: `off()` → restore
+  `.bak` → `on()` → re-verify (never swallow a rollback failure). Refuse on
+  macOS/Windows and on non-writable locations (no privilege escalation). Flips
+  the user docs atomically.
+- **4d (fenced) — Windows self-replace; macOS notarized path** (separate, later).
+
+### Files (4a, shipped)
+`src/proxy/gateway.rs` (`/healthz` version), `src/update.rs` (new lib: version
+parse/compare, `asset_name`, eligibility predicate, guidance/refusal text),
+`src/cli/update.rs` (new: GitHub query, `current_exe` canonicalization,
+writability probe, orchestration), `src/cli/mod.rs` (+doctor advisory bullet),
+`src/main.rs` (`update --yes` flag), docs (CLI.md/FAQ.md/this file).
+
+### Test plan
+4a: unit tests for version parse/compare (v-prefix, build-metadata, downgrade/
+equal/newer) + eligibility branches; integration tests drive the binary against a
+fake GitHub server (`TRIMWIRE_UPDATE_API_BASE` test-only override) for
+available/current/network-fail/refusal, plus a `/healthz` version test. 4b/4c add
+checksum/attestation unit tests (mock verifier) + a sandboxed replace/rollback
+test behind service/verifier seams + one network-gated real-attestation test.
+
+### Top risks (for 4b/4c)
+provenance-without-gh → native Sigstore, fail-closed (D1); macOS Gatekeeper → refuse
+(D2); downgrade/replay → strictly-greater semver; EXDEV → temp in same dir;
+rollback correctness → `off`→restore→`on`; `/usr/local/bin` not writable → refuse,
+no escalation; socket-activation restart window → verify `/healthz` version.
+
+**Remaining owner action:** approve starting **4b** (after the D1 Sigstore spike).
+4c follows 4b. The read-only check (4a) is complete and safe to ship on its own.

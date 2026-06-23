@@ -78,10 +78,15 @@ trimwire doctor --strict     # any warning or failure exits 1 (CI health checks)
 
 ### `trimwire update`
 
-Print how to update trimwire. There is **no built-in self-updater yet** (a self-replacing local proxy needs signature verification and an atomic swap first — see [UPDATE-COMMAND-SPIKE.md](UPDATE-COMMAND-SPIKE.md)), so this command does not update anything: it prints the update path for each install method (curl|sh / cargo / manual) and **exits 2**. `upgrade` is an alias.
+**Read-only update check** — it does **not** self-update yet (no download, verification, or binary replacement; see [UPDATE-COMMAND-SPIKE.md](UPDATE-COMMAND-SPIKE.md) for the phased plan). `upgrade` is an alias.
+
+- If you installed via the `curl | sh` script (a managed install), it checks the latest GitHub release and tells you whether a newer version is available. Exits **0** ("already up to date" or "vNEW available").
+- For a `cargo`/manual install — or if it can't confirm a managed install — it prints the right update command for your method and **exits 2** (it won't self-update a binary it didn't place).
+- A failed network check (offline / rate-limited) is non-fatal: a clear message, exit 0, no partial state.
+- `--yes` is reserved for the future self-update; it is **not implemented yet** and currently prints the manual update path and exits 2.
 
 ```sh
-trimwire update      # prints the curl|sh / cargo / manual-asset update paths, exits 2
+trimwire update      # check only: reports availability, or prints how to update
 ```
 
 For the full update guidance see the [FAQ](FAQ.md#how-do-i-install-it). After updating, restart the service with `trimwire off && trimwire on` so the new binary serves.

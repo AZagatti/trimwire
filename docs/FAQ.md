@@ -35,10 +35,13 @@ binary in place (your config and shell rc are untouched):
   [releases/latest](https://github.com/AZagatti/trimwire/releases/latest) and
   replace the binary on your `PATH`.
 
-`trimwire update` (alias `upgrade`) exists, but it only prints these same paths
-and exits — there is no built-in self-updater yet, because a self-replacing binary
-needs signature verification and atomic-swap design first; see the design notes
-in [`docs/UPDATE-COMMAND-SPIKE.md`](https://github.com/AZagatti/trimwire/blob/main/docs/UPDATE-COMMAND-SPIKE.md).
+`trimwire update` (alias `upgrade`) **checks** whether a newer release is
+available (read-only) — for a `curl | sh` install it reports the available
+version; for cargo/manual installs it prints the same per-method paths above. It
+does **not** self-update yet (no download/replace); a self-replacing binary needs
+signature verification and atomic-swap design first, so for now you still update
+with the method above. See the design notes in
+[`docs/UPDATE-COMMAND-SPIKE.md`](https://github.com/AZagatti/trimwire/blob/main/docs/UPDATE-COMMAND-SPIKE.md).
 After updating, restart the service with `trimwire off && trimwire on` (or open a
 new shell) so the new binary is the one serving.
 
