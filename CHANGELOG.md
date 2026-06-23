@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.13](https://github.com/AZagatti/trimwire/compare/v0.3.12...v0.3.13) - 2026-06-23
+
+### Added
+
+- *(update)* signed self-update — verify (4b) + apply (4c, draft) ([#85](https://github.com/AZagatti/trimwire/pull/85))
+- *(update)* read-only update check + /healthz version (PR4 phase 4a) ([#83](https://github.com/AZagatti/trimwire/pull/83))
+
 ## [0.3.12](https://github.com/AZagatti/trimwire/compare/v0.3.11...v0.3.12) - 2026-06-23
 
 ### Added
