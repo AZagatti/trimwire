@@ -11,16 +11,35 @@ ships (it prints the update paths and exits 2 — see below).
 **Audit item:** P2-11 (partially resolved: `trimwire update`/`upgrade` stub added
 + update paths documented; a real self-updater is still the open decision here).
 
-**Prerequisites already shipped (don't re-do):** the running binary now embeds its
-build **target triple** (`trimwire::build_target()`, surfaced in `doctor`), and an
-**install receipt** (`src/receipt.rs`, `trimwire::receipt`) records the install
-`method`/`version`/`target`/`binary_path` — so install-method detection and asset
-selection (items implied by §1–§2 below) are covered. The receipt's `method` is
-NOT a sufficient authority on its own (it can go stale after a `cargo install`
-over the same path) — before self-replacing, the updater MUST verify the binary
-is the managed one (`binary_path == current_exe()` + user-writable), not trust
-`method` alone. The OPEN decisions remain integrity/**provenance** (§3),
-**atomic replace** (§4), and **service restart** (§5).
+**Prerequisites already shipped (don't re-do):**
+- **Target triple** embedded in the binary (`trimwire::build_target()`, shown in
+  `doctor`) — asset selection (§1).
+- **Install receipt** (`src/receipt.rs`, `trimwire::receipt`) recording
+  `method`/`version`/`target`/`binary_path` — install-method detection + version
+  check (§1–§2). Its `method` is NOT a sufficient authority on its own (it can go
+  stale after a `cargo install` over the same path) — before self-replacing, the
+  updater MUST verify the binary is the managed one (`binary_path ==
+  current_exe()` + user-writable), not trust `method` alone.
+- **Build provenance** (§3): `release.yml` attests every archive with GitHub
+  artifact attestations + a `verify` job runs `gh attestation verify`. `.sha256`
+  retained for transit integrity.
+
+**What remains before a real `trimwire update` (PR 4):** client-side verification
+code (run `gh attestation verify` / verify the attestation **and** the `.sha256`
+before trusting a download), **atomic replace** (§4; Windows self-replace is the
+hard part), **service restart** (§5), **rollback** (§6), and **permissions**
+handling (§7) — plus the version-check/no-op logic (§2). None are started.
+
+> **Verifier MUST pin the workflow identity, not just the repo.** `gh attestation
+> verify --repo AZagatti/trimwire` only proves the attestation belongs to this
+> repo — any workflow in the repo could attest an arbitrary binary. The check must
+> also assert the signer workflow is `.github/workflows/release.yml` via
+> `--signer-workflow <owner>/<repo>/.github/workflows/release.yml` (path-based, so
+> stable across tags — unlike `--cert-identity`, which embeds the ref).
+> **Status:** the release `verify` job now pins this (`--signer-workflow` +
+> `--deny-self-hosted-runners`), and SECURITY-MODEL.md's recommended user command
+> does too. The **future client-side updater MUST do the same** before trusting a
+> download — don't regress to `--repo`-only.
 
 ## Problem
 
@@ -48,15 +67,20 @@ trust + atomicity design, which is an owner decision.
 2. **Version check.** Compare the running `--version` to the latest release tag
    (GitHub API or crates.io) and no-op if already current. Must handle the MSRV
    pin / pre-release tags gracefully.
-3. **Integrity vs provenance — the crux.**
+3. **Integrity vs provenance — the crux. ✅ NOW PROVIDED (provenance shipped).**
    - The published `.sha256` only proves the download wasn't *corrupted in
      transit*. It is served from the **same origin** as the binary, so it does
      **not** defend against a compromised release/account — an attacker who can
-     replace the asset can replace the checksum too.
+     replace the asset can replace the checksum too. (Kept — integrity layer.)
    - For a tool that sits in the request path with the user's API credential,
-     true **provenance** (a signature the client verifies against a pinned
-     public key — e.g. minisign/cosign, or GitHub artifact attestations) is the
-     right bar. trimwire does not sign releases today.
+     true **provenance** is the right bar. `release.yml` now attests every
+     release archive with **GitHub artifact attestations**
+     (`actions/attest-build-provenance`), and the `verify` job runs
+     `gh attestation verify` on every release. A future updater verifies this
+     provenance (subject = the archive + digest) before swapping the binary.
+     See [SECURITY-MODEL.md](SECURITY-MODEL.md#verifying-a-downloaded-release).
+     NOTE: attestations live in GitHub's attestation store, so verification
+     queries GitHub — the client must handle that being unreachable/offline.
 4. **Atomic replace.** Self-replacing a running executable: on Unix, write the
    new binary to a temp file in the same dir, `fchmod` 0755, then `rename()` over
    the old path (atomic; the running process keeps its open inode). On **Windows**
@@ -79,12 +103,15 @@ trust + atomicity design, which is an owner decision.
   defense against a compromised release. Acceptable only with an explicit
   in-help caveat and HTTPS via the system trust store to `github.com` (ordinary
   CA validation — *not* certificate pinning).
-- **(B) Signed updater** — add release **signing** to `release.yml`, and have
-  `update` verify before the swap. Lowest-friction path: **GitHub artifact
-  attestations** (`actions/attest-build-provenance` + `gh attestation verify`) —
-  no external key to manage, free on public repos, and reaches SLSA Build L2.
-  Alternatively minisign/cosign with a public key pinned in the binary (more
-  control, but you own the key lifecycle). *Strongest;* the right bar for a tool
+- **(B) Signed updater — pipeline half SHIPPED.** Release **signing is now in
+  `release.yml`**: every archive is attested with **GitHub artifact
+  attestations** (`actions/attest-build-provenance`), verified by the `verify`
+  job via `gh attestation verify` — no external key to manage, free on public
+  repos, SLSA Build L2. What's left for (B) is the **client-side half**: have
+  `update` run the equivalent verification (attestation **and** `.sha256`, with
+  the workflow-identity pin noted above) before the swap. (minisign/cosign with a
+  pinned public key remains an alternative if you ever want offline verification,
+  at the cost of owning the key lifecycle.) *Strongest;* the right bar for a tool
   that sits in the request path with the user's credential.
 - **(C) Status quo** — keep documenting the manual/`curl|sh`/`binstall` paths
   (done in this PR), defer a built-in updater.
@@ -92,13 +119,14 @@ trust + atomicity design, which is an owner decision.
 ## Recommendation
 
 Ship **(C) now** (done — update paths are documented). Target **(B)** for a
-built-in `trimwire update`: implement signing in the release pipeline first, then
-build the updater against it. **(A)** is an acceptable interim *only* if the owner
-accepts the same-origin-checksum caveat and wants the UX win sooner; if so, scope
-it Unix-first (the Windows self-replace is a separate, riskier task).
+built-in `trimwire update`. The pipeline signing is **already done** (attestations
+in `release.yml`); what remains for (B) is the client-side verifier plus the
+atomic-swap / restart / rollback / permissions work (see "What remains" above).
+**(A)** is no longer the relevant interim — since provenance now exists, an
+updater should verify it rather than settle for checksum-only.
 
-**Decision required from the owner** before any implementation: pick (A) interim,
-(B) target, or (C) hold — and, for (B), approve adding release signing + a pinned
-verification key. This is a product/security call, not a mechanical change, so it
-is intentionally left as a spike rather than implemented in the audit-resolution
-pass.
+**Decision still required from the owner** before building the updater: approve
+implementing `trimwire update` itself (the client-side verify + atomic-swap +
+service-restart + rollback). This is a product/security call — the verification
+*foundation* is in place, but the self-replacing updater remains unimplemented by
+design.

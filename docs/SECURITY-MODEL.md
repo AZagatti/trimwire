@@ -80,6 +80,57 @@ client's identity from Anthropic's perspective (the opt-in
 malformed leading system message). It never reuses your credentials to originate
 its own traffic.
 
+## Verifying a downloaded release
+
+Release binaries (built by `.github/workflows/release.yml`) ship **two**
+independent verification mechanisms, which answer different questions:
+
+- **`.sha256` checksum — integrity.** Proves the archive wasn't corrupted in
+  transit. It's served from the **same origin** as the binary, so it does *not*
+  defend against a compromised release/account (an attacker who can swap the
+  asset can swap its checksum too). `scripts/install.sh` checks it automatically
+  (falling back to a warning if no `sha256sum`/`shasum` tool is on `PATH`).
+- **Build provenance attestation — authenticity/provenance.** Each archive is
+  attested with [GitHub artifact attestations](https://docs.github.com/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)
+  (`actions/attest-build-provenance`), cryptographically binding the exact
+  archive bytes to the workflow + commit that produced them. This is the stronger
+  bar and what defends against a tampered/forged asset.
+
+Verify a download's provenance with the GitHub CLI — no key to manage, but it
+requires `gh` ≥ 2.49 and `gh auth login` (verification queries GitHub's
+attestation store):
+
+```sh
+# After downloading e.g. trimwire-x86_64-unknown-linux-gnu.tar.gz from the release.
+# Recommended — also pins the signer to this repo's release workflow (not just the
+# repo), so it proves the asset was built by release.yml specifically:
+gh attestation verify trimwire-x86_64-unknown-linux-gnu.tar.gz \
+  --repo AZagatti/trimwire \
+  --signer-workflow AZagatti/trimwire/.github/workflows/release.yml
+
+# Quick form — proves only that some workflow in this repo attested the asset:
+gh attestation verify trimwire-x86_64-unknown-linux-gnu.tar.gz --repo AZagatti/trimwire
+```
+
+For other platforms, substitute the asset name (e.g.
+`trimwire-aarch64-apple-darwin.tar.gz`, `trimwire-x86_64-pc-windows-msvc.zip`).
+
+A successful run prints the verified provenance (the build workflow + source
+commit). The release pipeline's own `verify` job runs this check on every
+release event (currently against the Linux x86_64 asset; every platform's
+attestation is independently verifiable with the command above), so a release
+whose provenance can't be verified fails loudly. (There is no self-updater
+today; a future `trimwire update` would verify this provenance before replacing
+the binary — see [`UPDATE-COMMAND-SPIKE.md`](UPDATE-COMMAND-SPIKE.md).)
+
+Scope of the guarantee (SLSA build L2): provenance proves an asset was built by
+**this repo's release workflow** at a given commit, and roots in GitHub's signing
+infrastructure (Sigstore/Fulcio) and the build runner. It does **not** prove the
+build's *inputs* were pristine (a compromised dependency or runner would still
+produce an "authentic" attestation), and verification is **online** (it queries
+GitHub's attestation store). It defends the realistic case — a swapped/forged
+release asset — not every conceivable build-time compromise.
+
 ## Trust assumptions
 
 trimwire's security model assumes:
