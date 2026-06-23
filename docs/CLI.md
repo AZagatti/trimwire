@@ -59,7 +59,7 @@ Diagnose the setup: config, active profile, gateway health, `ANTHROPIC_BASE_URL`
 
 Immediately below the header, a `platform:` line reports the build **platform** — the target triple the binary was compiled for (e.g. `platform: x86_64-unknown-linux-gnu`) — which is useful in bug reports and identifies which release asset matches this binary.
 
-The next line reports the **install receipt** — how trimwire was installed. The `curl | sh` installer writes `$XDG_DATA_HOME/trimwire/install-receipt.json` (default `~/.local/share/trimwire/install-receipt.json`) with `method: "script"`; `trimwire install` refreshes it. A `cargo`/manual install has no receipt, so the line reads `install: no receipt recorded (manual or cargo install)` — that's expected and harmless. (This metadata is recorded for a possible future `trimwire update`; there is no self-updater today — see `trimwire update`.)
+The next line reports the **install receipt** — how trimwire was installed. The `curl | sh` installer writes `$XDG_DATA_HOME/trimwire/install-receipt.json` (default `~/.local/share/trimwire/install-receipt.json`) with `method: "script"`; `trimwire install` refreshes it. A `cargo`/manual install has no receipt, so the line reads `install: no receipt recorded (manual or cargo install)` — that's expected and harmless. (This metadata gates `trimwire upgrade`, which only self-updates a managed install — see `trimwire update` / `trimwire upgrade`.)
 
 | Flag | Description |
 |---|---|
@@ -76,20 +76,28 @@ trimwire doctor              # advisory warnings exit 0 (safe for post-install s
 trimwire doctor --strict     # any warning or failure exits 1 (CI health checks)
 ```
 
-### `trimwire update`
+### `trimwire update` / `trimwire upgrade`
 
-**Read-only update check** — it does **not** self-update yet (no download, verification, or binary replacement; see [UPDATE-COMMAND-SPIKE.md](UPDATE-COMMAND-SPIKE.md) for the phased plan). `upgrade` is an alias.
+Two commands, mirroring `apt update` / `apt upgrade`: **`update`** is the read-only check; **`upgrade`** is the state-changing one. Every path that touches the binary is **fail-closed**: nothing is replaced unless the download's SHA-256 **and** its minisign signature (verified against a key pinned in the binary) both pass. See [UPDATE-COMMAND-SPIKE.md](UPDATE-COMMAND-SPIKE.md).
 
-- If you installed via the `curl | sh` script (a managed install), it checks the latest GitHub release and tells you whether a newer version is available. Exits **0** ("already up to date" or "vNEW available").
-- For a `cargo`/manual install — or if it can't confirm a managed install — it prints the right update command for your method and **exits 2** (it won't self-update a binary it didn't place).
-- A failed network check (offline / rate-limited) is non-fatal: a clear message, exit 0, no partial state.
-- `--yes` is reserved for the future self-update; it is **not implemented yet** and currently prints the manual update path and exits 2.
+**`trimwire update`** — read-only check; never downloads artifacts, never changes anything.
+- Managed (`curl | sh`) install: checks the latest GitHub release and reports whether a newer version is available (exit **0**), pointing you at `trimwire upgrade`.
+- `cargo`/manual install (or can't confirm a managed install): prints the right update command for your method and **exits 2** (it won't touch a binary it didn't place).
+- A failed network check (offline / rate-limited) is non-fatal: clear message, exit 0, no partial state.
+- The old `update --dry-run` / `--apply` / `--yes` are deprecated: they print a one-line redirect to the matching `upgrade` command and exit 2.
+
+**`trimwire upgrade --dry-run`** — download the latest release for your platform and verify its checksum + signature **without changing anything**. Exit **0** = `verified ✓`; exit **1** = `NOT verified` (mismatch, missing/invalid signature, no pinned key, or network failure). Safe to run on any install. **Verification-only, not staging:** the download is verified in memory and nothing is cached to disk — a later `trimwire upgrade` performs its own fresh download + checksum + signature verification before applying (it never trusts a prior `--dry-run`).
+
+**`trimwire upgrade`** — self-update. After the same verification it atomically replaces the binary and restarts the service, rolling back to the previous binary if the restarted gateway isn't healthy. **Linux + managed installs only.** On a terminal it asks for `[y/N]` confirmation **before** downloading; pass `--yes` to skip the prompt (required for non-interactive use). Refuses (exit 2) on macOS/Windows, non-managed installs, non-writable locations, or a non-interactive shell without `--yes`. Never downgrades (only a strictly-newer release applies). Exit codes: **0** success/no-op, **1** verification failed or rolled back cleanly, **2** refused, **3** rollback failed (manual restore needed).
 
 ```sh
-trimwire update      # check only: reports availability, or prints how to update
+trimwire update              # check only — never changes anything
+trimwire upgrade --dry-run   # download + verify the latest release; change nothing
+trimwire upgrade             # verify, then replace + restart (asks first on a TTY)
+trimwire upgrade --yes       # same, non-interactive (no prompt)
 ```
 
-For the full update guidance see the [FAQ](FAQ.md#how-do-i-install-it). After updating, restart the service with `trimwire off && trimwire on` so the new binary serves.
+> **Note:** the release signing key is configured and pinned, so `upgrade` works on a managed Linux install once a **signed** release is published. (Releases cut before signing was enabled have no `.minisig`, so `upgrade` fails closed there — update via your install method instead; see the [FAQ](FAQ.md#how-do-i-install-it).)
 
 ---
 

@@ -189,9 +189,10 @@ enum ShareAction {
 //
 // clap 4 does not natively group subcommands under separate headings in the
 // flat `Commands:` help section. We use `display_order` to sort commands into
-// logical groups (LIFECYCLE 10-15, then `run` 16 + `hook` 17 surfaced near the
-// top for discoverability, INSPECT 20-23, SUMMARIZER 30, SHARE 40,
-// MAINTENANCE 50-51, SHELL 60-62) and document the groupings in `after_help`.
+// logical groups (LIFECYCLE 10-15, then `run` 16 + `hook` 17 + `update` 18 +
+// `upgrade` 19 surfaced near the top for discoverability, INSPECT 20-23,
+// SUMMARIZER 30, SHARE 40, MAINTENANCE 50-51, SHELL 60-62) and document the
+// groupings in `after_help`.
 // `run`/`hook` are listed under LIFECYCLE/SHELL respectively in that legend.
 
 #[derive(Parser)]
@@ -201,7 +202,7 @@ enum ShareAction {
     about = "Local gateway that prunes Claude Code context on every API call.",
     after_help = "\
 Commands by group:\n\
-\x20 LIFECYCLE    install · uninstall · update · on · off · status · doctor · run\n\
+\x20 LIFECYCLE    install · uninstall · update · upgrade · on · off · status · doctor · run\n\
 \x20 INSPECT      stats · recall · preview · dashboard\n\
 \x20 SUMMARIZER   summarizer  (setup · status · benchmark · probe)\n\
 \x20 SHARE        share  (enable · disable · stats · benchmark)   — opt-in, content-free\n\
@@ -478,14 +479,38 @@ elvish  — source inline from rc.elv:\n\
     #[command(display_order = 17)]
     Hook,
 
-    /// Check whether a newer trimwire release is available (read-only). For a
-    /// curl|sh install it reports the available version; for cargo/manual installs
-    /// it prints the right update command. Self-update (`--yes`) is not implemented
-    /// yet — see docs/UPDATE-COMMAND-SPIKE.md.
-    #[command(display_order = 18, alias = "upgrade")]
+    /// Check whether a newer trimwire release is available (read-only). Never
+    /// downloads artifacts and never changes anything — use `trimwire upgrade` to
+    /// verify or apply an update. For a curl|sh install it reports the available
+    /// version; for cargo/manual installs it prints the right update command. See
+    /// docs/UPDATE-COMMAND-SPIKE.md.
+    #[command(display_order = 18)]
     Update {
-        /// (reserved) Apply the update. Not implemented yet — this build only
-        /// checks; `--yes` prints how to update manually and exits non-zero.
+        /// Deprecated: verification moved to `trimwire upgrade --dry-run`.
+        #[arg(long, hide = true)]
+        dry_run: bool,
+        /// Deprecated: applying moved to `trimwire upgrade`.
+        #[arg(long, hide = true)]
+        apply: bool,
+        /// Deprecated: applying moved to `trimwire upgrade --yes`.
+        #[arg(long, hide = true)]
+        yes: bool,
+    },
+
+    /// Download, verify, and apply a new trimwire release (managed Linux installs
+    /// only). With no flags it applies after a `[y/N]` confirmation on a terminal;
+    /// `--dry-run` downloads + verifies the latest release (SHA-256 + minisign
+    /// signature against the pinned key) WITHOUT changing anything; `--yes`
+    /// applies non-interactively. Always fail-closed: nothing is replaced unless
+    /// the download verifies. See docs/UPDATE-COMMAND-SPIKE.md.
+    #[command(display_order = 19)]
+    Upgrade {
+        /// Verify the latest release (checksum + signature) without replacing
+        /// anything. Reports verified / NOT verified; changes nothing on disk.
+        #[arg(long, conflicts_with = "yes")]
+        dry_run: bool,
+        /// Apply without the confirmation prompt (required for non-interactive
+        /// use).
         #[arg(long)]
         yes: bool,
     },
@@ -647,7 +672,12 @@ fn main() -> Result<()> {
         } => cli::serve(listen, upstream, audit),
         Cmd::Run { args, audit } => cli::run(&args, audit),
         Cmd::Hook => cli::hook(),
-        Cmd::Update { yes } => cli::update(yes),
+        Cmd::Update {
+            dry_run,
+            apply,
+            yes,
+        } => cli::update(dry_run, apply, yes),
+        Cmd::Upgrade { dry_run, yes } => cli::upgrade(dry_run, yes),
     }
 }
 

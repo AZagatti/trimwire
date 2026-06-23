@@ -82,7 +82,7 @@ its own traffic.
 
 ## Verifying a downloaded release
 
-Release binaries (built by `.github/workflows/release.yml`) ship **two**
+Release binaries (built by `.github/workflows/release.yml`) ship **three**
 independent verification mechanisms, which answer different questions:
 
 - **`.sha256` checksum — integrity.** Proves the archive wasn't corrupted in
@@ -90,11 +90,19 @@ independent verification mechanisms, which answer different questions:
   defend against a compromised release/account (an attacker who can swap the
   asset can swap its checksum too). `scripts/install.sh` checks it automatically
   (falling back to a warning if no `sha256sum`/`shasum` tool is on `PATH`).
-- **Build provenance attestation — authenticity/provenance.** Each archive is
-  attested with [GitHub artifact attestations](https://docs.github.com/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)
+- **Build provenance attestation — authenticity/provenance (verify with `gh`).**
+  Each archive is attested with [GitHub artifact attestations](https://docs.github.com/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)
   (`actions/attest-build-provenance`), cryptographically binding the exact
-  archive bytes to the workflow + commit that produced them. This is the stronger
-  bar and what defends against a tampered/forged asset.
+  archive bytes to the workflow + commit that produced them. This is the public
+  bar anyone with `gh` can check.
+- **`.minisig` signature — provenance the updater checks (no `gh` needed).** The
+  release `sign` job signs each archive with **minisign** (Ed25519); the matching
+  public key is **pinned in the `trimwire` binary**. `trimwire upgrade --dry-run`
+  / `trimwire upgrade` verify this signature offline against the pinned key — defending
+  against a swapped/forged asset without requiring `gh` or a round-trip to
+  GitHub's attestation store. (Why minisign and not native Sigstore: the
+  `sigstore` crate can't verify GitHub attestations at our MSRV — see
+  [`UPDATE-COMMAND-SPIKE.md`](UPDATE-COMMAND-SPIKE.md), D1.)
 
 Verify a download's provenance with the GitHub CLI — no key to manage, but it
 requires `gh` ≥ 2.49 and `gh auth login` (verification queries GitHub's
@@ -119,9 +127,10 @@ A successful run prints the verified provenance (the build workflow + source
 commit). The release pipeline's own `verify` job runs this check on every
 release event (currently against the Linux x86_64 asset; every platform's
 attestation is independently verifiable with the command above), so a release
-whose provenance can't be verified fails loudly. (There is no self-updater
-today; a future `trimwire update` would verify this provenance before replacing
-the binary — see [`UPDATE-COMMAND-SPIKE.md`](UPDATE-COMMAND-SPIKE.md).)
+whose provenance can't be verified fails loudly. Separately, `trimwire upgrade`
+(`--dry-run` to verify only) checks the **minisign** signature against the pinned
+key before trusting or installing a download — fail-closed if it can't — see
+[`UPDATE-COMMAND-SPIKE.md`](UPDATE-COMMAND-SPIKE.md).
 
 Scope of the guarantee (SLSA build L2): provenance proves an asset was built by
 **this repo's release workflow** at a given commit, and roots in GitHub's signing

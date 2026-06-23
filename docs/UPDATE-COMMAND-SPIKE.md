@@ -5,12 +5,20 @@
 > today, see [FAQ.md](FAQ.md#how-do-i-install-it). This file exists to capture the
 > security/design questions an updater would have to answer before it could be built.
 
-**Status:** phase **4a SHIPPED** — `trimwire update`/`upgrade` is now a **read-only
-update check** (no download/verify/replace/restart). The self-replacing updater
-(4b/4c) is **not** implemented; it remains owner-gated, but the two open design
-decisions are now made (see **Owner decisions** below).
-**Audit item:** P2-11 (read-only check shipped; the self-updater is the remaining
-work, with a reviewed plan recorded here as the source of truth).
+**Status:** phase **4a SHIPPED** (read-only check). Phases **4b (verify) + 4c
+(apply)** are **implemented in an OPEN/DRAFT PR — NOT merged, NOT released.** The
+command surface mirrors `apt`: **`trimwire update`** stays read-only (check only,
+never downloads or changes anything); **`trimwire upgrade`** is the
+state-changing command. 4b adds `trimwire upgrade --dry-run` (download + verify
+SHA-256 **and** a minisign signature against a pinned key, fail-closed). 4c adds
+`trimwire upgrade` (TTY-confirmed) / `trimwire upgrade --yes` (non-interactive)
+= verified atomic replace + restart + rollback; Linux + managed installs only.
+The old `update --dry-run`/`--apply`/`--yes` flags are deprecated and redirect to
+`upgrade`. **The signing key is configured:** `PINNED_PUBKEY` is set (key id
+`9DD74C076C33E227`) and the CI secrets `MINISIGN_SECRET_KEY` / `MINISIGN_PASSWORD`
+are in place, so the next published release will carry `.minisig` files that
+clients verify against the pinned key. The only step left is **cutting a signed
+release** (not done in this PR). **Audit item:** P2-11.
 
 **Prerequisites already shipped (don't re-do):**
 - **Target triple** embedded in the binary (`trimwire::build_target()`, shown in
@@ -26,11 +34,14 @@ work, with a reviewed plan recorded here as the source of truth).
   retained for transit integrity.
 
 **What remains before a real `trimwire update` (PR 4):** the version-check/no-op
-logic (§2) is **done** (phase 4a). Still to do: client-side verification code
-(native Sigstore — verify the attestation **and** the `.sha256` before trusting a
-download), **atomic replace** (§4; Windows self-replace is the hard part),
-**service restart** (§5), **rollback** (§6), and **permissions** handling (§7).
-See the phased plan + owner decisions below.
+logic (§2) is **done** (4a, shipped). Client-side verification (§3 —
+**minisign signature against a pinned key + the `.sha256`**, see D1), **atomic
+replace** (§4), **service restart** (§5), and **rollback** (§6) are **implemented
+in this open/draft PR** for Linux (4b/4c). Owner setup (signing key generated,
+CI secrets `MINISIGN_SECRET_KEY`/`MINISIGN_PASSWORD` set, public key pinned) is
+**done**; what's left is **cutting a signed release** and the fenced **4d**
+(Windows/macOS). See the
+phased plan + owner decisions below.
 
 > **Verifier MUST pin the workflow identity, not just the repo.** `gh attestation
 > verify --repo AZagatti/trimwire` only proves the attestation belongs to this
@@ -38,10 +49,13 @@ See the phased plan + owner decisions below.
 > also assert the signer workflow is `.github/workflows/release.yml` via
 > `--signer-workflow <owner>/<repo>/.github/workflows/release.yml` (path-based, so
 > stable across tags — unlike `--cert-identity`, which embeds the ref).
-> **Status:** the release `verify` job now pins this (`--signer-workflow` +
-> `--deny-self-hosted-runners`), and SECURITY-MODEL.md's recommended user command
-> does too. The **future client-side updater MUST do the same** before trusting a
-> download — don't regress to `--repo`-only.
+> **Status:** the release `verify` job pins this (`--signer-workflow` +
+> `--deny-self-hosted-runners`), and SECURITY-MODEL.md's recommended `gh` command
+> does too. The **client-side updater does NOT use `gh`/attestations** (it can't
+> require `gh`, and `sigstore-rs` can't verify attestations at our MSRV — see D1);
+> it instead verifies a **minisign signature against a pinned key**. The
+> attestation remains the public/CI provenance bar; anyone manually verifying a
+> download with `gh` must still pin `--signer-workflow`, not `--repo`-only.
 
 ## Problem
 
@@ -77,14 +91,15 @@ trust + atomicity design, which is an owner decision.
      **not** defend against a compromised release/account — an attacker who can
      replace the asset can replace the checksum too. (Kept — integrity layer.)
    - For a tool that sits in the request path with the user's API credential,
-     true **provenance** is the right bar. `release.yml` now attests every
-     release archive with **GitHub artifact attestations**
-     (`actions/attest-build-provenance`), and the `verify` job runs
-     `gh attestation verify` on every release. A future updater verifies this
-     provenance (subject = the archive + digest) before swapping the binary.
-     See [SECURITY-MODEL.md](SECURITY-MODEL.md#verifying-a-downloaded-release).
-     NOTE: attestations live in GitHub's attestation store, so verification
-     queries GitHub — the client must handle that being unreachable/offline.
+     true **provenance** is the right bar. Two layers provide it: (a) `release.yml`
+     attests every archive with **GitHub artifact attestations**
+     (`actions/attest-build-provenance`) and the `verify` job runs
+     `gh attestation verify` — the public/CI bar, verifiable by anyone with `gh`;
+     and (b) the `sign` job emits a detached **minisign** signature per archive,
+     which the **client updater** verifies against a key **pinned in the binary**
+     (no `gh`, no network round-trip to GitHub's attestation store). The client
+     uses (b); see D1 for why not native Sigstore. See
+     [SECURITY-MODEL.md](SECURITY-MODEL.md#verifying-a-downloaded-release).
 4. **Atomic replace.** Self-replacing a running executable: on Unix, write the
    new binary to a temp file in the same dir, `fchmod` 0755, then `rename()` over
    the old path (atomic; the running process keeps its open inode). On **Windows**
@@ -101,15 +116,29 @@ trust + atomicity design, which is an owner decision.
 
 ## Owner decisions (made — reviewed by 4 lenses)
 
-- **D1 — client-side provenance verification = native Sigstore (with a
-  dependency/API spike before 4b).** Do **not** shell out to `gh` for the
-  trust-critical check: it's a PATH-hijack vector for a credential-path tool, and
-  requiring `gh` defeats the `curl|sh` audience. Verify the attestation natively
-  (Sigstore), enforcing the **workflow-identity pin** (`signer-workflow =
-  release.yml`, not just `--repo`), **deny self-hosted runners**, and confirm the
-  **attestation subject digest == the downloaded file's digest**. **Never** fall
-  back to checksum-only. A small spike sizes the `sigstore` crate dependency/API
-  before 4b commits to it.
+- **D1 — client-side provenance verification = minisign/Ed25519 with a PINNED
+  public key** (revised after a go/no-go spike; **native Sigstore is NO-GO**).
+  Do **not** shell out to `gh` for the trust-critical check: it's a PATH-hijack
+  vector for a credential-path tool, and requiring `gh` defeats the `curl|sh`
+  audience. The client verifies a detached **minisign** signature
+  (`minisign-verify`, zero-dependency, ~2.5K LoC) against a public key **embedded
+  in the binary**, plus the existing `.sha256`. **Never** fall back to
+  checksum-only: an empty/unset pinned key fails closed.
+  - **Why not native Sigstore (the original D1):** the `sigstore` crate
+    (`sigstore-rs`) **cannot verify GitHub artifact attestations** yet — its
+    README states it "does not handle verification of attestations" (the DSSE/
+    in-toto envelope `attest-build-provenance` emits; tracking issue open, the
+    enabling PR unmerged). It also requires **edition 2024 / toolchain ≥ 1.89**,
+    which **breaks our MSRV 1.85**, and pulls a mandatory **`aws-lc-rs` C
+    dependency** (+~4 MB, NASM on Windows, 60–120 crates). Revisit if/when it
+    gains attestation verification at our MSRV.
+  - **Why not an in-house DSSE/Fulcio verifier:** zero new deps, but ~800–1500
+    lines of bespoke X.509/ASN.1/Rekor crypto = an audit liability. Only worth it
+    if transparency-log auditability becomes a hard requirement.
+  - **The GitHub attestation stays** as the public/CI provenance bar (the
+    `release.yml` `verify` job pins `--signer-workflow` + `--deny-self-hosted-runners`);
+    minisign is the *client-side* gate that needs no `gh` and no network round-trip
+    to GitHub's attestation store.
 - **D2 — refuse macOS self-update in v1, same as Windows.** A downloaded binary
   is quarantine/Gatekeeper-blocked from launching as a service unless notarized;
   notarization is **out of scope**. v1 self-update is **Linux-only**; macOS +
@@ -117,50 +146,118 @@ trust + atomicity design, which is an owner decision.
 
 ## PR4 plan (the self-updater) — phased, Unix-first
 
-Phase **4a is implemented** (this PR): read-only check only.
+Phase **4a is shipped**; **4b + 4c are implemented in this open/draft PR** (not
+merged, not released).
 
-- **4a (DONE) — read-only check.** `trimwire update`/`upgrade`: resolve+canonicalize
-  `current_exe()` (abort on `(deleted)`), read the receipt, refuse (exit 2 + the
-  per-method guidance) unless the install is self-updatable (`method="script"` +
-  `binary_path == canonical current_exe()` + target match + parent writable),
-  then query the latest GitHub release and report current/available (exit 0).
-  Network failure is non-fatal. `--yes` is accepted but reports "not implemented
-  yet" (exit 2). `/healthz` now includes a `version` field (for 4c's post-restart
-  check). Pure logic in `trimwire::update`; impure I/O in `src/cli/update.rs`.
-- **4b (gated on D1) — verify pipeline.** Download archive + `.sha256` via the
-  `releases/latest/download/` redirect; verify checksum (`sha2`) **and** native
-  Sigstore provenance (workflow-pinned, deny self-hosted, subject-digest bound);
-  extract (shell out to `tar`). No replace yet. Fail-closed at every gate;
-  **strictly-greater** version required (anti-downgrade).
-- **4c (gated on D1+D2) — apply (Linux).** Atomic replace: temp in the **same
-  dir** as the exe → `fchmod 0755` → `fsync(file)` → `rename()` → `fsync(dir)`;
-  keep `<exe>.bak`. Restart: `service::off()` → `on()` → poll `healthz_ok()` →
-  verify `/healthz` version == target. Rollback on any failure: `off()` → restore
-  `.bak` → `on()` → re-verify (never swallow a rollback failure). Refuse on
-  macOS/Windows and on non-writable locations (no privilege escalation). Flips
-  the user docs atomically.
-- **4d (fenced) — Windows self-replace; macOS notarized path** (separate, later).
+- **4a (SHIPPED) — read-only check.** `trimwire update`:
+  resolve+canonicalize `current_exe()` (abort on `(deleted)`), read the receipt,
+  refuse (exit 2 + the per-method guidance) unless the install is self-updatable
+  (`method="script"` + `binary_path == canonical current_exe()` + target match +
+  parent writable), then query the latest GitHub release and report
+  current/available (exit 0). Network failure is non-fatal. `/healthz` includes a
+  `version` field (for 4c's post-restart check).
+- **4b (IMPLEMENTED, draft) — verify.** `trimwire upgrade --dry-run` downloads the
+  latest release archive + `.sha256` + `.minisig` (following the
+  `releases/<tag>/download/` redirect, HTTPS-only, size-capped), then verifies
+  **checksum** (`sha2`) **then** the **minisign signature** against the pinned key
+  — both must pass. Fail-closed on mismatch / missing signature / bad key /
+  malformed signature / legacy (non-prehashed) signature / network or download
+  failure. Reports verified (exit 0) or NOT verified (exit 1). No apply. Pure
+  gates in `trimwire::update` (`verify_sha256`, `verify_minisig`,
+  `verify_artifact`, `VerifyError`); I/O in `src/cli/update.rs`.
+  **Verification-only, NOT staging:** the artifacts are downloaded into memory
+  and verified; nothing is cached to disk. A later `trimwire upgrade` re-downloads
+  and re-verifies from scratch (it never trusts prior `--dry-run` state) — proven
+  by `upgrade_dry_run_leaves_no_staged_artifact` and
+  `upgrade_apply_redownloads_and_reverifies_after_dry_run` (the fake server
+  counts a second full archive/.sha256/.minisig fetch on apply).
+- **4c (IMPLEMENTED, draft) — apply (Linux).** `trimwire upgrade` (TTY-confirmed,
+  prompts BEFORE downloading) / `trimwire upgrade --yes` (non-interactive):
+  re-checks eligibility, requires a pinned key, enforces **strictly-greater**
+  version (anti-downgrade), downloads + verifies (4b), extracts via `tar`, then
+  atomic replace — temp in the **same dir** →
+  `fchmod 0755` → `fsync(file)` → copy old to `<exe>.bak` → `rename()` →
+  `fsync(dir)`. Restart: `service::off()` → `on()` → poll `/healthz` until the
+  served `version` == target. Rollback on any health failure: `off()` → restore
+  `.bak` → `on()` → re-verify, and a rollback failure is surfaced loudly (never
+  swallowed). Refuses on non-Linux (D2), non-managed installs, non-writable
+  locations, and a non-interactive shell without `--yes` (no privilege
+  escalation, no unattended apply). A localhost-only test seam
+  (`TRIMWIRE_UPDATE_DRYRUN_APPLY`) exercises every gate up to — but not
+  including — the swap, so the apply path is integration-tested without
+  overwriting the test binary.
+- **4d (fenced, NOT in this PR) — Windows self-replace; macOS notarized path.**
 
-### Files (4a, shipped)
-`src/proxy/gateway.rs` (`/healthz` version), `src/update.rs` (new lib: version
-parse/compare, `asset_name`, eligibility predicate, guidance/refusal text),
-`src/cli/update.rs` (new: GitHub query, `current_exe` canonicalization,
-writability probe, orchestration), `src/cli/mod.rs` (+doctor advisory bullet),
-`src/main.rs` (`update --yes` flag), docs (CLI.md/FAQ.md/this file).
+### Release signing — owner setup
 
-### Test plan
-4a: unit tests for version parse/compare (v-prefix, build-metadata, downgrade/
-equal/newer) + eligibility branches; integration tests drive the binary against a
-fake GitHub server (`TRIMWIRE_UPDATE_API_BASE` test-only override) for
-available/current/network-fail/refusal, plus a `/healthz` version test. 4b/4c add
-checksum/attestation unit tests (mock verifier) + a sandboxed replace/rollback
-test behind service/verifier seams + one network-gated real-attestation test.
+**Status: DONE except cutting a release.** The key is generated, the CI secrets
+are configured, and `PINNED_PUBKEY` is set (key id `9DD74C076C33E227`). The first
+published release will carry `.minisig` files; clients verify them against the
+pinned key.
 
-### Top risks (for 4b/4c)
-provenance-without-gh → native Sigstore, fail-closed (D1); macOS Gatekeeper → refuse
-(D2); downgrade/replay → strictly-greater semver; EXDEV → temp in same dir;
-rollback correctness → `off`→restore→`on`; `/usr/local/bin` not writable → refuse,
-no escalation; socket-activation restart window → verify `/healthz` version.
+1. ✅ **Key generated** (password-protected): `minisign -G -p trimwire.pub -s trimwire.key`
+   (prompts for a passphrase). Both the secret key and its passphrase are required
+   to sign.
+2. ✅ **CI secrets configured** — `MINISIGN_SECRET_KEY` AND `MINISIGN_PASSWORD`
+   (the key's passphrase) are BOTH set on the repo (confirmed via `gh secret
+   list`); both are required since the key is password-protected. Signing is
+   **mandatory and fail-closed**: the `release.yml` `sign` job FAILS the release
+   run if either secret is absent (it never publishes unsigned archives), signs
+   every archive (`-H` prehashed), and the `verify` job re-verifies a `.minisig`
+   against the pinned public key — so a green run guarantees signed, key-matching
+   archives.
+3. ✅ **Public key pinned** — the base64 payload line of `trimwire.pub` is in
+   `PINNED_PUBKEY` (`src/update.rs`); a unit test asserts it parses, and the
+   release `verify` job verifies a real `.minisig` against `trimwire.pub`.
+4. ☐ **Cut a signed release** (the remaining step; NOT done in this PR). The
+   release `verify` job now proves the pinned key matches the signing key on the
+   first signed release; for belt-and-braces also confirm one artifact before
+   announcing, e.g. `trimwire upgrade --dry-run` on a managed Linux install, or
+   `minisign -Vm trimwire-<target>.tar.gz -P "$(tail -1 trimwire.pub)"`.
+   **A red release run = DO NOT ANNOUNCE:** because `build` attaches the archives
+   before `sign` runs, a failed `sign`/`verify` leaves unsigned archives on the
+   release (the updater refuses them, and they still carry `.sha256` + a GitHub
+   attestation, but the release isn't a valid signed release). Re-run the
+   workflow, or delete + re-cut the release, until the run is green.
 
-**Remaining owner action:** approve starting **4b** (after the D1 Sigstore spike).
-4c follows 4b. The read-only check (4a) is complete and safe to ship on its own.
+**Key hygiene / rotation:** keep `trimwire.key` offline (password manager /
+hardware token), never in the repo. To rotate, repeat 1–3 and publish the new
+public key in a minor release; old clients keep trusting the old key until they
+update through it, so overlap one release before retiring the old signing key.
+
+### Files (this PR — 4b/4c)
+`src/update.rs` (verification gates + `VerifyError` + `PINNED_PUBKEY`),
+`src/cli/update.rs` (download w/ redirect+cap, `--dry-run`, `--apply`/`--yes`,
+atomic replace, restart, rollback, test seam), `src/cli/service.rs`
+(`healthz_version`), `src/main.rs` (`--dry-run`/`--apply`/`--yes` flags),
+`.github/workflows/release.yml` (`sign` job), `Cargo.toml` (`minisign-verify`
+dep; `minisign`/`sha2`/`hex` dev-deps), docs (this file, SECURITY-MODEL.md,
+CLI.md, FAQ.md).
+
+### Test plan (this PR)
+Unit (`src/update.rs`): valid signature; tampered artifact (checksum gate);
+tampered artifact with recomputed checksum (signature gate); tampered signature;
+wrong key; missing/malformed signature; malformed pinned key; checksum
+parse/mismatch/malformed; empty-key fail-closed. Integration (`tests/cli.rs`,
+fake GitHub serving real minisign-signed fixtures): `upgrade --dry-run`
+verified/tampered/missing-sig/no-key/network-fail; `upgrade` refusals
+(no-receipt, non-interactive-without-`--yes`, no-key) + no-op-when-current +
+full verified path to the swap stage via the test seam; `update` deprecated-flag
+redirects + update/upgrade are distinct commands. Download semantics (the fake
+server counts per-artifact requests): `upgrade --dry-run` fetches each artifact
+once and leaves no staged file (TMPDIR + data dir asserted empty); a following
+`upgrade --yes` re-fetches + re-verifies all three (counts double), proving apply
+never trusts prior dry-run state.
+
+### Top risks (4b/4c) and mitigations
+provenance-without-gh → minisign pinned key, fail-closed (D1); macOS/Windows →
+refuse (D2); downgrade/replay → strictly-greater semver; missing signature →
+download error propagates (never skipped); EXDEV → temp in same dir; rollback
+correctness → `off`→restore→`on`→re-verify, loud on failure; `/usr/local/bin`
+not writable → refuse, no escalation; socket-activation restart window → poll
+`/healthz` version; unbounded download → 200 MB cap + HTTPS-only redirects.
+
+**Remaining owner action:** review + merge this draft, then **cut a signed
+release** (the signing key, CI secrets, and `PINNED_PUBKEY` are already in place
+— see **Release signing — owner setup**). The read-only check (4a) is shipped and
+safe on its own.

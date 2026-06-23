@@ -601,6 +601,45 @@ pub(crate) fn healthz_ok(addr: SocketAddr) -> bool {
     buf.starts_with("HTTP/1.1 200")
 }
 
+/// Blocking `GET /healthz` that returns the served `version` field, or `None` if
+/// the gateway isn't answering or the body has no version. Used by the updater
+/// (4c) to confirm the freshly-restarted service is actually running the new
+/// build before declaring success. Parses the JSON body's `"version"` value with
+/// a tiny dependency-free scan (the body is the gateway's own small response).
+/// Linux-only: the apply path (its sole caller) is gated to Linux, so this would
+/// be dead code elsewhere (`-D dead-code`).
+#[cfg(target_os = "linux")]
+pub(crate) fn healthz_version(addr: SocketAddr) -> Option<String> {
+    use std::io::{Read, Write};
+    let mut s =
+        std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(500)).ok()?;
+    let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(500)));
+    let req = format!("GET /healthz HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+    s.write_all(req.as_bytes()).ok()?;
+    // Bound the read: the gateway's /healthz body is tiny, so cap at 64 KiB so a
+    // misbehaving/hostile listener on the port can't make us buffer unboundedly.
+    let mut buf = String::new();
+    let _ = s.take(64 * 1024).read_to_string(&mut buf);
+    if !buf.starts_with("HTTP/1.1 200") {
+        return None;
+    }
+    let body = buf.split("\r\n\r\n").nth(1).unwrap_or("");
+    parse_healthz_version(body)
+}
+
+/// Extract the `version` string from a `/healthz` JSON body, robustly (a real
+/// JSON parse, not a substring scan — tolerant of whitespace / field reordering /
+/// extra fields). Returns `None` if the body isn't JSON or has no string
+/// `version`. Pure + unit-tested. Linux-only: only [`healthz_version`] (itself
+/// Linux-gated) calls it, so it would be dead code elsewhere (`-D dead-code`).
+#[cfg(target_os = "linux")]
+pub(crate) fn parse_healthz_version(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+    v.get("version")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+}
+
 // `getuid()` has no caller preconditions and can't fail or cause UB, so the
 // wrapper is a *safe* fn; the `unsafe` (and its opt-in) is confined to the FFI.
 #[cfg(target_os = "macos")]
@@ -661,5 +700,26 @@ mod tests {
         let u = systemd_service_unit("/usr/local/bin/trimwire");
         assert!(!u.contains("[Install]"));
         assert!(u.contains("StartLimitBurst="));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn healthz_version_parses_json_robustly() {
+        // Compact (what the gateway emits).
+        assert_eq!(
+            parse_healthz_version("{\"ok\":true,\"version\":\"0.3.13\"}").as_deref(),
+            Some("0.3.13")
+        );
+        // Whitespace + reordered fields + extra field — still found.
+        assert_eq!(
+            parse_healthz_version("{\n  \"version\" : \"1.2.3\" ,\n  \"ok\": true\n}").as_deref(),
+            Some("1.2.3")
+        );
+        // Missing field / non-string version / not JSON → None (caller treats as
+        // "can't confirm", which fails the post-restart check → rollback).
+        assert_eq!(parse_healthz_version("{\"ok\":true}"), None);
+        assert_eq!(parse_healthz_version("{\"version\":123}"), None);
+        assert_eq!(parse_healthz_version("not json"), None);
+        assert_eq!(parse_healthz_version(""), None);
     }
 }
