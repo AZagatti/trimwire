@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.12](https://github.com/AZagatti/trimwire/compare/v0.3.11...v0.3.12) - 2026-06-23
+
+### Added
+
+- *(install)* record an install receipt for a future updater ([#81](https://github.com/AZagatti/trimwire/pull/81))
+- *(build)* embed the target triple as TRIMWIRE_TARGET ([#79](https://github.com/AZagatti/trimwire/pull/79))
+
+### Other
+
+- *(release)* attest build provenance for release archives ([#82](https://github.com/AZagatti/trimwire/pull/82))
+
 ## [0.3.11](https://github.com/AZagatti/trimwire/compare/v0.3.10...v0.3.11) - 2026-06-23
 
 ### Added
