@@ -5,13 +5,17 @@
 > today, see [FAQ.md](FAQ.md#how-do-i-install-it). This file exists to capture the
 > security/design questions an updater would have to answer before it could be built.
 
-**Status:** spike / needs owner sign-off (product + security decision). Not implemented.
-**Audit item:** P2-11 (no `trimwire update`/`upgrade`; update path was buried).
+**Status:** spike / needs owner sign-off (product + security decision). The
+self-updater is not implemented; a help-only `trimwire update`/`upgrade` stub
+ships (it prints the update paths and exits 2 — see below).
+**Audit item:** P2-11 (partially resolved: `trimwire update`/`upgrade` stub added
++ update paths documented; a real self-updater is still the open decision here).
 
 ## Problem
 
-There is no `trimwire update` command. Today users update by re-running their
-install method (documented now in [FAQ.md](FAQ.md#how-do-i-install-it)):
+`trimwire update` (and `upgrade`) now exists as a **stub**: it prints the update
+paths and exits 2, but does **not** self-update. Today users still update by
+re-running their install method (documented in [FAQ.md](FAQ.md#how-do-i-install-it)):
 
 - `curl … install.sh | sh` re-run (downloads the latest release binary + re-runs
   `trimwire install`),

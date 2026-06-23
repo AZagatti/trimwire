@@ -145,6 +145,42 @@ pub fn off() -> Result<()> {
     Ok(())
 }
 
+/// `trimwire update` (alias `upgrade`) — there is no built-in self-updater yet
+/// (a self-replacing local proxy needs signature verification + atomic swap
+/// first; see docs/UPDATE-COMMAND-SPIKE.md). Rather than clap's bare
+/// "unrecognized subcommand" error — which a user typing the command they expect
+/// would hit — print the actual update path for each install method and exit
+/// non-zero so scripts don't mistake "no updater" for "updated".
+///
+/// Mirrors how uv / cloudflared / mise respond to an update request they can't
+/// service: a helpful, actionable message instead of a dead end.
+pub fn update() -> Result<()> {
+    // Goes to stderr (this is a non-success "can't do that, here's how" message),
+    // and exits 2 so `trimwire update` in a script reports failure rather than a
+    // silent no-op success.
+    eprintln!(
+        "trimwire has no built-in self-updater yet. Update with the method you installed with:\n\
+         \n\
+         \x20 • curl | sh installer (re-run — it fetches the latest binary and re-runs install):\n\
+         \x20     curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh\n\
+         \x20 • cargo:\n\
+         \x20     cargo binstall trimwire           # prebuilt, or\n\
+         \x20     cargo install trimwire --locked   # from source\n\
+         \x20 • manual binary — download the latest asset and replace the one on your PATH:\n\
+         \x20     https://github.com/AZagatti/trimwire/releases/latest\n\
+         \n\
+         Then restart the service so the new binary serves:\n\
+         \x20     trimwire off && trimwire on\n\
+         \n\
+         Why no self-updater? A self-replacing local proxy needs signature verification\n\
+         and an atomic swap first — see docs/UPDATE-COMMAND-SPIKE.md."
+    );
+    // stderr is unbuffered in std, and `process::exit` skips destructors anyway —
+    // the message above is already written. Exit 2 = recognized command, no-op
+    // (nothing was updated), so scripts don't read it as success.
+    std::process::exit(2);
+}
+
 /// `trimwire status` — is it running / serving?
 pub fn status() -> Result<()> {
     service::status(listen_addr()?)

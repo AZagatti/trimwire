@@ -126,6 +126,47 @@ fn help_legend_covers_every_visible_command() {
     }
 }
 
+/// `trimwire update` (and its `upgrade` alias) is a help-only stub — there is
+/// no self-updater yet. It must print the actual update paths and exit non-zero
+/// (2), so a user typing the command they expect gets guidance instead of
+/// clap's bare "unrecognized subcommand", and a script doesn't read a missing
+/// updater as success.
+#[test]
+fn update_stub_prints_paths_and_exits_nonzero() {
+    for cmd in ["update", "upgrade"] {
+        let out = Command::new(bin())
+            .arg(cmd)
+            .output()
+            .unwrap_or_else(|_| panic!("spawn trimwire {cmd}"));
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "`trimwire {cmd}` exits 2 (no-op, not success)"
+        );
+        // Guidance goes to stderr (non-success message), not stdout.
+        assert!(out.stdout.is_empty(), "`{cmd}` writes nothing to stdout");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains("no built-in self-updater"),
+            "`{cmd}` explains there is no self-updater: {err}"
+        );
+        // Names each install method's update path.
+        assert!(err.contains("install.sh"), "`{cmd}` shows the curl|sh path");
+        assert!(
+            err.contains("cargo install trimwire"),
+            "`{cmd}` shows the cargo path"
+        );
+        assert!(
+            err.contains("releases/latest"),
+            "`{cmd}` shows the manual-asset path"
+        );
+        assert!(
+            err.contains("trimwire off && trimwire on"),
+            "`{cmd}` reminds to restart the service"
+        );
+    }
+}
+
 /// `trimwire install` writes a config + a guarded shell-rc block, and is
 /// idempotent on re-run (acceptance: "fresh install works end-to-end").
 #[test]
