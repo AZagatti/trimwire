@@ -97,7 +97,7 @@ trimwire upgrade             # verify, then replace + restart (asks first on a T
 trimwire upgrade --yes       # same, non-interactive (no prompt)
 ```
 
-> **Note:** self-update requires a published signing key. Until the maintainer pins one (see UPDATE-COMMAND-SPIKE.md, "Release signing — owner setup"), `upgrade`/`upgrade --dry-run` fail closed with "no pinned update-signing key" — update via your install method instead (see the [FAQ](FAQ.md#how-do-i-install-it)).
+> **Note:** the release signing key is configured and pinned, so `upgrade` works on a managed Linux install once a **signed** release is published. (Releases cut before signing was enabled have no `.minisig`, so `upgrade` fails closed there — update via your install method instead; see the [FAQ](FAQ.md#how-do-i-install-it).)
 
 ---
 

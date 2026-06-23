@@ -14,10 +14,11 @@ SHA-256 **and** a minisign signature against a pinned key, fail-closed). 4c adds
 `trimwire upgrade` (TTY-confirmed) / `trimwire upgrade --yes` (non-interactive)
 = verified atomic replace + restart + rollback; Linux + managed installs only.
 The old `update --dry-run`/`--apply`/`--yes` flags are deprecated and redirect to
-`upgrade`. **The pinned public key is not yet set** (`PINNED_PUBKEY` is empty), so
-in a real build verification fails closed until the owner generates a signing
-key, adds the CI secret, and pins the public key (see **Release signing — owner
-setup** below). **Audit item:** P2-11.
+`upgrade`. **The signing key is configured:** `PINNED_PUBKEY` is set (key id
+`9DD74C076C33E227`) and the CI secrets `MINISIGN_SECRET_KEY` / `MINISIGN_PASSWORD`
+are in place, so the next published release will carry `.minisig` files that
+clients verify against the pinned key. The only step left is **cutting a signed
+release** (not done in this PR). **Audit item:** P2-11.
 
 **Prerequisites already shipped (don't re-do):**
 - **Target triple** embedded in the binary (`trimwire::build_target()`, shown in
@@ -185,25 +186,29 @@ merged, not released).
   overwriting the test binary.
 - **4d (fenced, NOT in this PR) — Windows self-replace; macOS notarized path.**
 
-### Release signing — owner setup (REQUIRED before self-update works)
+### Release signing — owner setup
 
-Until these steps are done, `PINNED_PUBKEY` is empty and the `release.yml` `sign`
-job no-ops, so `--dry-run`/`--apply` fail closed (`NoPinnedKey`). The read-only
-check is unaffected.
+**Status: DONE except cutting a release.** The key is generated, the CI secrets
+are configured, and `PINNED_PUBKEY` is set (key id `9DD74C076C33E227`). The first
+published release will carry `.minisig` files; clients verify them against the
+pinned key.
 
-1. **Generate a key** (passwordless recommended for CI):
-   `minisign -G -W -p trimwire.pub -s trimwire.key`
-2. **Add CI secrets** in the repo: `MINISIGN_SECRET_KEY` = the full contents of
-   `trimwire.key` (and `MINISIGN_PASSWORD` if you used a password-protected key).
-   The `sign` job writes the `.minisig` for each archive on the next release.
-3. **Pin the public key**: open `trimwire.pub` and copy the line that is the
-   **base64 key payload** (the line that does NOT start with `untrusted comment:`)
-   into `PINNED_PUBKEY` in `src/update.rs`, then cut a release built from that
-   commit. From then on, every client verifies downloads against this key.
-4. **Keep `trimwire.key` offline** (password manager / hardware token), never in
-   the repo. **Rotation:** repeat 1–3 and publish the new public key in a minor
-   release; old clients keep trusting the old key until they update through it, so
-   overlap one release before retiring the old signing key.
+1. ✅ **Key generated** (passwordless, for CI): `minisign -G -W -p trimwire.pub -s trimwire.key`.
+2. ✅ **CI secrets configured** — `MINISIGN_SECRET_KEY` (+ `MINISIGN_PASSWORD`)
+   are set on the repo (confirmed via `gh secret list`). The `sign` job writes a
+   `.minisig` per archive on the next release.
+3. ✅ **Public key pinned** — the base64 payload line of `trimwire.pub` is in
+   `PINNED_PUBKEY` (`src/update.rs`); a unit test asserts it parses.
+4. ☐ **Cut a signed release** (the remaining step; NOT done in this PR). The
+   first release is also the end-to-end proof that the pinned public key matches
+   the secret CI key — verify it before announcing, e.g.
+   `trimwire upgrade --dry-run` on a managed Linux install, or
+   `minisign -Vm trimwire-<target>.tar.gz -P "$(tail -1 trimwire.pub)"`.
+
+**Key hygiene / rotation:** keep `trimwire.key` offline (password manager /
+hardware token), never in the repo. To rotate, repeat 1–3 and publish the new
+public key in a minor release; old clients keep trusting the old key until they
+update through it, so overlap one release before retiring the old signing key.
 
 ### Files (this PR — 4b/4c)
 `src/update.rs` (verification gates + `VerifyError` + `PINNED_PUBKEY`),
@@ -237,6 +242,7 @@ correctness → `off`→restore→`on`→re-verify, loud on failure; `/usr/local
 not writable → refuse, no escalation; socket-activation restart window → poll
 `/healthz` version; unbounded download → 200 MB cap + HTTPS-only redirects.
 
-**Remaining owner action:** complete **Release signing — owner setup** (generate
-key, add `MINISIGN_SECRET_KEY`, pin `PINNED_PUBKEY`), then review + merge this
-draft. The read-only check (4a) is shipped and safe on its own.
+**Remaining owner action:** review + merge this draft, then **cut a signed
+release** (the signing key, CI secrets, and `PINNED_PUBKEY` are already in place
+— see **Release signing — owner setup**). The read-only check (4a) is shipped and
+safe on its own.

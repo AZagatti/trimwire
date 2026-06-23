@@ -157,11 +157,12 @@ pub fn manual_update_guidance() -> String {
 /// The minisign PUBLIC key pinned into this build (the base64 payload — the
 /// SECOND line of a `minisign.pub` file, without the `untrusted comment:` line).
 /// The matching SECRET key lives only with the release owner / in the signing
-/// CI secret; see `docs/UPDATE-COMMAND-SPIKE.md` ("Release signing — owner
-/// setup"). Empty until the owner generates and pins the key: an empty pin makes
-/// every verification fail closed ([`VerifyError::NoPinnedKey`]), so a build
-/// without a real key can never "succeed" a verification.
-pub const PINNED_PUBKEY: &str = "";
+/// CI secret (`MINISIGN_SECRET_KEY`); see `docs/UPDATE-COMMAND-SPIKE.md`
+/// ("Release signing — owner setup"). Key id `9DD74C076C33E227`. An empty pin
+/// would make every verification fail closed ([`VerifyError::NoPinnedKey`]);
+/// `pinned_pubkey_is_valid_minisign_key` guards that a pasted key actually
+/// parses, so a malformed pin can't ship.
+pub const PINNED_PUBKEY: &str = "RWQn4jNsB0zXnSYsszvH8ARk8/wYpp7sVtYxiV6W9dws/WVzJc1Pkm6i";
 
 /// Whether this build has a usable pinned key. `false` ⇒ verification cannot be
 /// attempted and the updater must refuse (fail-closed), not fall back to
@@ -549,13 +550,23 @@ mod tests {
     #[test]
     fn verify_refuses_when_no_key_is_pinned_no_checksum_only_fallback() {
         let f = make_fixture();
-        // Empty pinned key ⇒ NoPinnedKey, NEVER a checksum-only "ok".
+        // An empty pinned key ⇒ NoPinnedKey, NEVER a checksum-only "ok". (This is
+        // the pure fail-closed guarantee regardless of what this build embeds.)
         assert_eq!(
             verify_artifact(&f.data, &f.sha256_file, &f.minisig, "", f.asset),
             Err(VerifyError::NoPinnedKey)
         );
-        // This build ships no pinned key yet (owner setup pending).
-        assert!(!has_pinned_key());
+    }
+
+    #[test]
+    fn pinned_pubkey_is_valid_minisign_key() {
+        // The shipped build embeds a real key, and it must be a parseable minisign
+        // public key — guards against a malformed/truncated paste shipping.
+        assert!(has_pinned_key(), "release builds must embed a pinned key");
+        assert!(
+            minisign_verify::PublicKey::from_base64(PINNED_PUBKEY).is_ok(),
+            "PINNED_PUBKEY must be a valid minisign public-key payload"
+        );
     }
 
     #[test]

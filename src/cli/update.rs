@@ -158,11 +158,13 @@ fn dl_base() -> String {
 /// localhost, so the override is ignored and only the embedded key is trusted.
 fn pinned_pubkey() -> Option<String> {
     if is_localhost_base(&api_base()) {
-        if let Some(k) = std::env::var("TRIMWIRE_UPDATE_PUBKEY")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-        {
-            return Some(k);
+        // Test seam: when the override is PRESENT it fully controls the key —
+        // including present-but-empty, which means "no pinned key" (so the
+        // NoPinnedKey path stays testable now that the shipped build embeds a
+        // real key). Absent → fall through to the embedded key.
+        if let Ok(k) = std::env::var("TRIMWIRE_UPDATE_PUBKEY") {
+            let k = k.trim();
+            return (!k.is_empty()).then(|| k.to_owned());
         }
     }
     let k = upd::PINNED_PUBKEY.trim();

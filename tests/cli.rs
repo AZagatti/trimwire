@@ -1876,8 +1876,10 @@ fn upgrade_dry_run_fails_closed_without_pinned_key() {
     let data = dir.path().join("data");
     let fx = signed_fixture(b"trimwire fake archive payload");
     let gh = FakeGitHub::with_release("v999.0.0", fx.release);
-    // No TRIMWIRE_UPDATE_PUBKEY → this build has no key to verify against.
+    // Empty override simulates a build with no pinned key (the shipped build now
+    // embeds a real one, so force the no-key state via the localhost seam).
     let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", "")
         .output()
         .expect("spawn");
     assert_eq!(out.status.code(), Some(1), "no key → fail closed");
@@ -2013,7 +2015,10 @@ fn upgrade_refuses_without_pinned_key() {
     let data = dir.path().join("data");
     write_script_receipt(&data);
     let gh = FakeGitHub::start("v999.0.0");
+    // Empty override simulates a build with no pinned key (force the no-key state
+    // via the localhost seam, since the shipped build embeds a real key).
     let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--yes"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", "")
         .output()
         .expect("spawn");
     assert_eq!(out.status.code(), Some(2), "no key → refuse");

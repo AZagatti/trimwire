@@ -44,10 +44,11 @@ its checksum + signature without changing anything. On a managed (`curl | sh`)
 (SHA-256 + a minisign signature against a key pinned in the binary), atomically
 replaces the binary, restarts the service, and rolls back if the new build isn't
 healthy (it asks before applying on a terminal; `--yes` skips the prompt).
-Self-update is fail-closed and **requires the maintainer to have published a
-signing key** — if none is pinned yet it refuses with "no pinned update-signing
-key", so use the per-method update above. macOS/Windows and cargo/manual installs always use the
-per-method update. See
+Self-update is fail-closed and **requires a signed release**: the signing key is
+configured and pinned, so `upgrade` works once a signed release is published (a
+release without a `.minisig` makes it refuse with "no pinned update-signing key"
+/ "NOT verified", so use the per-method update). macOS/Windows and cargo/manual
+installs always use the per-method update. See
 [`docs/UPDATE-COMMAND-SPIKE.md`](https://github.com/AZagatti/trimwire/blob/main/docs/UPDATE-COMMAND-SPIKE.md).
 After a manual update, restart with `trimwire off && trimwire on` (or open a new
 shell) so the new binary serves.
