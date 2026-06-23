@@ -148,6 +148,13 @@ pub fn install(boot: bool) -> Result<()> {
             );
         }
     }
+
+    // Record/refresh the install receipt (best-effort, non-fatal). Preserves the
+    // curl|sh installer's `method="script"` if it already wrote one; otherwise
+    // records `method="unknown"` (cargo/manual install). A future `trimwire
+    // update` reads this to decide whether self-update is allowed. No network.
+    let _ = trimwire::receipt::refresh_for_current_binary();
+
     Ok(())
 }
 

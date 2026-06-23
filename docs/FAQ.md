@@ -88,6 +88,8 @@ the [Security & trust model](SECURITY-MODEL.md).
   counts, which strategies fired, the model name, timestamps, a session id, and
   prefix hashes. Never message text, tool inputs, or tool results. See
   the content-free guarantees in the [Security & trust model](SECURITY-MODEL.md).
+  (trimwire also writes a small local **install receipt** — install method,
+  version, target, binary path — stored locally only and never transmitted.)
 - **Your transcript is untouched.** trimwire shapes the *request on the wire*; it
   never writes to the `~/.claude` session files. (The separate, explicit
   `trimwire sweep` command is the only thing that edits on-disk transcripts, and

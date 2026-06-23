@@ -59,6 +59,8 @@ Diagnose the setup: config, active profile, gateway health, `ANTHROPIC_BASE_URL`
 
 Immediately below the header, a `platform:` line reports the build **platform** — the target triple the binary was compiled for (e.g. `platform: x86_64-unknown-linux-gnu`) — which is useful in bug reports and identifies which release asset matches this binary.
 
+The next line reports the **install receipt** — how trimwire was installed. The `curl | sh` installer writes `$XDG_DATA_HOME/trimwire/install-receipt.json` (default `~/.local/share/trimwire/install-receipt.json`) with `method: "script"`; `trimwire install` refreshes it. A `cargo`/manual install has no receipt, so the line reads `install: no receipt recorded (manual or cargo install)` — that's expected and harmless. (This metadata is recorded for a possible future `trimwire update`; there is no self-updater today — see `trimwire update`.)
+
 | Flag | Description |
 |---|---|
 | `--strict` | Exit 1 when trimwire is not installed yet, on advisory warnings (gateway not running / `ANTHROPIC_BASE_URL` unset or pointing elsewhere), and on hard failures — for CI / scripted health checks |

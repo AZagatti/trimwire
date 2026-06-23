@@ -178,6 +178,9 @@ fn install_writes_config_and_rc_idempotently() {
             .env("HOME", dir.path())
             .env("SHELL", "/bin/zsh")
             .env_remove("XDG_CONFIG_HOME")
+            // Keep the install receipt under the temp HOME, never the real
+            // XDG_DATA_HOME of the machine running the tests.
+            .env_remove("XDG_DATA_HOME")
             .output()
             .expect("spawn trimwire install")
     };
@@ -196,6 +199,107 @@ fn install_writes_config_and_rc_idempotently() {
         rc2.matches("# >>> trimwire >>>").count(),
         1,
         "re-running install must not duplicate the block"
+    );
+}
+
+/// `trimwire install` (no curl|sh installer) records an install receipt with
+/// method "unknown" — a cargo/manual install we did not place, which a future
+/// `trimwire update` must NOT assume is self-updatable. Records the build target.
+#[test]
+fn install_writes_install_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let out = Command::new(bin())
+        .arg("install")
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env("XDG_DATA_HOME", &data)
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn trimwire install");
+    assert!(out.status.success(), "install succeeds");
+    let rcpt = data.join("trimwire").join("install-receipt.json");
+    let s = fs::read_to_string(&rcpt).expect("install receipt written");
+    assert!(s.contains("\"schema_version\": 1"), "receipt: {s}");
+    assert!(s.contains("\"method\": \"unknown\""), "receipt: {s}");
+    assert!(
+        s.contains(env!("TRIMWIRE_TARGET")),
+        "receipt records the build target, got: {s}"
+    );
+}
+
+/// `trimwire doctor` reports the install receipt when present, and says so
+/// (non-fatally) when absent.
+#[test]
+fn doctor_reports_install_receipt_presence() {
+    // Absent: a fresh HOME with an empty data dir → "no receipt recorded".
+    let dir = tempfile::tempdir().unwrap();
+    let absent = Command::new(bin())
+        .arg("doctor")
+        .env("HOME", dir.path())
+        .env("XDG_DATA_HOME", dir.path().join("data"))
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .output()
+        .expect("spawn doctor");
+    let s = String::from_utf8_lossy(&absent.stdout);
+    assert!(
+        s.contains("no receipt recorded"),
+        "doctor should note a missing receipt, got: {s}"
+    );
+
+    // Present: seed one via `trimwire install`, then doctor reports it.
+    let dir2 = tempfile::tempdir().unwrap();
+    let data2 = dir2.path().join("data");
+    assert!(
+        Command::new(bin())
+            .arg("install")
+            .env("HOME", dir2.path())
+            .env("SHELL", "/bin/zsh")
+            .env("XDG_DATA_HOME", &data2)
+            .env_remove("XDG_CONFIG_HOME")
+            .output()
+            .expect("spawn install")
+            .status
+            .success()
+    );
+    let present = Command::new(bin())
+        .arg("doctor")
+        .env("HOME", dir2.path())
+        .env("XDG_DATA_HOME", &data2)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .output()
+        .expect("spawn doctor");
+    let s2 = String::from_utf8_lossy(&present.stdout);
+    assert!(
+        s2.contains("install:") && s2.contains("unknown"),
+        "doctor should report the receipt method, got: {s2}"
+    );
+}
+
+/// A corrupt/unparseable receipt must degrade gracefully: `load()` returns None
+/// and `doctor` falls back to "no receipt recorded" rather than erroring.
+#[test]
+fn doctor_tolerates_corrupt_install_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let rcpt_dir = data.join("trimwire");
+    fs::create_dir_all(&rcpt_dir).unwrap();
+    fs::write(rcpt_dir.join("install-receipt.json"), "{ not valid json").unwrap();
+
+    let out = Command::new(bin())
+        .arg("doctor")
+        .env("HOME", dir.path())
+        .env("XDG_DATA_HOME", &data)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .output()
+        .expect("spawn doctor");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.contains("no receipt recorded"),
+        "corrupt receipt should fall back to 'no receipt recorded', got: {s}"
     );
 }
 

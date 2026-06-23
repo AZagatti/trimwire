@@ -84,6 +84,29 @@ case ":$PATH:" in
   *) say "note: $BINDIR is not on your PATH — add it to your shell rc" ;;
 esac
 
+# Write the install receipt BEFORE `trimwire install` so its refresh preserves
+# method="script" (a managed, self-updatable install) rather than recording
+# "unknown". A future `trimwire update` reads this. Best-effort; never fatal.
+say "writing install receipt"
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/trimwire"
+if mkdir -p "$data_dir" 2>/dev/null; then
+  rcpt_ver="$("$BINDIR/$BIN" --version 2>/dev/null | awk '{print $2}')"
+  # `|| true`: keep this truly best-effort — a write failure (disk full, perms)
+  # must NOT abort the installer under `set -eu`. A missing receipt is non-fatal
+  # (trimwire treats it as "unknown/manual").
+  { cat > "$data_dir/install-receipt.json" <<JSON
+{
+  "schema_version": 1,
+  "method": "script",
+  "binary_path": "$BINDIR/$BIN",
+  "version": "${rcpt_ver:-unknown}",
+  "target": "$triple",
+  "installed_at": $(date +%s)
+}
+JSON
+  } 2>/dev/null || true
+fi
+
 say "running '$BIN install' (writes config + shell rc)"
 "$BINDIR/$BIN" install
 

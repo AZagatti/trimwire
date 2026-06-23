@@ -11,6 +11,17 @@ ships (it prints the update paths and exits 2 — see below).
 **Audit item:** P2-11 (partially resolved: `trimwire update`/`upgrade` stub added
 + update paths documented; a real self-updater is still the open decision here).
 
+**Prerequisites already shipped (don't re-do):** the running binary now embeds its
+build **target triple** (`trimwire::build_target()`, surfaced in `doctor`), and an
+**install receipt** (`src/receipt.rs`, `trimwire::receipt`) records the install
+`method`/`version`/`target`/`binary_path` — so install-method detection and asset
+selection (items implied by §1–§2 below) are covered. The receipt's `method` is
+NOT a sufficient authority on its own (it can go stale after a `cargo install`
+over the same path) — before self-replacing, the updater MUST verify the binary
+is the managed one (`binary_path == current_exe()` + user-writable), not trust
+`method` alone. The OPEN decisions remain integrity/**provenance** (§3),
+**atomic replace** (§4), and **service restart** (§5).
+
 ## Problem
 
 `trimwire update` (and `upgrade`) now exists as a **stub**: it prints the update

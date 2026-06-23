@@ -13,6 +13,10 @@ pub mod fsperm;
 pub mod ledger;
 pub mod pairing;
 pub mod proxy;
+/// Install receipt: a small JSON record of how trimwire was installed, used by a
+/// future `trimwire update` to decide whether self-update is allowed. See
+/// `src/receipt.rs`.
+pub mod receipt;
 pub mod reprune;
 pub mod strategies;
 /// Opt-in summarizer context compaction. Always compiled; disabled unless

@@ -61,6 +61,14 @@ case "$ver" in
   *) echo "[smoke] FAIL: --version='$ver' does not start with 'trimwire $cargo_ver'"; exit 1 ;;
 esac
 
+# Install receipt: the script must record method="script" (a managed install),
+# preserved through the `trimwire install` refresh, with the resolved triple.
+rcpt="$SB/.local/share/trimwire/install-receipt.json"
+[ -f "$rcpt" ] || { echo "[smoke] FAIL: no install receipt at $rcpt"; exit 1; }
+grep -q '"method": "script"' "$rcpt" || { echo "[smoke] FAIL: receipt method != script:"; cat "$rcpt"; exit 1; }
+grep -q "\"target\": \"$triple\"" "$rcpt" || { echo "[smoke] FAIL: receipt target != $triple:"; cat "$rcpt"; exit 1; }
+echo "[smoke]   install receipt written (method=script, target=$triple) ✓"
+
 echo "[smoke] (2) bad checksum must be rejected"
 bad="$(mktemp -d)"
 cp "$WORK/$tarball" "$bad/"
