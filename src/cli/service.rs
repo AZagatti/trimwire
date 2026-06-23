@@ -616,8 +616,10 @@ pub(crate) fn healthz_version(addr: SocketAddr) -> Option<String> {
     let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(500)));
     let req = format!("GET /healthz HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
     s.write_all(req.as_bytes()).ok()?;
+    // Bound the read: the gateway's /healthz body is tiny, so cap at 64 KiB so a
+    // misbehaving/hostile listener on the port can't make us buffer unboundedly.
     let mut buf = String::new();
-    let _ = s.read_to_string(&mut buf);
+    let _ = s.take(64 * 1024).read_to_string(&mut buf);
     if !buf.starts_with("HTTP/1.1 200") {
         return None;
     }
@@ -628,7 +630,9 @@ pub(crate) fn healthz_version(addr: SocketAddr) -> Option<String> {
 /// Extract the `version` string from a `/healthz` JSON body, robustly (a real
 /// JSON parse, not a substring scan — tolerant of whitespace / field reordering /
 /// extra fields). Returns `None` if the body isn't JSON or has no string
-/// `version`. Pure + unit-tested.
+/// `version`. Pure + unit-tested. Linux-only: only [`healthz_version`] (itself
+/// Linux-gated) calls it, so it would be dead code elsewhere (`-D dead-code`).
+#[cfg(target_os = "linux")]
 pub(crate) fn parse_healthz_version(body: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
     v.get("version")
@@ -698,6 +702,7 @@ mod tests {
         assert!(u.contains("StartLimitBurst="));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn healthz_version_parses_json_robustly() {
         // Compact (what the gateway emits).

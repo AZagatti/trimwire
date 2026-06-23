@@ -658,6 +658,28 @@ mod tests {
     }
 
     #[test]
+    fn verify_rejects_legacy_non_prehashed_signature() {
+        use ct_codecs::{Base64, Decoder, Encoder};
+        let f = make_fixture();
+        // The fixture is prehashed (`minisign -H`): line 1 decodes to
+        // [sig_alg(2), key_id(8), sig(64)] with sig_alg = "ED" (0x45,0x44). Flip
+        // the second byte to 0x64 ("Ed") → a legacy, non-prehashed signature that
+        // still parses (key_id unchanged, so no KeyIdMismatch) — it must be
+        // rejected by the `allow_legacy = false` gate.
+        let mut lines: Vec<String> = f.minisig.lines().map(str::to_owned).collect();
+        let mut bin1 = Base64::decode_to_vec(lines[1].as_bytes(), None).expect("decode sig line");
+        assert_eq!(bin1[0], 0x45);
+        assert_eq!(bin1[1], 0x44, "fixture must be prehashed (ED)");
+        bin1[1] = 0x64; // "Ed" = legacy / non-prehashed
+        lines[1] = Base64::encode_to_string(&bin1).expect("re-encode sig line");
+        let legacy = format!("{}\n", lines.join("\n"));
+        assert_eq!(
+            verify_minisig(&f.data, &legacy, &f.pubkey),
+            Err(VerifyError::LegacySignature)
+        );
+    }
+
+    #[test]
     fn verify_rejects_wrong_key() {
         let f = make_fixture();
         let other = make_fixture(); // a DIFFERENT keypair

@@ -157,6 +157,14 @@ jobs:
   # then re-verifies a `.minisig` against the pinned public key before the run is
   # green. Key generation / rotation lives in docs/UPDATE-COMMAND-SPIKE.md
   # ("Release signing — owner setup"); the key + secrets are already configured.
+  #
+  # RESIDUAL (by design — build-first, sign-second): `build` attaches the archives
+  # + `.sha256` to the release BEFORE `sign` runs. So a FAILED `sign`/`verify` run
+  # (red) leaves unsigned archives attached. `trimwire upgrade` refuses them
+  # (no/!verified `.minisig` ⇒ fail-closed), and they still carry `.sha256` + a
+  # GitHub attestation for manual `gh attestation verify`. Remediation: a red
+  # release run means DO NOT ANNOUNCE — re-run the workflow (or delete + re-cut
+  # the release) until the run is green.
   sign:
     needs: build
     name: sign release artifacts (minisign)
@@ -199,7 +207,9 @@ jobs:
           signed=0
           for f in trimwire-*.tar.gz trimwire-*.zip; do
             # -H = prehashed (the client requires it; legacy signatures are rejected).
-            printf '%s' "${MINISIGN_PASSWORD:-}" | \
+            # printf '%s\n' (with newline) so a future password-protected key reads
+            # cleanly from stdin; harmless for the current passwordless (-W) key.
+            printf '%s\n' "${MINISIGN_PASSWORD:-}" | \
               minisign -S -H -s "$key" -m "$f" -x "$f.minisig" \
                 -c "trimwire $TAG release archive" -t "trimwire $TAG $f"
             signed=$((signed + 1))

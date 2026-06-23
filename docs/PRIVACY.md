@@ -25,8 +25,8 @@ substitutes or originates its own.
 - It writes a small **install receipt** (`~/.local/share/trimwire/install-receipt.json`)
   recording how trimwire was installed — method, version, target triple, and the
   binary path. It's stored **locally only and never transmitted** (not even by
-  `trimwire share`); it exists so a future `trimwire update` could tell a managed
-  install from a `cargo`/manual one.
+  `trimwire share`); it gates `trimwire upgrade`, which only self-updates a
+  managed (`curl | sh`) install — never a `cargo`/manual one.
 - It makes **no network calls of its own** on the default path. (The optional
   summarizer, if you enable it, calls a model **you configure on a separate API
   key** — never your forwarded Claude Code credential — see

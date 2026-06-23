@@ -2435,6 +2435,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "clap_mangen",
+ "ct-codecs",
  "dashmap",
  "figment",
  "getrandom 0.4.3",

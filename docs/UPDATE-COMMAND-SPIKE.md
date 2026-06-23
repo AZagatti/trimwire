@@ -208,6 +208,11 @@ pinned key.
    first signed release; for belt-and-braces also confirm one artifact before
    announcing, e.g. `trimwire upgrade --dry-run` on a managed Linux install, or
    `minisign -Vm trimwire-<target>.tar.gz -P "$(tail -1 trimwire.pub)"`.
+   **A red release run = DO NOT ANNOUNCE:** because `build` attaches the archives
+   before `sign` runs, a failed `sign`/`verify` leaves unsigned archives on the
+   release (the updater refuses them, and they still carry `.sha256` + a GitHub
+   attestation, but the release isn't a valid signed release). Re-run the
+   workflow, or delete + re-cut the release, until the run is green.
 
 **Key hygiene / rotation:** keep `trimwire.key` offline (password manager /
 hardware token), never in the repo. To rotate, repeat 1–3 and publish the new

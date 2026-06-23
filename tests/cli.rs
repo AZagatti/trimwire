@@ -2203,7 +2203,10 @@ fn upgrade_dry_run_rejects_oversized_content_length() {
         .expect("spawn");
     assert_eq!(out.status.code(), Some(1), "oversized (CL) → fail closed");
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("NOT verified"), "got: {err}");
+    assert!(
+        err.contains("NOT verified") && err.contains("size cap"),
+        "must fail on the size cap specifically: {err}"
+    );
 }
 
 /// An oversized download with NO `Content-Length` (chunked/close-delimited) is
@@ -2226,7 +2229,10 @@ fn upgrade_dry_run_rejects_oversized_without_content_length() {
         "oversized (no CL) → fail closed"
     );
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("NOT verified"), "got: {err}");
+    assert!(
+        err.contains("NOT verified") && err.contains("size cap"),
+        "must fail on the streaming size cap specifically: {err}"
+    );
 }
 
 /// A server that DECLARES a huge `Content-Length` (≫ the real 200 MB cap) while
@@ -2245,7 +2251,10 @@ fn upgrade_dry_run_rejects_inflated_content_length_at_default_cap() {
         .expect("spawn");
     assert_eq!(out.status.code(), Some(1), "inflated CL → fail closed");
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("NOT verified"), "got: {err}");
+    assert!(
+        err.contains("NOT verified") && err.contains("size cap"),
+        "must fail on the Content-Length size cap specifically: {err}"
+    );
 }
 
 /// A normal-sized signed release still verifies under the default cap (sanity:

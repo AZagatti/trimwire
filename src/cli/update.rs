@@ -54,7 +54,7 @@ fn is_localhost_base(url: &str) -> bool {
 /// [`trimwire::update::parse_version`] doesn't surface a `-rc` tag here. (4b's
 /// apply gate must still handle prereleases explicitly if that ever changes.)
 fn fetch_latest_tag() -> Option<String> {
-    use http_body_util::{BodyExt, Full};
+    use http_body_util::{BodyExt, Full, Limited};
     use hyper::Request;
     use hyper::body::Bytes;
     use trimwire::proxy::upstream::build_client;
@@ -79,7 +79,14 @@ fn fetch_latest_tag() -> Option<String> {
             if !resp.status().is_success() {
                 return None;
             }
-            let bytes = resp.into_body().collect().await.ok()?.to_bytes();
+            // Cap the metadata body at 1 MiB (the JSON is a few KB) so a hostile/
+            // broken endpoint can't make us buffer unboundedly — Limited errors
+            // (→ None, fail-safe) past the limit.
+            let bytes = Limited::new(resp.into_body(), 1024 * 1024)
+                .collect()
+                .await
+                .ok()?
+                .to_bytes();
             let body: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
             body.get("tag_name")
                 .and_then(serde_json::Value::as_str)
@@ -97,6 +104,11 @@ fn fetch_latest_tag() -> Option<String> {
 pub(crate) fn newer_available() -> Option<String> {
     let current = upd::parse_version(env!("CARGO_PKG_VERSION"))?;
     let tag = fetch_latest_tag()?;
+    // Only advise for an exact stable release tag (don't surface a stray
+    // prerelease/odd tag as "available").
+    if !upd::is_stable_release_tag(&tag) {
+        return None;
+    }
     let latest = upd::parse_version(&tag)?;
     upd::is_newer(latest, current).then_some(tag)
 }
@@ -448,7 +460,8 @@ fn run_check() -> ! {
         }
         Some((tag, latest)) => {
             let cur = upd::parse_version(current).expect("own version parses");
-            if upd::is_newer(latest, cur) {
+            // Only advertise an upgrade for an exact stable release tag.
+            if upd::is_stable_release_tag(&tag) && upd::is_newer(latest, cur) {
                 println!(
                     "trimwire {} is available (you have {current}).\n  • verify it:  trimwire upgrade --dry-run\n  \
                      • apply it:   trimwire upgrade",
@@ -721,16 +734,24 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
                     );
                     1
                 }
-                Err(rb) => {
-                    // Never swallow a rollback failure — the user must act. Exit 3
-                    // (distinct from the clean-rollback 1) so wrapping automation can
-                    // tell "safe failure, old version running" from "indeterminate
-                    // state, manual restore needed".
+                // Never swallow a rollback failure — the user must act. Exit 3
+                // (distinct from the clean-rollback 1) so wrapping automation can
+                // tell "recovered automatically" from "needs manual intervention".
+                // The two variants need DIFFERENT actions, so the guidance differs.
+                Err(RollbackError::NotRestored(e)) => {
                     eprintln!(
-                        "CRITICAL: rollback FAILED ({rb}). The previous binary is saved at {}. \
-                         Restore it manually and run `trimwire on`:\n    cp {} {} && trimwire on",
+                        "CRITICAL: rollback could not restore the previous binary ({e}). \
+                         The previous binary is saved at {}. Restore it manually:\n    cp {} {} && trimwire on",
                         bak.display(),
                         bak.display(),
+                        exe.display()
+                    );
+                    3
+                }
+                Err(RollbackError::RestoredButUnhealthy(e)) => {
+                    eprintln!(
+                        "CRITICAL: the previous binary was restored to {} (the update was NOT applied), \
+                         but the service is not confirmed healthy ({e}). Recover with:\n    trimwire on   # then: trimwire doctor",
                         exe.display()
                     );
                     3
@@ -919,20 +940,37 @@ fn restart_and_verify(
     ))
 }
 
+/// How a rollback failed — so the caller's guidance is accurate about WHERE the
+/// binary is. The distinction matters: telling a user to `cp` a backup that was
+/// already consumed (renamed back over the exe) would be wrong/harmful.
+#[cfg(target_os = "linux")]
+enum RollbackError {
+    /// Stop or restore failed BEFORE the backup was put back — the new (bad)
+    /// binary may still be at `exe`, and `bak` is still on disk for a manual `cp`.
+    NotRestored(String),
+    /// The backup WAS restored over `exe` (the old binary is back, `bak` is gone),
+    /// but the service didn't come back confirmed-healthy — only a restart /
+    /// diagnosis is needed, NOT a file copy.
+    RestoredButUnhealthy(String),
+}
+
 /// Roll back to the backup created by THIS attempt (`bak`): stop, restore that
 /// exact file, restart, and confirm the gateway is serving the OLD version again
 /// (not merely answering 200 — a 200 from some other binary on the port would be
-/// a false "recovered"). Any failure is surfaced loudly (never swallowed).
+/// a false "recovered"). The error variant records whether the binary was
+/// actually restored, so the caller can give correct recovery guidance.
 #[cfg(target_os = "linux")]
 fn rollback(
     exe: &std::path::Path,
     bak: &std::path::Path,
     addr: std::net::SocketAddr,
     old_version: &str,
-) -> std::result::Result<(), String> {
-    super::service::off().map_err(|e| format!("stop service: {e}"))?;
-    restore_backup(bak, exe)?;
-    super::service::on().map_err(|e| format!("start service: {e}"))?;
+) -> std::result::Result<(), RollbackError> {
+    super::service::off().map_err(|e| RollbackError::NotRestored(format!("stop service: {e}")))?;
+    restore_backup(bak, exe).map_err(RollbackError::NotRestored)?;
+    // From here the old binary is back in place (`bak` is gone).
+    super::service::on()
+        .map_err(|e| RollbackError::RestoredButUnhealthy(format!("start service: {e}")))?;
     let want = upd::parse_version(old_version);
     for _ in 0..40 {
         if let Some(v) = super::service::healthz_version(addr) {
@@ -942,9 +980,9 @@ fn rollback(
         }
         std::thread::sleep(Duration::from_millis(250));
     }
-    Err(format!(
-        "restored the previous binary but the gateway did not report the previous version ({old_version}) on /healthz"
-    ))
+    Err(RollbackError::RestoredButUnhealthy(format!(
+        "the gateway did not report the previous version ({old_version}) on /healthz after restore"
+    )))
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -1046,5 +1084,34 @@ mod apply_fs_tests {
         );
         assert!(!bak.exists(), "rename consumed the backup");
         std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// Count our extract temp archives in `temp_dir()` (`trimwire-update.*.tar.gz`).
+    fn count_extract_temps() -> usize {
+        std::fs::read_dir(std::env::temp_dir())
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| {
+                        let n = e.file_name();
+                        let n = n.to_string_lossy();
+                        n.starts_with("trimwire-update.") && n.ends_with(".tar.gz")
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    /// `extract_trimwire` must remove its temp `.tar.gz` even when `tar` fails
+    /// (non-archive input) — no leftover staged file on the failure path.
+    #[test]
+    fn extract_trimwire_cleans_temp_on_failure() {
+        let before = count_extract_temps();
+        let res = extract_trimwire(b"this is definitely not a gzip tar archive");
+        assert!(res.is_err(), "non-tar input must fail");
+        assert_eq!(
+            count_extract_temps(),
+            before,
+            "extract must clean its temp .tar.gz on failure"
+        );
     }
 }

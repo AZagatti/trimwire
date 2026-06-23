@@ -114,6 +114,9 @@ pretty_assertions = "1"
 minisign = "0.9.1"
 sha2 = "0.11"
 hex = "0.4"
+# Base64 (already in the lock via `minisign`) — used by one unit test to craft a
+# legacy (non-prehashed) minisig from a real fixture and assert it's rejected.
+ct-codecs = "1"
 
 [profile.release]
 opt-level = 3
