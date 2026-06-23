@@ -365,7 +365,7 @@ fn resolve_eligibility()
     Ok((exe, exe_str, elig, receipt_path))
 }
 
-/// The read-only check (default `trimwire update` / `upgrade`). Refuses with
+/// The read-only check (`trimwire update` default). Refuses with
 /// guidance for non-managed installs; otherwise reports current/available.
 /// Network failure is non-fatal (exit 0).
 fn run_check() -> ! {
@@ -485,7 +485,7 @@ fn apply_refuse(msg: &str) -> i32 {
     2
 }
 
-/// `--apply` / `--yes`. Returns the process exit code.
+/// Apply path for `trimwire upgrade [--yes]`. Returns the process exit code.
 fn run_apply(yes: bool) -> i32 {
     // D2: self-replace is Linux-only in v1 (macOS Gatekeeper/notarization and the
     // Windows running-exe lock are out of scope — refuse, don't half-do it).
@@ -509,8 +509,8 @@ fn run_apply(yes: bool) -> i32 {
         }
     };
     if elig != upd::Eligibility::Eligible {
-        // Lead with the command so the user sees `--apply` was understood and
-        // deliberately refused (not silently ignored), then the precise reason.
+        // Lead with the command name so the user sees the refusal was
+        // deliberate (not silently ignored), then the precise reason.
         return apply_refuse(&format!(
             "trimwire upgrade: cannot self-update this install.\n{}\n\n{}",
             upd::refusal_reason(&elig, &exe_str, &receipt_path),

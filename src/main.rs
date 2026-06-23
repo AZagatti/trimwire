@@ -189,9 +189,10 @@ enum ShareAction {
 //
 // clap 4 does not natively group subcommands under separate headings in the
 // flat `Commands:` help section. We use `display_order` to sort commands into
-// logical groups (LIFECYCLE 10-15, then `run` 16 + `hook` 17 surfaced near the
-// top for discoverability, INSPECT 20-23, SUMMARIZER 30, SHARE 40,
-// MAINTENANCE 50-51, SHELL 60-62) and document the groupings in `after_help`.
+// logical groups (LIFECYCLE 10-15, then `run` 16 + `hook` 17 + `update` 18 +
+// `upgrade` 19 surfaced near the top for discoverability, INSPECT 20-23,
+// SUMMARIZER 30, SHARE 40, MAINTENANCE 50-51, SHELL 60-62) and document the
+// groupings in `after_help`.
 // `run`/`hook` are listed under LIFECYCLE/SHELL respectively in that legend.
 
 #[derive(Parser)]

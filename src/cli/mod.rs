@@ -206,7 +206,7 @@ pub fn doctor(strict: bool) -> Result<()> {
     // doesn't affect the exit contract (incl. `--strict`).
     if let Some(tag) = update::newer_available() {
         println!(
-            "{} update: {} available (you have {}) — run `trimwire update`",
+            "{} update: {} available (you have {}) — run `trimwire upgrade`",
             render::bullet(),
             tag.trim_start_matches('v'),
             env!("CARGO_PKG_VERSION")
