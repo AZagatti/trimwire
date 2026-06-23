@@ -162,6 +162,12 @@ merged, not released).
   failure. Reports verified (exit 0) or NOT verified (exit 1). No apply. Pure
   gates in `trimwire::update` (`verify_sha256`, `verify_minisig`,
   `verify_artifact`, `VerifyError`); I/O in `src/cli/update.rs`.
+  **Verification-only, NOT staging:** the artifacts are downloaded into memory
+  and verified; nothing is cached to disk. A later `trimwire upgrade` re-downloads
+  and re-verifies from scratch (it never trusts prior `--dry-run` state) — proven
+  by `upgrade_dry_run_leaves_no_staged_artifact` and
+  `upgrade_apply_redownloads_and_reverifies_after_dry_run` (the fake server
+  counts a second full archive/.sha256/.minisig fetch on apply).
 - **4c (IMPLEMENTED, draft) — apply (Linux).** `trimwire upgrade` (TTY-confirmed,
   prompts BEFORE downloading) / `trimwire upgrade --yes` (non-interactive):
   re-checks eligibility, requires a pinned key, enforces **strictly-greater**
@@ -213,10 +219,15 @@ Unit (`src/update.rs`): valid signature; tampered artifact (checksum gate);
 tampered artifact with recomputed checksum (signature gate); tampered signature;
 wrong key; missing/malformed signature; malformed pinned key; checksum
 parse/mismatch/malformed; empty-key fail-closed. Integration (`tests/cli.rs`,
-fake GitHub serving real minisign-signed fixtures): `--dry-run`
-verified/tampered/missing-sig/no-key/network-fail; `--apply` refusals
+fake GitHub serving real minisign-signed fixtures): `upgrade --dry-run`
+verified/tampered/missing-sig/no-key/network-fail; `upgrade` refusals
 (no-receipt, non-interactive-without-`--yes`, no-key) + no-op-when-current +
-full verified path to the swap stage via the test seam.
+full verified path to the swap stage via the test seam; `update` deprecated-flag
+redirects + update/upgrade are distinct commands. Download semantics (the fake
+server counts per-artifact requests): `upgrade --dry-run` fetches each artifact
+once and leaves no staged file (TMPDIR + data dir asserted empty); a following
+`upgrade --yes` re-fetches + re-verifies all three (counts double), proving apply
+never trusts prior dry-run state.
 
 ### Top risks (4b/4c) and mitigations
 provenance-without-gh → minisign pinned key, fail-closed (D1); macOS/Windows →

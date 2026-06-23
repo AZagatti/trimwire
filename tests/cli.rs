@@ -1519,7 +1519,16 @@ struct FakeGitHub {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     handle: Option<std::thread::JoinHandle<()>>,
     port: u16,
+    /// Per-artifact request counters (archive, .sha256, .minisig) so a test can
+    /// prove e.g. that `upgrade --yes` re-downloads after `upgrade --dry-run`
+    /// rather than trusting any staged state.
+    hits: std::sync::Arc<[std::sync::atomic::AtomicUsize; 3]>,
 }
+
+/// Indices into `FakeGitHub::hits`.
+const HIT_ARCHIVE: usize = 0;
+const HIT_SHA: usize = 1;
+const HIT_SIG: usize = 2;
 
 fn http_resp(status: &str, ctype: &str, body: &[u8]) -> Vec<u8> {
     let mut v = format!(
@@ -1546,7 +1555,7 @@ impl FakeGitHub {
     fn start_inner(tag: &str, rel: Option<Release>) -> Self {
         use std::io::{Read, Write};
         use std::sync::Arc;
-        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -1555,6 +1564,12 @@ impl FakeGitHub {
 
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
+        let hits: Arc<[AtomicUsize; 3]> = Arc::new([
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+        ]);
+        let hits2 = hits.clone();
         let handle = std::thread::spawn(move || {
             while !stop2.load(Ordering::Relaxed) {
                 match listener.accept() {
@@ -1571,14 +1586,19 @@ impl FakeGitHub {
                         let resp = if path.ends_with("/releases/latest") {
                             http_resp("200 OK", "application/json", tag_json.as_bytes())
                         } else if let Some(r) = &rel {
+                            // Count BEFORE responding (and even on a 404, so a
+                            // missing-sig test still records the attempt).
                             if path.ends_with(".minisig") {
+                                hits2[HIT_SIG].fetch_add(1, Ordering::Relaxed);
                                 match &r.minisig {
                                     Some(sig) => http_resp("200 OK", "text/plain", sig.as_bytes()),
                                     None => http_resp("404 Not Found", "text/plain", b"no sig"),
                                 }
                             } else if path.ends_with(".sha256") {
+                                hits2[HIT_SHA].fetch_add(1, Ordering::Relaxed);
                                 http_resp("200 OK", "text/plain", r.sha256.as_bytes())
                             } else if path.ends_with(&r.asset) {
+                                hits2[HIT_ARCHIVE].fetch_add(1, Ordering::Relaxed);
                                 http_resp("200 OK", "application/octet-stream", &r.archive)
                             } else {
                                 http_resp("404 Not Found", "text/plain", b"not found")
@@ -1600,11 +1620,22 @@ impl FakeGitHub {
             stop,
             handle: Some(handle),
             port,
+            hits,
         }
     }
 
     fn base(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
+    }
+
+    /// (archive, .sha256, .minisig) request counts so far.
+    fn hits(&self) -> (usize, usize, usize) {
+        use std::sync::atomic::Ordering;
+        (
+            self.hits[HIT_ARCHIVE].load(Ordering::Relaxed),
+            self.hits[HIT_SHA].load(Ordering::Relaxed),
+            self.hits[HIT_SIG].load(Ordering::Relaxed),
+        )
     }
 }
 
@@ -2015,4 +2046,107 @@ fn upgrade_reaches_replace_after_verification() {
         "verified apply reaches the swap stage; stdout: {s} stderr: {err}"
     );
     assert!(s.contains("would replace"), "stdout: {s}");
+}
+
+// ---- download semantics: dry-run is verify-only (no staging); apply re-fetches ----
+
+/// `upgrade --dry-run` downloads + verifies entirely in memory: it hits each
+/// artifact exactly once and leaves NO staged file behind — not in the temp dir
+/// (pointed at a dir we control via TMPDIR) nor in the data dir (only the
+/// install receipt). Proves dry-run is verification-only, not a staging step.
+#[test]
+fn upgrade_dry_run_leaves_no_staged_artifact() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    write_script_receipt(&data);
+    let tmp = dir.path().join("tmp");
+    fs::create_dir_all(&tmp).unwrap();
+
+    let fx = signed_fixture(b"trimwire fake archive payload");
+    let pubkey = fx.pubkey.clone();
+    let gh = FakeGitHub::with_release("v999.0.0", fx.release);
+
+    let out = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &pubkey)
+        .env("TMPDIR", &tmp) // std::env::temp_dir() honors this on Unix
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(0), "verified → exit 0");
+
+    // Each artifact fetched exactly once (one full verification pass).
+    assert_eq!(
+        gh.hits(),
+        (1, 1, 1),
+        "dry-run fetches archive/.sha256/.minisig once each"
+    );
+
+    // No staged artifact in the temp dir — dry-run wrote nothing to disk.
+    let tmp_entries: Vec<_> = fs::read_dir(&tmp).unwrap().flatten().collect();
+    assert!(
+        tmp_entries.is_empty(),
+        "dry-run must leave no staged file in TMPDIR, found: {:?}",
+        tmp_entries
+            .iter()
+            .map(|e| e.file_name())
+            .collect::<Vec<_>>()
+    );
+
+    // The data dir holds only the install receipt — no cached archive/.sha256/.minisig.
+    let rcpt_dir = data.join("trimwire");
+    let staged: Vec<_> = fs::read_dir(&rcpt_dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name() != std::ffi::OsStr::new("install-receipt.json"))
+        .collect();
+    assert!(
+        staged.is_empty(),
+        "dry-run must not cache any artifact in the data dir, found: {:?}",
+        staged.iter().map(|e| e.file_name()).collect::<Vec<_>>()
+    );
+}
+
+/// A later `upgrade --yes` performs its OWN fresh download + checksum + minisign
+/// verification before applying — it does not trust any prior `--dry-run` state.
+/// Proven by counting requests on the same server across both runs: the apply
+/// run adds a second full archive/.sha256/.minisig fetch.
+#[cfg(target_os = "linux")]
+#[test]
+fn upgrade_apply_redownloads_and_reverifies_after_dry_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    write_script_receipt(&data);
+    let fx = signed_fixture(b"trimwire fake archive payload");
+    let pubkey = fx.pubkey.clone();
+    let gh = FakeGitHub::with_release("v999.0.0", fx.release);
+
+    // 1) Dry-run: one full fetch + verify, nothing applied.
+    let dry = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--dry-run"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &pubkey)
+        .output()
+        .expect("spawn");
+    assert_eq!(dry.status.code(), Some(0), "dry-run verified");
+    assert_eq!(gh.hits(), (1, 1, 1), "dry-run = one fetch of each artifact");
+
+    // 2) Apply (stopped at the test seam right before the swap): must fetch +
+    //    verify AGAIN, not reuse the dry-run download.
+    let apply = upd_cmd("upgrade", dir.path(), &data, &gh.base(), &["--yes"])
+        .env("TRIMWIRE_UPDATE_PUBKEY", &pubkey)
+        .env("TRIMWIRE_UPDATE_DRYRUN_APPLY", "1") // stop before the binary swap
+        .output()
+        .expect("spawn");
+    let s = String::from_utf8_lossy(&apply.stdout);
+    assert_eq!(
+        apply.status.code(),
+        Some(0),
+        "apply reached the swap stage: {s}"
+    );
+    assert!(s.contains("would replace"), "stdout: {s}");
+
+    // The apply run did its OWN full download + verification (counts doubled),
+    // proving it never trusts prior dry-run state.
+    assert_eq!(
+        gh.hits(),
+        (2, 2, 2),
+        "apply re-downloads + re-verifies every artifact (no reuse of dry-run state)"
+    );
 }
