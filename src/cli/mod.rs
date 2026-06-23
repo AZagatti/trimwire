@@ -206,6 +206,15 @@ pub fn doctor(strict: bool) -> Result<()> {
 
     println!("trimwire doctor\n");
 
+    // Build platform — handy in bug reports, and the asset-selection primitive a
+    // future `trimwire update` uses to pick the matching release artifact.
+    // Printed before the install-state branch so it always shows.
+    println!(
+        "{} platform: {}",
+        render::bullet(),
+        trimwire::build_target()
+    );
+
     // ── Detect the "not installed yet" state early ─────────────────────────
     // Three simultaneous signals: no config file on disk + gateway not
     // responding on the configured (or default) listen addr + ANTHROPIC_BASE_URL

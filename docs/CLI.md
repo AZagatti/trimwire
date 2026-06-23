@@ -57,6 +57,8 @@ Show whether the gateway is running and serving.
 
 Diagnose the setup: config, active profile, gateway health, `ANTHROPIC_BASE_URL` wiring, ledger, and summarizer state. Run this first whenever something looks wrong.
 
+Immediately below the header, a `platform:` line reports the build **platform** — the target triple the binary was compiled for (e.g. `platform: x86_64-unknown-linux-gnu`) — which is useful in bug reports and identifies which release asset matches this binary.
+
 | Flag | Description |
 |---|---|
 | `--strict` | Exit 1 when trimwire is not installed yet, on advisory warnings (gateway not running / `ANTHROPIC_BASE_URL` unset or pointing elsewhere), and on hard failures — for CI / scripted health checks |

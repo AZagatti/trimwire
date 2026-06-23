@@ -311,6 +311,32 @@ fn doctor_pre_install_exits_zero() {
     );
 }
 
+/// `trimwire doctor` reports the build platform (the target triple embedded by
+/// build.rs as `TRIMWIRE_TARGET`). It must appear even in the pre-install state,
+/// and must match the triple this test binary was built for — it's the
+/// asset-selection primitive a future `trimwire update` relies on.
+#[test]
+fn doctor_reports_build_platform() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(bin())
+        .arg("doctor")
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .output()
+        .expect("spawn doctor");
+    let s = String::from_utf8_lossy(&out.stdout);
+    let target = env!("TRIMWIRE_TARGET");
+    assert!(
+        !target.is_empty() && target != "unknown",
+        "target: {target}"
+    );
+    assert!(
+        s.contains("platform:") && s.contains(target),
+        "doctor should report `platform: {target}`, got: {s}"
+    );
+}
+
 /// Regression (release-polish): in the pre-install state (no config, no env,
 /// gateway down) plain `doctor` exits 0 — but `doctor --strict` must exit
 /// non-zero, matching the documented `--strict` contract in docs/CLI.md (it's

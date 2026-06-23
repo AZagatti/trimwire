@@ -27,6 +27,16 @@ fn main() {
         _ => pkg.to_owned(),
     };
     println!("cargo:rustc-env=TRIMWIRE_VERSION={version}");
+
+    // Embed the Cargo target triple so the running binary knows its own platform
+    // (e.g. `x86_64-unknown-linux-gnu`). This is the asset-selection primitive a
+    // future `trimwire update` needs to pick the right `trimwire-<triple>.<ext>`
+    // release artifact; today it's surfaced in `trimwire doctor`. `TARGET` is
+    // always set for build scripts under cargo — fall back to "unknown" only
+    // defensively (e.g. a non-cargo build harness).
+    let target = std::env::var("TARGET").unwrap_or_else(|_| "unknown".to_owned());
+    println!("cargo:rustc-env=TRIMWIRE_TARGET={target}");
+
     // Re-run when HEAD moves so the embedded SHA stays fresh.
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs");
