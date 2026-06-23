@@ -27,12 +27,13 @@ binary in place (your config and shell rc are untouched):
 - **Installed via `curl | sh`** (option 3): re-run that one-liner. It downloads
   the latest release binary and re-runs `trimwire install` (idempotent).
 - **`cargo binstall`/`cargo install`** users: `cargo binstall trimwire` (fetches
-  the latest prebuilt) or `cargo install trimwire` (rebuilds).
+  the latest prebuilt) or `cargo install trimwire --locked` (rebuilds).
 - **Manual binary** (option 1): download the new asset from
   [releases/latest](https://github.com/AZagatti/trimwire/releases/latest) and
   replace the binary on your `PATH`.
 
-There is no built-in `trimwire update` self-updater yet — a self-replacing binary
+`trimwire update` (alias `upgrade`) exists, but it only prints these same paths
+and exits — there is no built-in self-updater yet, because a self-replacing binary
 needs signature verification and atomic-swap design first; see the design notes
 in [`docs/UPDATE-COMMAND-SPIKE.md`](https://github.com/AZagatti/trimwire/blob/main/docs/UPDATE-COMMAND-SPIKE.md).
 After updating, restart the service with `trimwire off && trimwire on` (or open a

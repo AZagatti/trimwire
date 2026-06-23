@@ -201,7 +201,7 @@ enum ShareAction {
     about = "Local gateway that prunes Claude Code context on every API call.",
     after_help = "\
 Commands by group:\n\
-\x20 LIFECYCLE    install · uninstall · on · off · status · doctor · run\n\
+\x20 LIFECYCLE    install · uninstall · update · on · off · status · doctor · run\n\
 \x20 INSPECT      stats · recall · preview · dashboard\n\
 \x20 SUMMARIZER   summarizer  (setup · status · benchmark · probe)\n\
 \x20 SHARE        share  (enable · disable · stats · benchmark)   — opt-in, content-free\n\
@@ -477,6 +477,12 @@ elvish  — source inline from rc.elv:\n\
     /// gateway is down. Silent when healthy. See docs/CONFIGURATION.md.
     #[command(display_order = 17)]
     Hook,
+
+    /// Show how to update trimwire. There is no built-in self-updater yet, so
+    /// this prints the update path for each install method (curl|sh / cargo /
+    /// manual) and exits non-zero. See docs/UPDATE-COMMAND-SPIKE.md.
+    #[command(display_order = 18, alias = "upgrade")]
+    Update,
 }
 
 // ---- main ------------------------------------------------------------------
@@ -635,6 +641,7 @@ fn main() -> Result<()> {
         } => cli::serve(listen, upstream, audit),
         Cmd::Run { args, audit } => cli::run(&args, audit),
         Cmd::Hook => cli::hook(),
+        Cmd::Update => cli::update(),
     }
 }
 

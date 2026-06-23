@@ -72,6 +72,16 @@ trimwire doctor              # advisory warnings exit 0 (safe for post-install s
 trimwire doctor --strict     # any warning or failure exits 1 (CI health checks)
 ```
 
+### `trimwire update`
+
+Print how to update trimwire. There is **no built-in self-updater yet** (a self-replacing local proxy needs signature verification and an atomic swap first — see [UPDATE-COMMAND-SPIKE.md](UPDATE-COMMAND-SPIKE.md)), so this command does not update anything: it prints the update path for each install method (curl|sh / cargo / manual) and **exits 2**. `upgrade` is an alias.
+
+```sh
+trimwire update      # prints the curl|sh / cargo / manual-asset update paths, exits 2
+```
+
+For the full update guidance see the [FAQ](FAQ.md#how-do-i-install-it). After updating, restart the service with `trimwire off && trimwire on` so the new binary serves.
+
 ---
 
 ## INSPECT
