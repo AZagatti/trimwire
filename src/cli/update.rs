@@ -713,8 +713,17 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
     // Restart and confirm the new version is actually serving.
     match restart_and_verify(addr, tag) {
         Ok(()) => {
-            // Refresh the receipt's recorded version, best-effort.
-            let _ = trimwire::receipt::refresh_for_current_binary();
+            // Refresh the receipt from the KNOWN install path + target version,
+            // NOT from this (old, already-replaced) process. Here `current_exe()`
+            // would resolve to "<path> (deleted)" and `CARGO_PKG_VERSION` is the
+            // OLD version — writing those poisons the receipt and makes the NEXT
+            // `trimwire upgrade` refuse with PathMismatch. `exe` is the canonical
+            // install path we just replaced (resolved + checked non-deleted in
+            // resolve_eligibility); `tag` is the version now serving.
+            let _ = trimwire::receipt::refresh_after_apply(
+                &exe.display().to_string(),
+                tag.trim_start_matches('v'),
+            );
             let _ = std::fs::remove_file(&bak);
             println!(
                 "Updated trimwire {old_version} → {} and restarted the service ✓",

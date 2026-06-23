@@ -511,6 +511,35 @@ mod tests {
         );
     }
 
+    /// Regression for the post-apply receipt bug: the OLD updater wrote the
+    /// receipt from the replaced process, so `binary_path` became
+    /// `"<path> (deleted)"` → the NEXT `upgrade` check resolved `current_exe` to
+    /// the clean path, mismatched, and refused with `PathMismatch`. The fix writes
+    /// the canonical path post-apply, so a second check is `Eligible` again.
+    #[test]
+    fn deleted_suffix_path_mismatches_but_canonical_is_eligible() {
+        let exe = "/home/u/.local/bin/trimwire";
+        let tgt = "x86_64-unknown-linux-gnu";
+
+        // What the bug produced: a receipt whose path carries the "(deleted)"
+        // suffix the kernel reports for a replaced-while-running exe. The next
+        // check (running the NEW binary, clean `current_exe`) can't match it.
+        let poisoned = receipt(receipt::METHOD_SCRIPT, &format!("{exe} (deleted)"), tgt);
+        assert_eq!(
+            eligibility(Some(&poisoned), exe, tgt, true),
+            Eligibility::PathMismatch,
+            "the poisoned (deleted) path is exactly what refused the 2nd upgrade"
+        );
+
+        // What the fix writes: the canonical install path → second check passes.
+        let healed = receipt(receipt::METHOD_SCRIPT, exe, tgt);
+        assert_eq!(
+            eligibility(Some(&healed), exe, tgt, true),
+            Eligibility::Eligible,
+            "after a correct post-apply refresh the next upgrade is eligible"
+        );
+    }
+
     #[test]
     fn guidance_and_reasons_are_actionable() {
         let g = manual_update_guidance();

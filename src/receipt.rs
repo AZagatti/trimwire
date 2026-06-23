@@ -138,6 +138,50 @@ pub fn refresh_for_current_binary() -> std::io::Result<()> {
     })
 }
 
+/// Refresh the receipt after a successful self-update, using an EXPLICIT
+/// installed path and version instead of reading them from the running process.
+///
+/// `trimwire upgrade` calls this from the OLD process whose executable has just
+/// been atomically replaced on disk. In that process [`refresh_for_current_binary`]
+/// is WRONG twice over: on Linux `current_exe()` resolves to `"<path> (deleted)"`
+/// (the inode was renamed over), and `env!("CARGO_PKG_VERSION")` is still the OLD
+/// binary's version. A receipt written that way poisons the next `trimwire
+/// upgrade` (its `binary_path` can't canonicalize → [`crate::update::Eligibility::PathMismatch`]).
+/// So the updater passes the known-good canonical install path (the binary it
+/// just replaced — already verified not to be `(deleted)`) and the freshly
+/// installed version (the release tag, `v`-stripped) directly.
+///
+/// Preserves the recorded `method` (a self-update only happens for a managed
+/// `script` install), and refreshes target + timestamp. Best-effort.
+pub fn refresh_after_apply(binary_path: &str, version: &str) -> std::io::Result<()> {
+    write(&receipt_after_apply(
+        load().as_ref(),
+        binary_path,
+        version,
+        now_secs(),
+    ))
+}
+
+/// Pure record-builder for [`refresh_after_apply`] (no I/O — unit-testable). The
+/// `binary_path` and `version` come from the updater's known-good context (the
+/// canonical install path it replaced + the release tag), NOT from the running
+/// process — see [`refresh_after_apply`] for why that matters.
+fn receipt_after_apply(
+    existing: Option<&InstallReceipt>,
+    binary_path: &str,
+    version: &str,
+    now: i64,
+) -> InstallReceipt {
+    InstallReceipt {
+        schema_version: SCHEMA_VERSION,
+        method: refreshed_method(existing),
+        binary_path: binary_path.to_owned(),
+        version: version.to_owned(),
+        target: crate::build_target().to_owned(),
+        installed_at: now,
+    }
+}
+
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -175,6 +219,58 @@ mod tests {
         // Prior script install → preserved across a later `trimwire install`.
         let existing = sample();
         assert_eq!(refreshed_method(Some(&existing)), METHOD_SCRIPT);
+    }
+
+    /// The post-apply receipt is built from the EXPLICIT install path + version,
+    /// never from the running process. The regression this guards: the updater
+    /// calls this from the OLD (replaced) process where `current_exe()` is
+    /// `"<path> (deleted)"` and `CARGO_PKG_VERSION` is stale — so it must NOT read
+    /// either. Feed it a previously-poisoned receipt and confirm the new record is
+    /// clean, the version advances, and `method` is preserved.
+    #[test]
+    fn receipt_after_apply_uses_explicit_path_and_version_preserving_method() {
+        // Simulate the bug's own poisoned receipt as the "existing" one.
+        let poisoned = InstallReceipt {
+            schema_version: SCHEMA_VERSION,
+            method: METHOD_SCRIPT.to_owned(),
+            binary_path: "/home/u/.local/bin/trimwire (deleted)".to_owned(),
+            version: "0.3.12".to_owned(),
+            target: "x86_64-unknown-linux-gnu".to_owned(),
+            installed_at: 1_750_000_000,
+        };
+        let fresh = receipt_after_apply(
+            Some(&poisoned),
+            "/home/u/.local/bin/trimwire",
+            "0.3.13",
+            1_750_000_999,
+        );
+        assert_eq!(
+            fresh.binary_path, "/home/u/.local/bin/trimwire",
+            "must record the canonical install path, never the ' (deleted)' one"
+        );
+        assert!(
+            !fresh.binary_path.ends_with(" (deleted)"),
+            "no (deleted) suffix can survive"
+        );
+        assert_eq!(
+            fresh.version, "0.3.13",
+            "version advances to the installed one"
+        );
+        assert_eq!(
+            fresh.method, METHOD_SCRIPT,
+            "managed method is preserved across self-update"
+        );
+        assert_eq!(fresh.installed_at, 1_750_000_999);
+    }
+
+    /// With no prior receipt the method falls back to `unknown` (the safe,
+    /// not-self-updatable default) — mirrors [`refresh_for_current_binary`].
+    #[test]
+    fn receipt_after_apply_without_prior_is_unknown() {
+        let r = receipt_after_apply(None, "/opt/trimwire", "1.0.0", 7);
+        assert_eq!(r.method, METHOD_UNKNOWN);
+        assert_eq!(r.binary_path, "/opt/trimwire");
+        assert_eq!(r.version, "1.0.0");
     }
 
     #[test]
