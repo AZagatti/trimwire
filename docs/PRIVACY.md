@@ -22,6 +22,11 @@ substitutes or originates its own.
   *content-free* counters — bytes saved, cache-hit rate, which strategies fired —
   the same numbers `trimwire stats` shows you. This never leaves your machine
   unless you explicitly opt in to sharing (below).
+- It writes a small **install receipt** (`~/.local/share/trimwire/install-receipt.json`)
+  recording how trimwire was installed — method, version, target triple, and the
+  binary path. It's stored **locally only and never transmitted** (not even by
+  `trimwire share`); it exists so a future `trimwire update` could tell a managed
+  install from a `cargo`/manual one.
 - It makes **no network calls of its own** on the default path. (The optional
   summarizer, if you enable it, calls a model **you configure on a separate API
   key** — never your forwarded Claude Code credential — see

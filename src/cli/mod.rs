@@ -215,6 +215,24 @@ pub fn doctor(strict: bool) -> Result<()> {
         trimwire::build_target()
     );
 
+    // Install receipt — how the binary was installed (written by the curl|sh
+    // installer / refreshed by `trimwire install`). Absent is normal for
+    // cargo/manual installs and is non-fatal. A future `trimwire update` reads
+    // this to decide whether self-update is allowed.
+    match trimwire::receipt::load() {
+        Some(r) => println!(
+            "{} install: {} · v{} · {}",
+            render::bullet(),
+            r.method,
+            r.version,
+            r.binary_path
+        ),
+        None => println!(
+            "{} install: no receipt recorded (manual or cargo install)",
+            render::bullet()
+        ),
+    }
+
     // ── Detect the "not installed yet" state early ─────────────────────────
     // Three simultaneous signals: no config file on disk + gateway not
     // responding on the configured (or default) listen addr + ANTHROPIC_BASE_URL
