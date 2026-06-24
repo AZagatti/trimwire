@@ -155,8 +155,8 @@ jobs:
   # FAILS (the release run goes red) rather than publishing unsigned archives —
   # so a "successful" run always means the archives are signed. The `verify` job
   # then re-verifies a `.minisig` against the pinned public key before the run is
-  # green. Key generation / rotation lives in docs/UPDATE-COMMAND-SPIKE.md
-  # ("Release signing — owner setup"); the key + secrets are already configured.
+  # green. Key generation / rotation is a maintainer task; the signing key +
+  # secrets (`MINISIGN_SECRET_KEY` / `MINISIGN_PASSWORD`) are already configured.
   #
   # RESIDUAL (by design — build-first, sign-second): `build` attaches the archives
   # + `.sha256` to the release BEFORE `sign` runs. So a FAILED `sign`/`verify` run
@@ -198,11 +198,11 @@ jobs:
           # MINISIGN_PASSWORD is needed to decrypt it. Fail fast (and fail-closed)
           # if either is missing rather than publishing an unsigned release.
           if [ -z "${MINISIGN_SECRET_KEY:-}" ]; then
-            echo "::error::MINISIGN_SECRET_KEY is not set — refusing to publish an unsigned signed-update release. Configure the signing secret (docs/UPDATE-COMMAND-SPIKE.md) and re-run." >&2
+            echo "::error::MINISIGN_SECRET_KEY is not set — refusing to publish an unsigned signed-update release. Configure the signing secret and re-run." >&2
             exit 1
           fi
           if [ -z "${MINISIGN_PASSWORD:-}" ]; then
-            echo "::error::MINISIGN_PASSWORD is not set — the signing key is password-protected and can't be used without it. Configure the secret (docs/UPDATE-COMMAND-SPIKE.md) and re-run." >&2
+            echo "::error::MINISIGN_PASSWORD is not set — the signing key is password-protected and can't be used without it. Configure the secret and re-run." >&2
             exit 1
           fi
           umask 077
