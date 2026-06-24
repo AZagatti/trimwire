@@ -764,23 +764,10 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
                 // Never swallow a rollback failure — the user must act. Exit 3
                 // (distinct from the clean-rollback 1) so wrapping automation can
                 // tell "recovered automatically" from "needs manual intervention".
-                // The two variants need DIFFERENT actions, so the guidance differs.
-                Err(RollbackError::NotRestored(e)) => {
-                    eprintln!(
-                        "CRITICAL: rollback could not restore the previous binary ({e}). \
-                         The previous binary is saved at {}. Restore it manually:\n    cp {} {} && trimwire on",
-                        bak.display(),
-                        bak.display(),
-                        exe.display()
-                    );
-                    3
-                }
-                Err(RollbackError::RestoredButUnhealthy(e)) => {
-                    eprintln!(
-                        "CRITICAL: the previous binary was restored to {} (the update was NOT applied), \
-                         but the service is not confirmed healthy ({e}). Recover with:\n    trimwire on   # then: trimwire doctor",
-                        exe.display()
-                    );
+                // The two variants need DIFFERENT actions; `rollback_guidance`
+                // renders the correct recovery instructions for each.
+                Err(rb_err) => {
+                    eprintln!("{}", rollback_guidance(&rb_err, exe, &bak));
                     3
                 }
             }
@@ -1018,6 +1005,31 @@ fn rollback(
     Err(RollbackError::RestoredButUnhealthy(format!(
         "the gateway did not report the previous version ({old_version}) on /healthz after restore"
     )))
+}
+
+/// Recovery guidance printed when `rollback` itself fails — DIFFERENT per variant
+/// because the two states need different user actions. The safety property: only
+/// `NotRestored` tells the user to `cp` the backup (the new/bad binary may still
+/// be at `exe` and the backup is still on disk); `RestoredButUnhealthy` must NOT
+/// — that backup was already consumed (renamed back over `exe`), so a `cp` would
+/// be wrong/harmful. Pure (no I/O) so the contract is unit-testable; the variant
+/// SELECTION + the actual restart are exercised by the live Incus canary.
+#[cfg(target_os = "linux")]
+fn rollback_guidance(err: &RollbackError, exe: &std::path::Path, bak: &std::path::Path) -> String {
+    match err {
+        RollbackError::NotRestored(e) => format!(
+            "CRITICAL: rollback could not restore the previous binary ({e}). \
+             The previous binary is saved at {}. Restore it manually:\n    cp {} {} && trimwire on",
+            bak.display(),
+            bak.display(),
+            exe.display()
+        ),
+        RollbackError::RestoredButUnhealthy(e) => format!(
+            "CRITICAL: the previous binary was restored to {} (the update was NOT applied), \
+             but the service is not confirmed healthy ({e}). Recover with:\n    trimwire on   # then: trimwire doctor",
+            exe.display()
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -1266,5 +1278,40 @@ mod apply_fs_tests {
             "the current binary is untouched when restore fails"
         );
         std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// `rollback_guidance` must give DIFFERENT, correct recovery instructions per
+    /// variant — the safety contract behind the two `RollbackError` cases. Only
+    /// `NotRestored` may tell the user to `cp` the (still-present) backup;
+    /// `RestoredButUnhealthy` must NOT (that backup was already consumed) and
+    /// instead points at `trimwire on`. This tests the user-facing TEXT only; the
+    /// variant SELECTION + real restart are covered by the live Incus canary.
+    #[test]
+    fn rollback_guidance_differs_safely_per_variant() {
+        let exe = std::path::Path::new("/opt/trimwire/trimwire");
+        let bak = std::path::Path::new("/opt/trimwire/trimwire.bak.42.99");
+
+        let not_restored =
+            rollback_guidance(&RollbackError::NotRestored("stop failed".into()), exe, bak);
+        assert!(not_restored.contains("CRITICAL"), "got: {not_restored}");
+        assert!(
+            not_restored.contains("cp ") && not_restored.contains(&bak.display().to_string()),
+            "NotRestored must tell the user to cp the saved backup: {not_restored}"
+        );
+
+        let restored = rollback_guidance(
+            &RollbackError::RestoredButUnhealthy("healthz failed".into()),
+            exe,
+            bak,
+        );
+        assert!(restored.contains("CRITICAL"), "got: {restored}");
+        assert!(
+            !restored.contains("cp "),
+            "RestoredButUnhealthy must NOT tell the user to cp a consumed backup: {restored}"
+        );
+        assert!(
+            restored.contains("trimwire on"),
+            "RestoredButUnhealthy should point at `trimwire on`: {restored}"
+        );
     }
 }

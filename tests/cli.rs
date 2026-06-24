@@ -237,6 +237,13 @@ fn doctor_reports_install_receipt_presence() {
         // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
         .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
+        // Pin the gateway probe to a free (closed) port so it can't collide with
+        // the default :8765 under parallel test runs (gateway state is irrelevant
+        // to this test's assertion, but keep the probe deterministic + fast).
+        .env(
+            "TRIMWIRE_SERVER__LISTEN",
+            format!("127.0.0.1:{}", free_port()),
+        )
         .env("XDG_DATA_HOME", dir.path().join("data"))
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
@@ -270,6 +277,11 @@ fn doctor_reports_install_receipt_presence() {
         // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
         .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir2.path())
+        // Pin the gateway probe to a free (closed) port (see note above).
+        .env(
+            "TRIMWIRE_SERVER__LISTEN",
+            format!("127.0.0.1:{}", free_port()),
+        )
         .env("XDG_DATA_HOME", &data2)
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
@@ -299,6 +311,11 @@ fn doctor_tolerates_corrupt_install_receipt() {
         // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
         .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
+        // Pin the gateway probe to a free (closed) port (see note above).
+        .env(
+            "TRIMWIRE_SERVER__LISTEN",
+            format!("127.0.0.1:{}", free_port()),
+        )
         .env("XDG_DATA_HOME", &data)
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
