@@ -623,6 +623,50 @@ fn doctor_reports_update_available_advisory() {
     );
 }
 
+/// Inverse of the advisory test: when the latest stable release is NOT newer than
+/// the running version, doctor surfaces NO update bullet (don't nag users to
+/// "upgrade" to an older/equal release). Wired to a LOCAL fake GitHub.
+#[test]
+fn doctor_no_advisory_when_not_newer() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = FakeGitHub::start("v0.0.1"); // older than this build
+    let out = Command::new(bin())
+        .arg("doctor")
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .env("TRIMWIRE_UPDATE_API_BASE", gh.base())
+        .output()
+        .expect("spawn doctor");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !s.contains("available (you have"),
+        "no update-advisory bullet when the latest release is not newer, got: {s}"
+    );
+}
+
+/// A non-stable latest tag (prerelease) must NOT raise the advisory either —
+/// `newer_available` gates on `is_stable_release_tag`, so a stray `-rc` tag is
+/// never surfaced as "available". Wired to a LOCAL fake GitHub.
+#[test]
+fn doctor_no_advisory_for_non_stable_latest_tag() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = FakeGitHub::start("v999.0.0-rc.1"); // newer number, but not stable
+    let out = Command::new(bin())
+        .arg("doctor")
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .env("TRIMWIRE_UPDATE_API_BASE", gh.base())
+        .output()
+        .expect("spawn doctor");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !s.contains("available (you have"),
+        "a non-stable (prerelease) latest tag must not raise the advisory, got: {s}"
+    );
+}
+
 /// `summarizer setup` with stdin closed (EOF) must cancel cleanly — never spin
 /// forever re-prompting on an empty answer — and write no config.
 #[test]

@@ -44,6 +44,15 @@ fn is_localhost_base(url: &str) -> bool {
         || url.starts_with("http://[::1]:")
 }
 
+/// Whether a redirect `Location` may be followed: HTTPS is always allowed; plain
+/// HTTP only to a localhost base, and only when `allow_plain` (the localhost test
+/// seam) is set. Any other target — notably an `http://` downgrade to a non-local
+/// host — is refused. Extracted from [`download_bytes`] so this security-critical
+/// decision is unit-testable without a live server.
+fn redirect_location_allowed(loc: &str, allow_plain: bool) -> bool {
+    loc.starts_with("https://") || (allow_plain && is_localhost_base(loc))
+}
+
 /// Fetch the latest release tag from GitHub. Returns `None` on ANY problem
 /// (network down, rate-limited, timeout, non-2xx, unparseable) — a failed check
 /// is non-destructive and never an error state. One short-timeout GET, reusing
@@ -241,7 +250,7 @@ async fn download_bytes(
                 .and_then(|v| v.to_str().ok())
                 .ok_or("redirect without a Location header")?;
             // Never downgrade to plaintext on a redirect (except localhost tests).
-            if !(loc.starts_with("https://") || (allow_plain && is_localhost_base(loc))) {
+            if !redirect_location_allowed(loc, allow_plain) {
                 return Err("refusing a non-HTTPS redirect".to_owned());
             }
             url = loc.to_owned();
@@ -700,7 +709,7 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
         return 0;
     }
 
-    let new_bytes = match extract_trimwire(archive) {
+    let new_bytes = match extract_trimwire(archive, &std::env::temp_dir()) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("trimwire upgrade: {e}\n→ nothing was changed (fail-closed).");
@@ -812,9 +821,16 @@ fn create_excl(path: &std::path::Path) -> std::io::Result<std::fs::File> {
 /// The temp archive is written to a unique O_EXCL path and removed on EVERY exit
 /// path (success or any failure — write, fsync, tar, empty).
 #[cfg(target_os = "linux")]
-fn extract_trimwire(archive: &[u8]) -> std::result::Result<Vec<u8>, String> {
+/// `staging_dir` is where the temp `.tar.gz` is written (always
+/// `std::env::temp_dir()` in production); a parameter only so tests can stage
+/// into an isolated dir and assert cleanup without racing other parallel tests
+/// that share the global temp dir.
+fn extract_trimwire(
+    archive: &[u8],
+    staging_dir: &std::path::Path,
+) -> std::result::Result<Vec<u8>, String> {
     use std::io::Write;
-    let tmp = std::env::temp_dir().join(format!("trimwire-update.{}.tar.gz", unique_suffix()));
+    let tmp = staging_dir.join(format!("trimwire-update.{}.tar.gz", unique_suffix()));
     let result = (|| -> std::result::Result<Vec<u8>, String> {
         let mut f = create_excl(&tmp).map_err(|e| format!("create temp archive: {e}"))?;
         f.write_all(archive)
@@ -1003,6 +1019,46 @@ fn rollback(
     )))
 }
 
+#[cfg(test)]
+mod redirect_tests {
+    use super::*;
+
+    /// HTTPS targets are always allowed; localhost HTTP is allowed only under the
+    /// `allow_plain` test seam; any other plaintext target (a downgrade to a
+    /// non-local host) is refused. Platform-independent, so it runs everywhere.
+    #[test]
+    fn redirect_location_allowed_only_https_or_localhost_seam() {
+        // HTTPS: always allowed, regardless of the seam.
+        assert!(redirect_location_allowed(
+            "https://objects.githubusercontent.com/x",
+            false
+        ));
+        assert!(redirect_location_allowed("https://example.com/a", true));
+
+        // Plaintext downgrade to a NON-local host: refused, seam or not — this is
+        // the security property (an attacker-controlled 302 can't strip TLS).
+        assert!(!redirect_location_allowed(
+            "http://evil.example.com/a",
+            false
+        ));
+        assert!(!redirect_location_allowed(
+            "http://evil.example.com/a",
+            true
+        ));
+        // A host that merely starts with a localhost-looking label is NOT local.
+        assert!(!redirect_location_allowed(
+            "http://127.0.0.1.evil.com/a",
+            true
+        ));
+
+        // Plaintext localhost: allowed ONLY with the seam (used by the local
+        // FakeGitHub tests), refused otherwise.
+        assert!(redirect_location_allowed("http://127.0.0.1:8080/a", true));
+        assert!(redirect_location_allowed("http://localhost:8080/a", true));
+        assert!(!redirect_location_allowed("http://127.0.0.1:8080/a", false));
+    }
+}
+
 #[cfg(all(test, target_os = "linux"))]
 mod apply_fs_tests {
     use super::*;
@@ -1104,9 +1160,11 @@ mod apply_fs_tests {
         std::fs::remove_dir_all(&d).ok();
     }
 
-    /// Count our extract temp archives in `temp_dir()` (`trimwire-update.*.tar.gz`).
-    fn count_extract_temps() -> usize {
-        std::fs::read_dir(std::env::temp_dir())
+    /// Count our extract temp archives (`trimwire-update.*.tar.gz`) in `dir`. A
+    /// per-test `dir` (not the shared global temp) keeps the count isolated from
+    /// other parallel tests' in-flight extractions.
+    fn count_extract_temps(dir: &std::path::Path) -> usize {
+        std::fs::read_dir(dir)
             .map(|rd| {
                 rd.flatten()
                     .filter(|e| {
@@ -1123,13 +1181,89 @@ mod apply_fs_tests {
     /// (non-archive input) — no leftover staged file on the failure path.
     #[test]
     fn extract_trimwire_cleans_temp_on_failure() {
-        let before = count_extract_temps();
-        let res = extract_trimwire(b"this is definitely not a gzip tar archive");
+        let d = tmpdir();
+        let res = extract_trimwire(b"this is definitely not a gzip tar archive", &d);
         assert!(res.is_err(), "non-tar input must fail");
         assert_eq!(
-            count_extract_temps(),
-            before,
+            count_extract_temps(&d),
+            0,
             "extract must clean its temp .tar.gz on failure"
         );
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// Build a `.tar.gz` with the same `tar` the extractor uses, archiving the
+    /// single members named in `members` from `dir`.
+    fn make_targz(dir: &std::path::Path, archive: &std::path::Path, members: &[&str]) {
+        let ok = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg(archive)
+            .arg("-C")
+            .arg(dir)
+            .args(members)
+            .status()
+            .expect("run tar -c")
+            .success();
+        assert!(ok, "fixture archive built");
+    }
+
+    /// Happy path: a valid `.tar.gz` containing a `trimwire` member extracts to
+    /// exactly that member's bytes, and the temp `.tar.gz` is cleaned.
+    #[test]
+    fn extract_trimwire_returns_the_member_bytes() {
+        let d = tmpdir();
+        let payload = b"#!/bin/sh\necho trimwire\n";
+        std::fs::write(d.join("trimwire"), payload).unwrap();
+        let archive = d.join("rel.tar.gz");
+        make_targz(&d, &archive, &["trimwire"]);
+        let bytes = std::fs::read(&archive).unwrap();
+
+        let out = extract_trimwire(&bytes, &d).expect("a valid archive extracts");
+        assert_eq!(out, payload, "returns the trimwire member's bytes verbatim");
+        assert_eq!(
+            count_extract_temps(&d),
+            0,
+            "temp must be cleaned on the success path too"
+        );
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// A valid archive that lacks a `trimwire` member fails (tar errors on the
+    /// missing member) — fail-closed, and still cleans its temp.
+    #[test]
+    fn extract_trimwire_fails_when_member_absent() {
+        let d = tmpdir();
+        std::fs::write(d.join("other"), b"x").unwrap();
+        let archive = d.join("rel.tar.gz");
+        make_targz(&d, &archive, &["other"]);
+        let bytes = std::fs::read(&archive).unwrap();
+
+        assert!(
+            extract_trimwire(&bytes, &d).is_err(),
+            "an archive without a `trimwire` member must fail"
+        );
+        assert_eq!(count_extract_temps(&d), 0, "temp cleaned on failure");
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// `restore_backup` errors when the backup file is missing (the input to the
+    /// caller's `RollbackError::NotRestored` guidance) and leaves the current
+    /// binary intact, rather than silently reporting success.
+    #[test]
+    fn restore_backup_errors_when_backup_missing() {
+        let d = tmpdir();
+        let exe = d.join("trimwire");
+        std::fs::write(&exe, b"CUR").unwrap();
+        let missing = d.join("nope.bak");
+        assert!(
+            restore_backup(&missing, &exe).is_err(),
+            "a missing backup must error, not silently succeed"
+        );
+        assert_eq!(
+            std::fs::read(&exe).unwrap(),
+            b"CUR",
+            "the current binary is untouched when restore fails"
+        );
+        std::fs::remove_dir_all(&d).ok();
     }
 }
