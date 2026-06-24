@@ -108,7 +108,13 @@ fn run_wrapped(cmd: &str, stdin: &[u8]) -> Option<String> {
 /// Build the one-line bar from a session's savings.
 fn render(s: &SessionSavings) -> String {
     if s.requests == 0 {
-        // Active but nothing pruned yet this session — show we're live.
+        // "ready" = the statusline is wired and live, with no savings to show
+        // YET this session (no requests recorded). It does NOT assert the gateway
+        // is up: the genuinely dangerous "configured-but-down" case is caught
+        // earlier in `statusline()` by `set_but_down()`, which prints a loud
+        // YELLOW "not responding" warning and returns before reaching here. When
+        // trimwire is NOT the routed upstream, a down gateway isn't our concern,
+        // so "ready" (idle) is the correct, non-alarming state.
         return format!("{DIM}⊡ trimwire · ready{RESET}");
     }
     let saved = s.saved_bytes();

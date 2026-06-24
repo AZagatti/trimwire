@@ -309,7 +309,14 @@ fn build_swept(
     failed: &HashSet<String>,
 ) -> Result<(bool, Vec<u8>, usize, usize, usize)> {
     let ends_with_nl = orig.last() == Some(&b'\n');
-    let mut segments: Vec<&[u8]> = orig.split(|&b| b == b'\n').collect();
+    // An empty file has zero records. `b"".split(b'\n')` yields one empty
+    // segment, which would otherwise be miscounted as a single line — guard it
+    // so a 0-byte session reports `0 line(s)`, not `1`.
+    let mut segments: Vec<&[u8]> = if orig.is_empty() {
+        Vec::new()
+    } else {
+        orig.split(|&b| b == b'\n').collect()
+    };
     // A trailing `\n` yields a final empty segment; drop it so we don't re-add
     // a spurious blank line (and so a no-trailing-newline file stays that way).
     if ends_with_nl {
@@ -620,6 +627,33 @@ fn prune_backups(path: &Path, keep: usize) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn empty_file_reports_zero_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        // A 0-byte session has ZERO records, not one (regression: `b"".split('\n')`
+        // yields a single empty segment that was miscounted as "1 line").
+        let empty = dir.path().join("empty.jsonl");
+        fs::write(&empty, "").unwrap();
+        let rep = dry_run_file(&empty).unwrap();
+        assert_eq!(rep.lines, 0, "0-byte file → 0 lines");
+        assert_eq!(rep.orig_bytes, 0);
+        assert_eq!(rep.thinking_dropped, 0);
+        assert_eq!(rep.inputs_purged, 0);
+
+        // A genuine 2-record file still counts 2 (unchanged behavior).
+        let two = dir.path().join("two.jsonl");
+        fs::write(
+            &two,
+            format!(
+                "{}\n{}\n",
+                rec_assistant("a1", json!([{"type": "text", "text": "x"}])),
+                rec_assistant("a2", json!([{"type": "text", "text": "y"}])),
+            ),
+        )
+        .unwrap();
+        assert_eq!(dry_run_file(&two).unwrap().lines, 2, "2 records → 2 lines");
+    }
 
     #[test]
     fn is_sidechain_transcript_matches_subagents_component_exactly() {

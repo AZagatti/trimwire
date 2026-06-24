@@ -79,7 +79,62 @@ fn api_cost_gate(engine: &str, providers: &[SummarizerProviderConfig], yes: bool
 }
 
 /// `trimwire preview` — estimate pruning savings for a recorded session.
+///
+/// In `--json` mode the error cases (no target, empty/invalid session) are
+/// emitted as a JSON object `{"error": "..."}` on stdout with a non-zero exit,
+/// so a `--json` consumer always gets parseable output rather than a plain-text
+/// anyhow message on stderr.
 pub fn preview(
+    path: Option<PathBuf>,
+    last: bool,
+    profile: Option<String>,
+    include_sidechains: bool,
+    json: bool,
+    with_summarizer: bool,
+    yes: bool,
+) -> Result<()> {
+    if !json {
+        return preview_inner(
+            path,
+            last,
+            profile,
+            include_sidechains,
+            json,
+            with_summarizer,
+            yes,
+        );
+    }
+    match preview_inner(
+        path,
+        last,
+        profile,
+        include_sidechains,
+        json,
+        with_summarizer,
+        yes,
+    ) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // `--json` callers must get a parseable error on stdout, not anyhow's
+            // plain-text stderr blast. `process::exit(1)` is the CLI's established
+            // way to set an exit code without that blast (see `cli::mod::doctor`,
+            // `cli::update`); flush first so the JSON line isn't lost when stdout
+            // is piped (`process::exit` skips destructors). `{e:#}` includes the
+            // anyhow context chain ("preview <path>: …").
+            use std::io::Write;
+            let v = serde_json::json!({ "error": format!("{e:#}") });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&v)
+                    .unwrap_or_else(|_| "{\"error\":\"preview failed\"}".to_owned())
+            );
+            let _ = std::io::stdout().flush();
+            std::process::exit(1);
+        }
+    }
+}
+
+fn preview_inner(
     path: Option<PathBuf>,
     last: bool,
     profile: Option<String>,

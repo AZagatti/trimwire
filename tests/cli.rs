@@ -1287,11 +1287,45 @@ fn preview_json_reconstructs_a_temp_session() {
     );
 }
 
+/// `preview --json` on an empty/invalid session emits a JSON ERROR object on
+/// stdout (not a plain-text anyhow message) and exits non-zero — so a `--json`
+/// consumer always gets parseable output, never a stray non-JSON line.
+#[test]
+fn preview_json_error_is_json() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = dir.path().join("empty.jsonl"); // 0 records → "no user/assistant turns"
+    fs::write(&empty, "").unwrap();
+
+    let out = Command::new(bin())
+        .args(["preview"])
+        .arg(&empty)
+        .arg("--json")
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn preview --json");
+    assert!(
+        !out.status.success(),
+        "preview --json on an empty session must exit non-zero"
+    );
+    // stdout must be a valid JSON object carrying the error (NOT plain text).
+    let v: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("stdout is valid JSON in --json mode");
+    let msg = v["error"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("no user/assistant turns") || msg.contains("preview"),
+        "JSON error carries the reason; got: {v}"
+    );
+}
+
 /// `trimwire dashboard --out <file>` degrades gracefully with no ledger data:
-/// it prints a friendly "nothing to report" and exits 0 without writing the file
-/// (the HTML-write path needs a populated ledger, out of cheap-offline scope).
+/// exits 0 (consistent with `stats`/`recall`) and — crucially — says EXPLICITLY
+/// that no file was written, so a `--out` caller isn't left wondering why the
+/// file never appeared. Covers both no-data branches: ledger disabled, and
+/// ledger enabled but not yet created.
 #[test]
 fn dashboard_degrades_gracefully_without_a_ledger() {
+    // (a) ledger disabled in config.
     let dir = tempfile::tempdir().unwrap();
     let html = dir.path().join("report.html");
     let out = Command::new(bin())
@@ -1304,13 +1338,39 @@ fn dashboard_degrades_gracefully_without_a_ledger() {
         .expect("spawn dashboard --out");
     assert!(out.status.success(), "dashboard exits 0 with no ledger");
     let s = String::from_utf8_lossy(&out.stdout);
+    // `TRIMWIRE_LEDGER__ENABLED=false` forces the *disabled* branch specifically
+    // (not the not-created one) — assert both the branch marker and the no-file note.
     assert!(
-        s.contains("nothing to report") || s.contains("disabled"),
-        "friendly no-data message; got: {s}"
+        s.contains("disabled") && s.contains("no dashboard file written"),
+        "disabled branch must say explicitly that no file was written; got: {s}"
     );
     assert!(
         !html.exists(),
-        "no HTML written when there's nothing to report"
+        "no HTML written when the ledger is disabled"
+    );
+
+    // (b) ledger enabled but never created (fresh HOME, gateway never ran).
+    let dir2 = tempfile::tempdir().unwrap();
+    let html2 = dir2.path().join("report.html");
+    let out2 = Command::new(bin())
+        .args(["dashboard", "--out"])
+        .arg(&html2)
+        .env("HOME", dir2.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn dashboard --out");
+    assert!(
+        out2.status.success(),
+        "dashboard exits 0 when ledger not created"
+    );
+    let s2 = String::from_utf8_lossy(&out2.stdout);
+    assert!(
+        s2.contains("not yet created") && s2.contains("no dashboard file written"),
+        "explicit not-created + no-file message; got: {s2}"
+    );
+    assert!(
+        !html2.exists(),
+        "no HTML written when the ledger isn't created yet"
     );
 }
 
