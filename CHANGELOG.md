@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.16](https://github.com/AZagatti/trimwire/compare/v0.3.15...v0.3.16) - 2026-06-24
+
+### Other
+
+- *(update)* pin gateway port in 2 doctor tests + cover rollback guidance ([#96](https://github.com/AZagatti/trimwire/pull/96))
+- *(update)* cover extract, redirect/HTTPS-downgrade, doctor advisory + harden FakeGitHub ([#95](https://github.com/AZagatti/trimwire/pull/95))
+- run the test suite on macOS/Windows + fix the exposed cross-platform failures ([#94](https://github.com/AZagatti/trimwire/pull/94))
+- *(release)* verify all 5 signed release assets + small updater/doc cleanups ([#92](https://github.com/AZagatti/trimwire/pull/92))
+
 ## [0.3.15](https://github.com/AZagatti/trimwire/compare/v0.3.14...v0.3.15) - 2026-06-24
 
 ### Fixed
