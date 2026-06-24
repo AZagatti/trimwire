@@ -1795,10 +1795,32 @@ impl FakeGitHub {
             while !stop2.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((mut s, _)) => {
-                        let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(50)));
+                        // Read the request until the end of headers (GET requests
+                        // carry no body). A single `read()` is NOT enough: on macOS
+                        // the request line + headers can arrive across multiple TCP
+                        // segments, so a one-shot read would route on a truncated
+                        // (or empty) request and 404 — the source of cross-platform
+                        // flakiness. Accumulate until `\r\n\r\n`, with a generous
+                        // per-read timeout so a slow first segment doesn't truncate.
+                        let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                        let mut data: Vec<u8> = Vec::new();
                         let mut buf = [0u8; 4096];
-                        let n = s.read(&mut buf).unwrap_or(0);
-                        let req = String::from_utf8_lossy(&buf[..n]);
+                        loop {
+                            match s.read(&mut buf) {
+                                Ok(0) => break,
+                                Ok(k) => {
+                                    data.extend_from_slice(&buf[..k]);
+                                    if data.windows(4).any(|w| w == b"\r\n\r\n") {
+                                        break;
+                                    }
+                                    if data.len() > 64 * 1024 {
+                                        break; // guard: never buffer unbounded
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                        let req = String::from_utf8_lossy(&data);
                         let path = req
                             .lines()
                             .next()
