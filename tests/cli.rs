@@ -232,6 +232,10 @@ fn doctor_reports_install_receipt_presence() {
     let dir = tempfile::tempdir().unwrap();
     let absent = Command::new(bin())
         .arg("doctor")
+        // Keep the doctor update-advisory check offline + deterministic: a
+        // localhost base is honored, and port 1 refuses instantly → no real
+        // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
+        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
         .env("XDG_DATA_HOME", dir.path().join("data"))
         .env_remove("XDG_CONFIG_HOME")
@@ -261,6 +265,10 @@ fn doctor_reports_install_receipt_presence() {
     );
     let present = Command::new(bin())
         .arg("doctor")
+        // Keep the doctor update-advisory check offline + deterministic: a
+        // localhost base is honored, and port 1 refuses instantly → no real
+        // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
+        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir2.path())
         .env("XDG_DATA_HOME", &data2)
         .env_remove("XDG_CONFIG_HOME")
@@ -286,6 +294,10 @@ fn doctor_tolerates_corrupt_install_receipt() {
 
     let out = Command::new(bin())
         .arg("doctor")
+        // Keep the doctor update-advisory check offline + deterministic: a
+        // localhost base is honored, and port 1 refuses instantly → no real
+        // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
+        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
         .env("XDG_DATA_HOME", &data)
         .env_remove("XDG_CONFIG_HOME")
@@ -390,6 +402,10 @@ fn doctor_pre_install_exits_zero() {
     let dir = tempfile::tempdir().unwrap();
     let out = Command::new(bin())
         .arg("doctor")
+        // Keep the doctor update-advisory check offline + deterministic: a
+        // localhost base is honored, and port 1 refuses instantly → no real
+        // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
+        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
@@ -420,6 +436,10 @@ fn doctor_reports_build_platform() {
     let dir = tempfile::tempdir().unwrap();
     let out = Command::new(bin())
         .arg("doctor")
+        // Keep the doctor update-advisory check offline + deterministic: a
+        // localhost base is honored, and port 1 refuses instantly → no real
+        // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
+        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
@@ -447,6 +467,8 @@ fn doctor_strict_pre_install_exits_nonzero() {
     let dir = tempfile::tempdir().unwrap();
     let out = Command::new(bin())
         .args(["doctor", "--strict"])
+        // Offline + deterministic update-advisory check (see note above).
+        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
@@ -480,6 +502,10 @@ fn doctor_installed_but_gateway_down_exits_zero_advisory() {
     .unwrap();
     let out = Command::new(bin())
         .arg("doctor")
+        // Keep the doctor update-advisory check offline + deterministic: a
+        // localhost base is honored, and port 1 refuses instantly → no real
+        // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
+        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
@@ -517,6 +543,8 @@ fn doctor_strict_exits_one_on_advisory() {
     .unwrap();
     let out = Command::new(bin())
         .args(["doctor", "--strict"])
+        // Offline + deterministic update-advisory check (see note above).
+        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
@@ -526,6 +554,44 @@ fn doctor_strict_exits_one_on_advisory() {
     assert!(
         !out.status.success(),
         "doctor --strict must exit non-zero on advisory warnings. got: {s}"
+    );
+}
+
+/// `trimwire doctor` surfaces the update-advisory bullet when a newer stable
+/// release exists — wired to a LOCAL fake GitHub (never the real one). This is
+/// the one doctor test that exercises the advisory path on purpose; every other
+/// doctor test forces the check offline (refused localhost) so it stays
+/// deterministic.
+#[test]
+fn doctor_reports_update_available_advisory() {
+    let dir = tempfile::tempdir().unwrap();
+    // The update advisory runs unconditionally (before doctor's install-state
+    // branch); the config just keeps doctor in a realistic "installed" state.
+    let config_dir = dir.path().join(".config");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("trimwire.toml"),
+        "profile = \"default\"\n[server]\nlisten = \"127.0.0.1:8765\"\nupstream = \"https://api.anthropic.com\"\n",
+    )
+    .unwrap();
+    // Fake GitHub advertises a far-newer stable tag → the advisory must appear.
+    let gh = FakeGitHub::start("v999.0.0");
+    let out = Command::new(bin())
+        .arg("doctor")
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .env("TRIMWIRE_UPDATE_API_BASE", gh.base())
+        .output()
+        .expect("spawn doctor");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "doctor stays exit 0 (the update check is advisory only). got: {s}"
+    );
+    assert!(
+        s.contains("999.0.0") && s.contains("available") && s.contains("trimwire upgrade"),
+        "doctor should surface the update-advisory bullet, got: {s}"
     );
 }
 
@@ -2102,7 +2168,7 @@ fn upgrade_refuses_without_pinned_key() {
         .expect("spawn");
     assert_eq!(out.status.code(), Some(2), "no key → refuse");
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("no pinned update-signing key"), "got: {err}");
+    assert!(err.contains("no embedded update-signing key"), "got: {err}");
 }
 
 /// FULL apply path, end to end, with the localhost-only test seam that stops

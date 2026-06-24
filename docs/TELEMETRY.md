@@ -18,7 +18,7 @@
 {
   "schema_version": 1,
   "sent_day": "2026-06-09",
-  "trimwire_version": "0.1",
+  "trimwire_version": "0.3",
   "harness": "claude-code",
   "model_family": "claude-sonnet-4-6",
   "profile": "default",

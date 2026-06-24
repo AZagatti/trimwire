@@ -7,8 +7,8 @@
 //! eligibility predicate, and the artifact-verification gates (SHA-256 checksum
 //! + minisign/Ed25519 signature against a pinned key). Keeping every
 //! trust-critical decision here — pure and unit-tested against real minisign
-//! output — is what the download (`--dry-run`) and apply (`--apply`) paths build
-//! on. See `docs/UPDATE-COMMAND-SPIKE.md`.
+//! output — is what the download (`trimwire upgrade --dry-run`) and apply
+//! (`trimwire upgrade`) paths build on. See `docs/SECURITY-MODEL.md`.
 
 use crate::receipt::{self, InstallReceipt};
 
@@ -183,8 +183,8 @@ pub fn manual_update_guidance() -> String {
 /// The minisign PUBLIC key pinned into this build (the base64 payload — the
 /// SECOND line of a `minisign.pub` file, without the `untrusted comment:` line).
 /// The matching SECRET key lives only with the release owner / in the signing
-/// CI secret (`MINISIGN_SECRET_KEY`); see `docs/UPDATE-COMMAND-SPIKE.md`
-/// ("Release signing — owner setup"). Key id `9DD74C076C33E227`. An empty pin
+/// CI secret (`MINISIGN_SECRET_KEY`); see `docs/SECURITY-MODEL.md` and
+/// `.github/workflows/release.yml`. Key id `9DD74C076C33E227`. An empty pin
 /// would make every verification fail closed ([`VerifyError::NoPinnedKey`]);
 /// `pinned_pubkey_is_valid_minisign_key` guards that a pasted key actually
 /// parses, so a malformed pin can't ship.

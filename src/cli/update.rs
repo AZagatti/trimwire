@@ -15,7 +15,7 @@
 //!     non-interactive use). Linux + managed installs only; refuses otherwise.
 //!
 //! Fail-closed everywhere: nothing is replaced unless the download verified
-//! against the pinned key. See `docs/UPDATE-COMMAND-SPIKE.md`.
+//! against the pinned key. See `docs/SECURITY-MODEL.md`.
 
 use anyhow::Result;
 use std::io::IsTerminal;
@@ -390,8 +390,9 @@ fn run_dry_run() -> i32 {
                 );
                 if ve == upd::VerifyError::NoPinnedKey {
                     eprintln!(
-                        "  (this build has no pinned update-signing key yet — see \
-                         docs/UPDATE-COMMAND-SPIKE.md, \"Release signing — owner setup\".)"
+                        "  (this build has no embedded update-signing key — released \
+                         builds are always signed, so this is a non-standard or \
+                         development build. Update via your install method instead.)"
                     );
                 }
                 1
@@ -626,9 +627,10 @@ fn run_apply(yes: bool) -> i32 {
     // A pinned key is mandatory — no key ⇒ can't verify ⇒ won't apply.
     if pinned_pubkey().is_none() {
         return apply_refuse(
-            "trimwire upgrade: this build has no pinned update-signing key, so a download \
-             can't be verified — refusing to self-update (fail-closed). See \
-             docs/UPDATE-COMMAND-SPIKE.md.",
+            "trimwire upgrade: this build has no embedded update-signing key, so a download \
+             can't be verified — refusing to self-update (fail-closed). Released builds are \
+             always signed; this is a non-standard or development build, so update via your \
+             install method instead.",
         );
     }
 
