@@ -365,6 +365,11 @@ db_path     = "~/.trimwire/ledger.db"
 retain_days = 365
 ```
 
+Note `db_path` defaults to `~/.trimwire/`, **not** an `XDG_DATA_HOME` location —
+so setting `XDG_DATA_HOME` alone does **not** redirect the ledger. To point the
+ledger somewhere else (e.g. to isolate a test run or manual canary from your real
+data), set the env override `TRIMWIRE_LEDGER__DB_PATH=/path/to/ledger.db`.
+
 ## `[share]` — opt-in anonymous telemetry (off by default)
 
 Only used by `trimwire share stats` and `trimwire share benchmark`.

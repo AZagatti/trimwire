@@ -25,8 +25,8 @@ use trimwire::update as upd;
 /// GitHub API base. A test-only override (`TRIMWIRE_UPDATE_API_BASE`) lets the
 /// integration tests point at a local mock — but it is honored ONLY for a
 /// localhost base, so a stray/hostile env var in production can't redirect the
-/// update check to an attacker-controlled server. (Read-only today; this guard
-/// also protects 4b, which will derive the download URL from the same base.)
+/// update check to an attacker-controlled server. (This guard also protects the
+/// apply path, which derives the download URL from the same base.)
 fn api_base() -> String {
     const DEFAULT: &str = "https://api.github.com";
     match std::env::var("TRIMWIRE_UPDATE_API_BASE")
@@ -51,7 +51,7 @@ fn is_localhost_base(url: &str) -> bool {
 ///
 /// Uses `releases/latest`, which GitHub defines as the latest **non-prerelease,
 /// non-draft** release — so the prerelease-suffix tolerance in
-/// [`trimwire::update::parse_version`] doesn't surface a `-rc` tag here. (4b's
+/// [`trimwire::update::parse_version`] doesn't surface a `-rc` tag here. (The
 /// apply gate must still handle prereleases explicitly if that ever changes.)
 fn fetch_latest_tag() -> Option<String> {
     use http_body_util::{BodyExt, Full, Limited};
