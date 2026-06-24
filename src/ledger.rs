@@ -1714,8 +1714,16 @@ mod tests {
 
     #[test]
     fn open_bad_path_degrades() {
-        // A path whose parent cannot be created → degraded, not a panic.
-        let l = Ledger::open("/proc/trimwire-nope/ledger.db", 365);
+        // A path whose parent cannot be created → degraded, not a panic. Use a
+        // regular FILE where a directory component is needed, which fails
+        // identically on every platform. (The previous `/proc/...` path only
+        // fails on Unix — Windows happily creates `C:\proc\...`, so the ledger
+        // opened and the test flaked there.)
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("afile");
+        std::fs::write(&file, b"x").unwrap();
+        let bad = file.join("ledger.db"); // parent `afile` is a file, not a dir
+        let l = Ledger::open(bad.to_str().unwrap(), 365);
         assert!(l.conn.is_none());
     }
 
