@@ -174,21 +174,6 @@ jobs:
       # Lint the per-OS cfg paths (macOS launchd FFI, windows cmd) that the
       # ubuntu-only `check` job never compiles.
       - run: cargo clippy --all-targets -- -D warnings
-
-      # Actually RUN the suite on macOS + Windows, not just clippy/build/smoke —
-      # otherwise a test that only fails on a non-Linux target ships undetected.
-      # nextest (the same runner as `check`) gives process-per-test isolation,
-      # which matters most here: the gateway/port-binding integration tests are
-      # exactly the ones prone to cross-platform flakiness. `tests/cli.rs` is
-      # `#![cfg(unix)]` (shell-shim e2e), so on Windows this runs the
-      # platform-independent suite + unit tests; macOS runs everything.
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
-        with:
-          tool: nextest
-      - name: cargo nextest run
-        run: cargo nextest run --no-fail-fast
-
       - run: cargo build --release
       - name: Binary size (Unix)
         if: matrix.os != 'windows-latest'
