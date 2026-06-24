@@ -277,7 +277,11 @@ jobs:
           for asset in $ASSETS; do
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
               --pattern "$asset" --pattern "$asset.sha256" --clobber
-            sha256sum -c "$asset.sha256"
+            # The Windows `.sha256` is written by PowerShell `Out-File` with CRLF;
+            # GNU sha256sum rejects CRLF ("no properly formatted checksum lines").
+            # Strip CR uniformly (a no-op for the LF Unix files) so every asset's
+            # checksum verifies on this Linux runner.
+            sha256sum -c <(tr -d '\r' < "$asset.sha256")
           done
           # Only the native (linux x86_64) binary can execute on this runner; the
           # others target a different OS/arch, so they're integrity-verified but
