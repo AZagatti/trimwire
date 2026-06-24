@@ -253,12 +253,36 @@ jobs:
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
 
-      - name: Download + smoke-test the published linux asset
+      # The full set of published archives — every asset `build` uploads. ALL of
+      # them are checksum/attestation/minisign-verified below, not just the one
+      # native asset (a partial check would let a tampered mac/win/arm archive
+      # ship green). This list mirrors the `build` matrix; keep the two in sync
+      # when a target is added or removed.
+      - name: Resolve release asset list
         run: |
           set -euo pipefail
+          {
+            echo 'ASSETS<<EOF'
+            echo 'trimwire-x86_64-unknown-linux-gnu.tar.gz'
+            echo 'trimwire-aarch64-unknown-linux-gnu.tar.gz'
+            echo 'trimwire-x86_64-apple-darwin.tar.gz'
+            echo 'trimwire-aarch64-apple-darwin.tar.gz'
+            echo 'trimwire-x86_64-pc-windows-msvc.zip'
+            echo EOF
+          } >> "$GITHUB_ENV"
+
+      - name: Download every asset + verify checksums; smoke-test the linux binary
+        run: |
+          set -euo pipefail
+          for asset in $ASSETS; do
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --pattern "$asset" --pattern "$asset.sha256" --clobber
+            sha256sum -c "$asset.sha256"
+          done
+          # Only the native (linux x86_64) binary can execute on this runner; the
+          # others target a different OS/arch, so they're integrity-verified but
+          # not run. Their executability is exercised by the cross-platform CI job.
           asset="trimwire-x86_64-unknown-linux-gnu.tar.gz"
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --pattern "$asset.sha256"
-          sha256sum -c "$asset.sha256"
           tar -xzf "$asset"
           ver="$(./trimwire --version)"
           echo "published binary reports: $ver"
@@ -267,41 +291,43 @@ jobs:
             *) echo "::error::published binary version '$ver' does not contain tag ${TAG#v}" >&2; exit 1 ;;
           esac
 
-      # Prove the build provenance is actually published + verifiable for the
-      # exact published archive — the public/CI provenance bar any user with `gh`
-      # can run. (The client `trimwire upgrade` verifies the minisign signature
+      # Prove the build provenance is actually published + verifiable for EVERY
+      # published archive — the public/CI provenance bar any user with `gh` can
+      # run. (The client `trimwire upgrade` verifies the minisign signature
       # instead — see the next step.) Independent of the `.sha256` step above.
-      - name: Verify artifact attestation (provenance)
+      - name: Verify artifact attestations (provenance) for every asset
         run: |
           set -euo pipefail
-          asset="trimwire-x86_64-unknown-linux-gnu.tar.gz"
-          # Present from the previous step; re-download if this job is re-run alone.
-          [ -f "$asset" ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset"
-          # Pin the signer to THIS repo's release.yml (not just --repo, which would
-          # accept any workflow in the repo) so the check actually proves "built by
-          # the release workflow", and reject any self-hosted-runner signer (the
-          # build matrix is GitHub-hosted only). --signer-workflow is path-based, so
-          # it's stable across tags.
-          gh attestation verify "$asset" \
-            --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
-            --deny-self-hosted-runners
-          echo "provenance attestation verified for $asset"
+          for asset in $ASSETS; do
+            [ -f "$asset" ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --clobber
+            # Pin the signer to THIS repo's release.yml (not just --repo, which
+            # would accept any workflow in the repo) so the check actually proves
+            # "built by the release workflow", and reject any self-hosted-runner
+            # signer (the build matrix is GitHub-hosted only). --signer-workflow is
+            # path-based, so it's stable across tags.
+            gh attestation verify "$asset" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --deny-self-hosted-runners
+            echo "provenance attestation verified for $asset"
+          done
 
-      # Re-verify the minisign signature against the PINNED public key (the exact
-      # check `trimwire upgrade` runs client-side). This gates the release on a
-      # valid, key-matching signature — so the run cannot go green if `sign`
-      # produced no/bad signatures, and it catches a PINNED_PUBKEY ↔ signing-key
-      # mismatch on the very first signed release.
-      - name: Verify minisign signature against the pinned public key
+      # Re-verify the minisign signature of EVERY archive against the PINNED
+      # public key (the exact check `trimwire upgrade` runs client-side). This
+      # gates the release on valid, key-matching signatures for all platforms —
+      # so the run cannot go green if `sign` produced no/bad signatures for any
+      # asset, and it catches a PINNED_PUBKEY ↔ signing-key mismatch on the very
+      # first signed release.
+      - name: Verify minisign signatures against the pinned public key
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y minisign
-          asset="trimwire-x86_64-unknown-linux-gnu.tar.gz"
-          [ -f "$asset" ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset"
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset.minisig"
           # The pinned public key is the base64 payload line of the committed
           # trimwire.pub (same value as PINNED_PUBKEY in src/update.rs).
           pubkey="$(tail -n1 trimwire.pub)"
-          minisign -Vm "$asset" -P "$pubkey"
-          echo "minisign signature verified against the pinned public key for $asset"
+          for asset in $ASSETS; do
+            [ -f "$asset" ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --clobber
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset.minisig" --clobber
+            minisign -Vm "$asset" -P "$pubkey"
+            echo "minisign signature verified against the pinned public key for $asset"
+          done

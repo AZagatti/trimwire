@@ -57,7 +57,7 @@ fn leading_u32(s: &str) -> Option<u32> {
 
 /// True only when `latest` is STRICTLY greater than `current` — so an equal or
 /// older "latest" (e.g. a downgrade/rollback of the GitHub release) never reports
-/// an update available. The actual apply path (a later phase) must also enforce
+/// an update available. The apply path (`trimwire upgrade`) also enforces
 /// strictly-greater before replacing anything.
 pub fn is_newer(latest: Version, current: Version) -> bool {
     latest > current
@@ -91,8 +91,7 @@ pub fn is_stable_release_tag(s: &str) -> bool {
 
 /// Release asset name for a target triple — `.zip` on Windows, `.tar.gz`
 /// elsewhere. Matches `release.yml`'s packaging + the installer. (Pure helper;
-/// not used by the read-only check, but the apply path will select the asset
-/// with it.)
+/// not used by the read-only check; the apply path selects the asset with it.)
 pub fn asset_name(target: &str) -> String {
     if target.contains("windows") {
         format!("trimwire-{target}.zip")
