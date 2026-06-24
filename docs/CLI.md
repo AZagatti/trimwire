@@ -78,7 +78,7 @@ trimwire doctor --strict     # any warning or failure exits 1 (CI health checks)
 
 ### `trimwire update` / `trimwire upgrade`
 
-Two commands, mirroring `apt update` / `apt upgrade`: **`update`** is the read-only check; **`upgrade`** is the state-changing one. Every path that touches the binary is **fail-closed**: nothing is replaced unless the download's SHA-256 **and** its minisign signature (verified against a key pinned in the binary) both pass. See [UPDATE-COMMAND-SPIKE.md](UPDATE-COMMAND-SPIKE.md).
+Two commands, mirroring `apt update` / `apt upgrade`: **`update`** is the read-only check; **`upgrade`** is the state-changing one. Every path that touches the binary is **fail-closed**: nothing is replaced unless the download's SHA-256 **and** its minisign signature (verified against a key pinned in the binary) both pass. See [SECURITY-MODEL.md](SECURITY-MODEL.md) for how releases are signed and verified.
 
 **`trimwire update`** — read-only check; never downloads artifacts, never changes anything.
 - Managed (`curl | sh`) install: checks the latest GitHub release and reports whether a newer version is available (exit **0**), pointing you at `trimwire upgrade`.
@@ -97,7 +97,7 @@ trimwire upgrade             # verify, then replace + restart (asks first on a T
 trimwire upgrade --yes       # same, non-interactive (no prompt)
 ```
 
-> **Note:** the release signing key is configured and pinned, so `upgrade` works on a managed Linux install once a **signed** release is published. (Releases cut before signing was enabled have no `.minisig`, so `upgrade` fails closed there — update via your install method instead; see the [FAQ](FAQ.md#how-do-i-install-it).)
+> **Note:** releases are signed (each archive ships a `.minisig`), so `upgrade` works on a managed Linux install today. Any older release cut before signing was enabled has no `.minisig`, so `upgrade` fails closed against it — update via your install method instead; see the [FAQ](FAQ.md#how-do-i-install-it).
 
 ---
 

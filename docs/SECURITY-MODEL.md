@@ -100,9 +100,15 @@ independent verification mechanisms, which answer different questions:
   public key is **pinned in the `trimwire` binary**. `trimwire upgrade --dry-run`
   / `trimwire upgrade` verify this signature offline against the pinned key — defending
   against a swapped/forged asset without requiring `gh` or a round-trip to
-  GitHub's attestation store. (Why minisign and not native Sigstore: the
-  `sigstore` crate can't verify GitHub attestations at our MSRV — see
-  [`UPDATE-COMMAND-SPIKE.md`](UPDATE-COMMAND-SPIKE.md), D1.)
+  GitHub's attestation store.
+
+  *Why minisign/Ed25519 and not native Sigstore:* a pinned-key minisign check is a
+  tiny, zero-network, dependency-light verifier the client runs offline. The Rust
+  `sigstore` crate, by contrast, can't yet verify the GitHub artifact attestations
+  this pipeline emits, requires a newer toolchain than our MSRV, and pulls a heavy
+  C-based crypto dependency — so it isn't viable for a credential-path CLI today.
+  The GitHub attestation (below) stays as the public, `gh`-checkable provenance
+  bar; minisign is the client-side gate the updater enforces.
 
 Verify a download's provenance with the GitHub CLI — no key to manage, but it
 requires `gh` ≥ 2.49 and `gh auth login` (verification queries GitHub's
@@ -129,8 +135,7 @@ release event (currently against the Linux x86_64 asset; every platform's
 attestation is independently verifiable with the command above), so a release
 whose provenance can't be verified fails loudly. Separately, `trimwire upgrade`
 (`--dry-run` to verify only) checks the **minisign** signature against the pinned
-key before trusting or installing a download — fail-closed if it can't — see
-[`UPDATE-COMMAND-SPIKE.md`](UPDATE-COMMAND-SPIKE.md).
+key before trusting or installing a download — fail-closed if it can't.
 
 Scope of the guarantee (SLSA build L2): provenance proves an asset was built by
 **this repo's release workflow** at a given commit, and roots in GitHub's signing

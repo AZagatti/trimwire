@@ -26,7 +26,8 @@ pub mod sweep;
 /// Self-update support: version compare, asset selection, install eligibility,
 /// and artifact verification (SHA-256 + pinned-key minisign signature). Pure
 /// decision logic; the impure CLI wrapper (download/verify/apply) lives in
-/// `src/cli/update.rs`. See `docs/UPDATE-COMMAND-SPIKE.md`.
+/// `src/cli/update.rs`. See `docs/SECURITY-MODEL.md` for the signing/verification
+/// model.
 pub mod update;
 
 /// The Rust target triple this binary was built for, e.g.

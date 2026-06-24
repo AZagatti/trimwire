@@ -482,8 +482,7 @@ elvish  — source inline from rc.elv:\n\
     /// Check whether a newer trimwire release is available (read-only). Never
     /// downloads artifacts and never changes anything — use `trimwire upgrade` to
     /// verify or apply an update. For a curl|sh install it reports the available
-    /// version; for cargo/manual installs it prints the right update command. See
-    /// docs/UPDATE-COMMAND-SPIKE.md.
+    /// version; for cargo/manual installs it prints the right update command.
     #[command(display_order = 18)]
     Update {
         /// Deprecated: verification moved to `trimwire upgrade --dry-run`.
@@ -502,7 +501,7 @@ elvish  — source inline from rc.elv:\n\
     /// `--dry-run` downloads + verifies the latest release (SHA-256 + minisign
     /// signature against the pinned key) WITHOUT changing anything; `--yes`
     /// applies non-interactively. Always fail-closed: nothing is replaced unless
-    /// the download verifies. See docs/UPDATE-COMMAND-SPIKE.md.
+    /// the download verifies.
     #[command(display_order = 19)]
     Upgrade {
         /// Verify the latest release (checksum + signature) without replacing

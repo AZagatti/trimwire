@@ -15,8 +15,15 @@ shows it earns its complexity.
 - `trimwire sweep` for on-disk transcript maintenance
 - `trimwire preview` / `trimwire recall` / `trimwire dashboard`
 - Socket-activated always-up service (systemd / launchd)
+- Signed self-update for managed Linux installs (`trimwire update` checks; `trimwire upgrade` verifies a minisign-signed release, then atomically replaces the binary and restarts, rolling back on a failed health check)
 
 ## Possible (evidence-gated, not committed)
+
+- **Self-update beyond managed Linux.** Today `trimwire upgrade` is Linux-only; macOS
+  and Windows refuse and print the per-method update path. A Windows self-replace
+  (the running binary can't be overwritten in place) and a macOS path (whether a
+  curl-installed CLI binary needs notarization / is subject to Gatekeeper when the
+  service restarts it) are both unresolved and would each need their own spike.
 
 - **Richer deterministic elision markers.** Today a stub records the size elided.
   A deterministic extractive marker (keeping first/last lines, or `error|warn|fail`

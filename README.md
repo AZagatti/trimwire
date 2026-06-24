@@ -209,6 +209,8 @@ verified model ranking.
 | `trimwire install [--boot]` | Config + shell-rc `ANTHROPIC_BASE_URL` export + the always-up service (systemd user / launchd, login-scoped; `--boot` starts it pre-login). Idempotent; does **not** touch your statusline. |
 | `trimwire on` / `off` / `status` | Start / stop / health-check the service. |
 | `trimwire doctor` | One-shot setup diagnosis: config + active profile, gateway health, `ANTHROPIC_BASE_URL` wiring, ledger. **Exits non-zero** if a hard check fails, so `trimwire doctor && claude` and CI healthchecks work. |
+| `trimwire update` | Read-only check for a newer release (never downloads or changes anything). On a managed install it reports the available version and points you at `trimwire upgrade`; on cargo/manual installs it prints the right update command. |
+| `trimwire upgrade [--dry-run] [--yes]` | Self-update on **managed Linux installs**: verify a signed release (SHA-256 + minisign signature against the pinned key), then atomically replace the binary and restart, rolling back on a failed health check. `--dry-run` verifies without changing anything; `--yes` applies non-interactively. Fail-closed; refuses (exit 2) on macOS/Windows and non-managed installs. |
 | `trimwire completions <shell>` | Print a shell completion script to stdout (`bash`/`zsh`/`fish`/`elvish`/`powershell`). |
 | `trimwire man [--out DIR]` | Generate man pages: to stdout (`trimwire man \| man -l -`), or one page per command into `DIR` (for packagers). |
 | `trimwire run [claude args…]` | Start the gateway in the background and launch `claude` through it (no install needed). |
