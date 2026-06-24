@@ -410,6 +410,13 @@ fn resolve_eligibility()
     let exe_str = exe.display().to_string();
     let mut receipt = trimwire::receipt::load();
     if let Some(r) = receipt.as_mut() {
+        // Compatibility self-heal: a receipt written by the pre-fix v0.3.13
+        // updater carries a "<path> (deleted)" binary_path (it refreshed from the
+        // replaced process). Repair it in place — but ONLY when the stripped path
+        // resolves to THIS running binary — before eligibility, so a user
+        // upgrading 0.3.13 → 0.3.14 isn't stuck on PathMismatch. No-op for any
+        // other receipt. Runs for `update` and `upgrade` (both hit this path).
+        trimwire::receipt::heal_legacy_deleted_receipt(r, &exe_str);
         if let Ok(canon) = std::fs::canonicalize(&r.binary_path) {
             r.binary_path = canon.display().to_string();
         }

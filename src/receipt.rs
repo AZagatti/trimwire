@@ -182,6 +182,84 @@ fn receipt_after_apply(
     }
 }
 
+/// The exact suffix the Linux kernel appends to `/proc/self/exe` when the
+/// running executable's on-disk path has been replaced (renamed over). The
+/// pre-fix `trimwire upgrade` (≤ v0.3.13) wrote this into the receipt's
+/// `binary_path` because it refreshed from the replaced process — see
+/// [`refresh_after_apply`].
+const DELETED_SUFFIX: &str = " (deleted)";
+
+/// Compatibility self-heal for a legacy poisoned receipt written by the v0.3.13
+/// updater bug. If `receipt` is a managed (`script`) receipt whose `binary_path`
+/// ends in the kernel's `" (deleted)"` marker, AND the stripped path
+/// canonicalizes to the SAME inode as `current_exe_canon` (the running binary),
+/// rewrite it in place to the canonical current path + current running version
+/// (`method`/`target` preserved) and persist it best-effort. Returns `true` when
+/// it repaired.
+///
+/// Deliberately narrow — it is a one-time migration, NOT a general "accept a
+/// mismatched path" feature:
+/// - only `script` receipts (never `unknown`/manual installs);
+/// - only the exact `" (deleted)"` suffix (no other mismatch);
+/// - only when the stripped path *resolves to the running binary* (so we never
+///   adopt some unrelated path).
+///
+/// Anything else is left untouched and normal eligibility still refuses.
+pub fn heal_legacy_deleted_receipt(receipt: &mut InstallReceipt, current_exe_canon: &str) -> bool {
+    match planned_legacy_repair(
+        receipt,
+        current_exe_canon,
+        env!("CARGO_PKG_VERSION"),
+        now_secs(),
+    ) {
+        Some(fixed) => {
+            *receipt = fixed;
+            // Best-effort persist so the next run doesn't have to re-heal; even
+            // if the write fails, THIS run already has the repaired in-memory
+            // receipt and proceeds normally.
+            let _ = write(receipt);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Pure decision for [`heal_legacy_deleted_receipt`]: returns the repaired
+/// receipt iff `receipt` is a `script` receipt with a `" (deleted)"`-suffixed
+/// `binary_path` whose stripped form canonicalizes to `current_exe_canon`. The
+/// only I/O is the `canonicalize` needed to confirm the stripped path IS the
+/// running binary (identity check); it never writes. Returns `None` (no repair)
+/// for unknown/manual installs, a non-suffixed path, an unresolvable stripped
+/// path, or a stripped path that resolves to something other than the running
+/// binary.
+fn planned_legacy_repair(
+    receipt: &InstallReceipt,
+    current_exe_canon: &str,
+    version: &str,
+    now: i64,
+) -> Option<InstallReceipt> {
+    // Rule 4: never repair a non-managed install.
+    if receipt.method != METHOD_SCRIPT {
+        return None;
+    }
+    // Rule 1/3: only the exact "(deleted)" suffix — not arbitrary mismatches.
+    let stripped = receipt.binary_path.strip_suffix(DELETED_SUFFIX)?;
+    // Rule 2: the stripped path must canonicalize AND match the running binary,
+    // else we do NOT repair (keep refusing).
+    let canon = std::fs::canonicalize(stripped).ok()?;
+    if canon.to_string_lossy() != current_exe_canon {
+        return None;
+    }
+    Some(InstallReceipt {
+        schema_version: SCHEMA_VERSION,
+        method: receipt.method.clone(), // preserved (script)
+        binary_path: current_exe_canon.to_owned(),
+        version: version.to_owned(),    // current running version
+        target: receipt.target.clone(), // unchanged (a target mismatch is handled by eligibility)
+        installed_at: now,
+    })
+}
+
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -271,6 +349,110 @@ mod tests {
         assert_eq!(r.method, METHOD_UNKNOWN);
         assert_eq!(r.binary_path, "/opt/trimwire");
         assert_eq!(r.version, "1.0.0");
+    }
+
+    // ── legacy "(deleted)" receipt self-heal (v0.3.13 → v0.3.14 migration) ──────
+
+    /// A real on-disk file whose canonical path we can match against. Returns
+    /// (tempdir, canonical_path_string). Keep the dir alive for the test.
+    fn real_binary() -> (tempfile::TempDir, String) {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("trimwire");
+        std::fs::write(&p, b"#!/bin/true\n").unwrap();
+        let canon = std::fs::canonicalize(&p)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        (d, canon)
+    }
+
+    fn script_receipt(binary_path: &str) -> InstallReceipt {
+        InstallReceipt {
+            schema_version: SCHEMA_VERSION,
+            method: METHOD_SCRIPT.to_owned(),
+            binary_path: binary_path.to_owned(),
+            version: "0.3.13".to_owned(),
+            target: "x86_64-unknown-linux-gnu".to_owned(),
+            installed_at: 1_750_000_000,
+        }
+    }
+
+    /// (1) A poisoned `script` receipt (`<canon> (deleted)`) repairs to the
+    /// canonical current path + current running version, method preserved.
+    #[test]
+    fn planned_repair_heals_deleted_script_receipt() {
+        let (_d, canon) = real_binary();
+        let poisoned = script_receipt(&format!("{canon} (deleted)"));
+        let fixed = planned_legacy_repair(&poisoned, &canon, "0.3.14", 99)
+            .expect("a (deleted) script receipt matching the running exe must repair");
+        assert_eq!(fixed.binary_path, canon, "repaired to the canonical path");
+        assert!(!fixed.binary_path.ends_with(" (deleted)"));
+        assert_eq!(
+            fixed.version, "0.3.14",
+            "version set to the running version"
+        );
+        assert_eq!(fixed.method, METHOD_SCRIPT, "method preserved");
+        assert_eq!(fixed.target, "x86_64-unknown-linux-gnu", "target preserved");
+        assert_eq!(fixed.installed_at, 99);
+    }
+
+    /// (2) After repair, eligibility is Eligible (not PathMismatch).
+    #[test]
+    fn healed_receipt_is_eligible() {
+        let (_d, canon) = real_binary();
+        let poisoned = script_receipt(&format!("{canon} (deleted)"));
+        let fixed = planned_legacy_repair(&poisoned, &canon, "0.3.14", 1).unwrap();
+        assert_eq!(
+            crate::update::eligibility(Some(&fixed), &canon, "x86_64-unknown-linux-gnu", true),
+            crate::update::Eligibility::Eligible,
+            "a healed receipt must let the next upgrade proceed"
+        );
+    }
+
+    /// (3) A poisoned path whose stripped form does NOT match the running exe is
+    /// NOT repaired (we never adopt an unrelated path) — and an unresolvable
+    /// stripped path is likewise refused.
+    #[test]
+    fn planned_repair_refuses_non_matching_or_unresolvable() {
+        let (_d, canon) = real_binary();
+        // Stripped path resolves, but to a DIFFERENT binary than the running one.
+        let other = script_receipt(&format!("{canon} (deleted)"));
+        let different_exe = format!("{canon}-not-me");
+        assert!(
+            planned_legacy_repair(&other, &different_exe, "0.3.14", 1).is_none(),
+            "must not repair when the stripped path isn't the running binary"
+        );
+        // Stripped path doesn't exist at all → cannot confirm identity → refuse.
+        let ghost = script_receipt("/nope/does/not/exist/trimwire (deleted)");
+        assert!(
+            planned_legacy_repair(&ghost, &canon, "0.3.14", 1).is_none(),
+            "must not repair an unresolvable stripped path"
+        );
+    }
+
+    /// (4) An unknown/manual receipt is never silently repaired, even with the
+    /// "(deleted)" suffix and a matching stripped path.
+    #[test]
+    fn planned_repair_never_touches_unknown_install() {
+        let (_d, canon) = real_binary();
+        let mut manual = script_receipt(&format!("{canon} (deleted)"));
+        manual.method = METHOD_UNKNOWN.to_owned();
+        assert!(
+            planned_legacy_repair(&manual, &canon, "0.3.14", 1).is_none(),
+            "unknown/manual installs are not self-updatable and must not be healed"
+        );
+    }
+
+    /// (5) A normal clean receipt is untouched (no suffix → no repair); existing
+    /// behavior is unchanged.
+    #[test]
+    fn planned_repair_leaves_clean_receipt_alone() {
+        let (_d, canon) = real_binary();
+        let clean = script_receipt(&canon);
+        assert!(
+            planned_legacy_repair(&clean, &canon, "0.3.14", 1).is_none(),
+            "a clean receipt has nothing to heal"
+        );
     }
 
     #[test]
