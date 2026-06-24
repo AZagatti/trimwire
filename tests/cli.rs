@@ -407,6 +407,13 @@ fn doctor_pre_install_exits_zero() {
         // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
         .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
+        // Pin the gateway probe to a free (closed) port so "gateway down" is
+        // deterministic under parallel test runs — the default :8765 can be
+        // transiently bound by another test.
+        .env(
+            "TRIMWIRE_SERVER__LISTEN",
+            format!("127.0.0.1:{}", free_port()),
+        )
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
         .output()
@@ -470,6 +477,13 @@ fn doctor_strict_pre_install_exits_nonzero() {
         // Offline + deterministic update-advisory check (see note above).
         .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
+        // Pin the gateway probe to a free (closed) port so "gateway down" is
+        // deterministic under parallel test runs — the default :8765 can be
+        // transiently bound by another test.
+        .env(
+            "TRIMWIRE_SERVER__LISTEN",
+            format!("127.0.0.1:{}", free_port()),
+        )
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
         .output()
@@ -507,6 +521,13 @@ fn doctor_installed_but_gateway_down_exits_zero_advisory() {
         // GitHub call, no 6s timeout. (Override is ignored for non-localhost.)
         .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
+        // Override the config's listen to a free (closed) port so the gateway
+        // probe deterministically sees "down" under parallel test runs, even if
+        // another test transiently binds the config's :8765.
+        .env(
+            "TRIMWIRE_SERVER__LISTEN",
+            format!("127.0.0.1:{}", free_port()),
+        )
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
         .output()
@@ -546,6 +567,13 @@ fn doctor_strict_exits_one_on_advisory() {
         // Offline + deterministic update-advisory check (see note above).
         .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
         .env("HOME", dir.path())
+        // Override the config's listen to a free (closed) port so the gateway
+        // probe deterministically sees "down" under parallel test runs, even if
+        // another test transiently binds the config's :8765.
+        .env(
+            "TRIMWIRE_SERVER__LISTEN",
+            format!("127.0.0.1:{}", free_port()),
+        )
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("ANTHROPIC_BASE_URL")
         .output()
@@ -2153,6 +2181,10 @@ fn upgrade_dry_run_network_failure_fails_closed() {
 // ---- `trimwire upgrade` (4c: apply, draft) --------------------------------
 
 /// No receipt → upgrade refuses (exit 2) before any download, nothing changed.
+// Linux-only: the apply path (`run_apply`) is `#[cfg(target_os = "linux")]`; on
+// other platforms `upgrade` refuses with an OS-unsupported message before these
+// receipt/key/version checks, so the asserted Linux-path messages don't apply.
+#[cfg(target_os = "linux")]
 #[test]
 fn upgrade_refuses_without_receipt() {
     let dir = tempfile::tempdir().unwrap();
@@ -2173,6 +2205,7 @@ fn upgrade_refuses_without_receipt() {
 
 /// Eligible install but a non-interactive shell with bare `upgrade` (no `--yes`)
 /// → refuse (exit 2) rather than apply unattended. (stdin is nulled, not a TTY.)
+#[cfg(target_os = "linux")] // apply path is Linux-only (see note above)
 #[test]
 fn upgrade_non_interactive_requires_yes() {
     let dir = tempfile::tempdir().unwrap();
@@ -2198,6 +2231,7 @@ fn upgrade_non_interactive_requires_yes() {
 
 /// Eligible + `--yes`, but the latest release is NOT newer → no-op (exit 0),
 /// nothing applied. Proves `upgrade --yes` never blindly reinstalls/downgrades.
+#[cfg(target_os = "linux")] // apply path is Linux-only (see note above)
 #[test]
 fn upgrade_yes_is_noop_when_current() {
     let dir = tempfile::tempdir().unwrap();
@@ -2214,6 +2248,7 @@ fn upgrade_yes_is_noop_when_current() {
 
 /// Eligible + `--yes` but no pinned key → refuse (exit 2): can't verify, won't
 /// apply (fail closed), even though a newer version exists.
+#[cfg(target_os = "linux")] // apply path is Linux-only (see note above)
 #[test]
 fn upgrade_refuses_without_pinned_key() {
     let dir = tempfile::tempdir().unwrap();
@@ -2446,8 +2481,14 @@ fn upgrade_dry_run_verifies_under_default_cap() {
         .env("TRIMWIRE_UPDATE_PUBKEY", &fx.pubkey)
         .output()
         .expect("spawn");
-    assert_eq!(out.status.code(), Some(0), "verified under default cap");
-    assert!(String::from_utf8_lossy(&out.stdout).contains("verified"));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "verified under default cap. stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(stdout.contains("verified"), "stdout: {stdout}");
 }
 
 // ---- strict self-update tag validation ----
