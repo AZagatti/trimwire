@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.15](https://github.com/AZagatti/trimwire/compare/v0.3.14...v0.3.15) - 2026-06-24
+
+### Fixed
+
+- *(cli)* polish 6 minor findings from the acceptance sweep ([#91](https://github.com/AZagatti/trimwire/pull/91))
+
+### Other
+
+- remove obsolete update spike ([#89](https://github.com/AZagatti/trimwire/pull/89))
+
 ## [0.3.14](https://github.com/AZagatti/trimwire/compare/v0.3.13...v0.3.14) - 2026-06-24
 
 ### Fixed
