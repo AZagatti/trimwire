@@ -1819,6 +1819,57 @@ fn update_reports_current_when_not_newer() {
     assert!(s.contains("already up to date"), "got: {s}");
 }
 
+/// MIGRATION: a legacy poisoned receipt (v0.3.13 wrote `binary_path` ending in
+/// " (deleted)") must self-heal — `trimwire update` repairs it in place and
+/// proceeds, instead of refusing with PathMismatch (exit 2). End-to-end proof of
+/// the `resolve_eligibility` wiring (the unit tests cover the pure decision).
+#[test]
+fn update_heals_legacy_deleted_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let rcpt_dir = data.join("trimwire");
+    fs::create_dir_all(&rcpt_dir).unwrap();
+    let exe = fs::canonicalize(bin()).unwrap();
+    let receipt_file = rcpt_dir.join("install-receipt.json");
+    // Exactly what the pre-fix updater serialized: a "(deleted)"-suffixed path.
+    fs::write(
+        &receipt_file,
+        format!(
+            "{{\"schema_version\":1,\"method\":\"script\",\"binary_path\":\"{} (deleted)\",\"version\":\"0.3.13\",\"target\":\"{}\",\"installed_at\":0}}",
+            exe.display(),
+            env!("TRIMWIRE_TARGET")
+        ),
+    )
+    .unwrap();
+
+    // Older release → "already up to date" iff eligibility PASSED (i.e. it
+    // healed). A non-healed poisoned receipt would refuse with exit 2 instead.
+    let gh = FakeGitHub::start("v0.0.1");
+    let out = run_update(dir.path(), &data, &gh.base());
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "healed receipt proceeds (not a PathMismatch refusal); stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("already up to date"),
+        "got: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    // The on-disk receipt was repaired: canonical path, no " (deleted)" suffix.
+    let healed = fs::read_to_string(&receipt_file).unwrap();
+    assert!(
+        !healed.contains(" (deleted)"),
+        "receipt still poisoned after heal: {healed}"
+    );
+    assert!(
+        healed.contains(&format!("\"binary_path\": \"{}\"", exe.display())),
+        "receipt should record the canonical path: {healed}"
+    );
+}
+
 /// Eligible install but the check can't reach GitHub → exit 0, clear message,
 /// no partial-update state.
 #[test]
