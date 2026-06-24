@@ -131,6 +131,8 @@ trimwire stats --json | jq .reduction_pct   # scripting
 
 List recent sessions (content-free metadata: id, model, start time, request count) so you can find a session id to pass to `stats --session`.
 
+> **Source:** `recall` reads trimwire's **ledger** — sessions that actually ran *through the gateway* (so it's empty until you've used trimwire with `claude`). It does **not** read your on-disk `~/.claude/projects/**.jsonl` transcripts; inspecting or cleaning those is what [`preview`](#trimwire-preview) and [`sweep`](#trimwire-sweep) do.
+
 | Flag | Description |
 |---|---|
 | `[QUERY]` | Filter: keep sessions whose id or model contains this substring (positional, optional) |

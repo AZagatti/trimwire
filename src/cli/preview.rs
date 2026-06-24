@@ -79,7 +79,55 @@ fn api_cost_gate(engine: &str, providers: &[SummarizerProviderConfig], yes: bool
 }
 
 /// `trimwire preview` — estimate pruning savings for a recorded session.
+///
+/// In `--json` mode the error cases (no target, empty/invalid session) are
+/// emitted as a JSON object `{"error": "..."}` on stdout with a non-zero exit,
+/// so a `--json` consumer always gets parseable output rather than a plain-text
+/// anyhow message on stderr.
 pub fn preview(
+    path: Option<PathBuf>,
+    last: bool,
+    profile: Option<String>,
+    include_sidechains: bool,
+    json: bool,
+    with_summarizer: bool,
+    yes: bool,
+) -> Result<()> {
+    if !json {
+        return preview_inner(
+            path,
+            last,
+            profile,
+            include_sidechains,
+            json,
+            with_summarizer,
+            yes,
+        );
+    }
+    match preview_inner(
+        path,
+        last,
+        profile,
+        include_sidechains,
+        json,
+        with_summarizer,
+        yes,
+    ) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // `{e:#}` includes the anyhow context chain ("preview <path>: …").
+            let v = serde_json::json!({ "error": format!("{e:#}") });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&v)
+                    .unwrap_or_else(|_| "{\"error\":\"preview failed\"}".to_owned())
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+fn preview_inner(
     path: Option<PathBuf>,
     last: bool,
     profile: Option<String>,

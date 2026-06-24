@@ -275,10 +275,14 @@ pub fn uninstall() -> Result<()> {
         }
         let _ = run("systemctl", &["--user", "daemon-reload"]);
         // Turn off lingering only if we likely enabled it (harmless if not).
+        // Use `.output()` (not `.status()`) so loginctl's own stderr — e.g.
+        // "Could not disable linger: Access denied" when it was never enabled
+        // or polkit denies it — is captured, not leaked to the user's terminal
+        // during an otherwise-clean uninstall. Best-effort: the result is ignored.
         if let Ok(user) = std::env::var("USER") {
             let _ = Command::new("loginctl")
                 .args(["disable-linger", &user])
-                .status();
+                .output();
         }
         if let Ok(p) = env_d_path() {
             let _ = std::fs::remove_file(p);
@@ -304,7 +308,7 @@ pub fn uninstall() -> Result<()> {
         }
     }
     // supervisor
-    let _ = supervisor_stop();
+    let _ = supervisor_stop(true); // quiet: best-effort cleanup, not a status report
     Ok(())
 }
 
@@ -465,7 +469,7 @@ pub fn off() -> Result<()> {
             let _ = run("launchctl", &["unsetenv", "ANTHROPIC_BASE_URL"]);
             stopped
         }
-        Manager::Supervisor => supervisor_stop(),
+        Manager::Supervisor => supervisor_stop(false),
     }
 }
 
@@ -525,10 +529,16 @@ fn supervisor_start() -> Result<()> {
     Ok(())
 }
 
-fn supervisor_stop() -> Result<()> {
+/// Stop the supervisor daemon. `quiet` suppresses the "not running" notices —
+/// `off` wants them (the user asked to stop something), but `uninstall` calls
+/// this as best-effort cleanup of a possible stray pidfile on systemd/launchd
+/// systems too, where "not running (no pidfile)" is just confusing noise.
+fn supervisor_stop(quiet: bool) -> Result<()> {
     let pidfile = supervisor_pidfile()?;
     let Ok(pid) = std::fs::read_to_string(&pidfile) else {
-        println!("not running (no pidfile)");
+        if !quiet {
+            println!("not running (no pidfile)");
+        }
         return Ok(());
     };
     if let Ok(pid) = pid.trim().parse::<i32>() {
@@ -536,7 +546,7 @@ fn supervisor_stop() -> Result<()> {
         // recycled by the kernel to an unrelated process; don't kill that.
         if proc_alive(pid) {
             let _ = run("kill", &[&pid.to_string()]);
-        } else {
+        } else if !quiet {
             println!("not running (stale pidfile)");
         }
     }

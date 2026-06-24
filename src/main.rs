@@ -295,7 +295,10 @@ enum Cmd {
         until: Option<String>,
     },
 
-    /// List recent sessions (content-free metadata) to find one for `stats --session`.
+    /// List recent sessions trimwire has recorded in its ledger (content-free
+    /// metadata) to find one for `stats --session`. Reads the LEDGER (sessions
+    /// that actually ran through the gateway), not your on-disk transcript files —
+    /// inspecting/cleaning those is `preview` / `sweep`.
     #[command(display_order = 21)]
     Recall {
         /// Optional filter: keep sessions whose id or model contains this substring.

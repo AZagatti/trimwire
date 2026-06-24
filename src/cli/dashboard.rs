@@ -17,12 +17,20 @@ const TEMPLATE: &str = include_str!("dashboard_template.html");
 
 pub fn dashboard(out: Option<PathBuf>) -> Result<()> {
     let config = Config::load().context("load config")?;
+    // No ledger data yet → nothing to render, so no HTML file is written. Say so
+    // explicitly: a bare exit 0 left a `--out` caller wondering why the file never
+    // appeared. Exit 0 stays consistent with `stats`/`recall`, which also treat
+    // "no data yet" as a non-error.
     if !config.ledger.enabled {
-        println!("ledger is disabled in config ([ledger] enabled = false); nothing to report.");
+        println!(
+            "ledger is disabled in config ([ledger] enabled = false); no dashboard file written."
+        );
         return Ok(());
     }
     if !ledger::resolve_path(&config.ledger.db_path).exists() {
-        println!("ledger not yet created — run `trimwire on`/`trimwire run` first.");
+        println!(
+            "ledger not yet created — run `trimwire on`/`trimwire run` first; no dashboard file written."
+        );
         return Ok(());
     }
 
