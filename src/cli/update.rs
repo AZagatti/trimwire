@@ -820,11 +820,12 @@ fn create_excl(path: &std::path::Path) -> std::io::Result<std::fs::File> {
 /// Extract the single `trimwire` member from a `.tar.gz` to memory via `tar`.
 /// The temp archive is written to a unique O_EXCL path and removed on EVERY exit
 /// path (success or any failure — write, fsync, tar, empty).
-#[cfg(target_os = "linux")]
+///
 /// `staging_dir` is where the temp `.tar.gz` is written (always
 /// `std::env::temp_dir()` in production); a parameter only so tests can stage
 /// into an isolated dir and assert cleanup without racing other parallel tests
 /// that share the global temp dir.
+#[cfg(target_os = "linux")]
 fn extract_trimwire(
     archive: &[u8],
     staging_dir: &std::path::Path,
