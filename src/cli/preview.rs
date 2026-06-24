@@ -115,13 +115,20 @@ pub fn preview(
     ) {
         Ok(()) => Ok(()),
         Err(e) => {
-            // `{e:#}` includes the anyhow context chain ("preview <path>: …").
+            // `--json` callers must get a parseable error on stdout, not anyhow's
+            // plain-text stderr blast. `process::exit(1)` is the CLI's established
+            // way to set an exit code without that blast (see `cli::mod::doctor`,
+            // `cli::update`); flush first so the JSON line isn't lost when stdout
+            // is piped (`process::exit` skips destructors). `{e:#}` includes the
+            // anyhow context chain ("preview <path>: …").
+            use std::io::Write;
             let v = serde_json::json!({ "error": format!("{e:#}") });
             println!(
                 "{}",
                 serde_json::to_string_pretty(&v)
                     .unwrap_or_else(|_| "{\"error\":\"preview failed\"}".to_owned())
             );
+            let _ = std::io::stdout().flush();
             std::process::exit(1);
         }
     }
