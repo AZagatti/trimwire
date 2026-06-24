@@ -623,6 +623,50 @@ fn doctor_reports_update_available_advisory() {
     );
 }
 
+/// Inverse of the advisory test: when the latest stable release is NOT newer than
+/// the running version, doctor surfaces NO update bullet (don't nag users to
+/// "upgrade" to an older/equal release). Wired to a LOCAL fake GitHub.
+#[test]
+fn doctor_no_advisory_when_not_newer() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = FakeGitHub::start("v0.0.1"); // older than this build
+    let out = Command::new(bin())
+        .arg("doctor")
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .env("TRIMWIRE_UPDATE_API_BASE", gh.base())
+        .output()
+        .expect("spawn doctor");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !s.contains("available (you have"),
+        "no update-advisory bullet when the latest release is not newer, got: {s}"
+    );
+}
+
+/// A non-stable latest tag (prerelease) must NOT raise the advisory either —
+/// `newer_available` gates on `is_stable_release_tag`, so a stray `-rc` tag is
+/// never surfaced as "available". Wired to a LOCAL fake GitHub.
+#[test]
+fn doctor_no_advisory_for_non_stable_latest_tag() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = FakeGitHub::start("v999.0.0-rc.1"); // newer number, but not stable
+    let out = Command::new(bin())
+        .arg("doctor")
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .env("TRIMWIRE_UPDATE_API_BASE", gh.base())
+        .output()
+        .expect("spawn doctor");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !s.contains("available (you have"),
+        "a non-stable (prerelease) latest tag must not raise the advisory, got: {s}"
+    );
+}
+
 /// `summarizer setup` with stdin closed (EOF) must cancel cleanly — never spin
 /// forever re-prompting on an empty answer — and write no config.
 #[test]
@@ -1751,10 +1795,32 @@ impl FakeGitHub {
             while !stop2.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((mut s, _)) => {
-                        let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(50)));
+                        // Read the request until the end of headers (GET requests
+                        // carry no body). A single `read()` is NOT enough: on macOS
+                        // the request line + headers can arrive across multiple TCP
+                        // segments, so a one-shot read would route on a truncated
+                        // (or empty) request and 404 — the source of cross-platform
+                        // flakiness. Accumulate until `\r\n\r\n`, with a generous
+                        // per-read timeout so a slow first segment doesn't truncate.
+                        let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                        let mut data: Vec<u8> = Vec::new();
                         let mut buf = [0u8; 4096];
-                        let n = s.read(&mut buf).unwrap_or(0);
-                        let req = String::from_utf8_lossy(&buf[..n]);
+                        loop {
+                            match s.read(&mut buf) {
+                                Ok(0) => break,
+                                Ok(k) => {
+                                    data.extend_from_slice(&buf[..k]);
+                                    if data.windows(4).any(|w| w == b"\r\n\r\n") {
+                                        break;
+                                    }
+                                    if data.len() > 64 * 1024 {
+                                        break; // guard: never buffer unbounded
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                        let req = String::from_utf8_lossy(&data);
                         let path = req
                             .lines()
                             .next()
