@@ -269,7 +269,7 @@ X%". Offline replay through the real strategy code (`default` profile) spans the
 full range (values below are observed in this benchmark suite, rounded — exact
 per-corpus figures in [`RESULTS.md`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md)):
 
-| Session shape | Request size | Reduction |
+| Session shape | Request size | Reduction (model-free `default`) |
 |---|--:|--:|
 | Plain chat, no tools | 9.5 KB | **0%** (no-op) |
 | Repeated searches | 29.8 KB | **78%** |
@@ -288,8 +288,9 @@ output is plausible, not proven.)
 
 **Cost is a side effect, and non-monotonic.** Cache hits bill at ~0.1×, so
 pruning *old* content can bust the cache: short sessions are a wash-to-loss, long
-ones win (about **−55%** at 256 turns in our cost-model benchmark; exact figure in
+ones win (model-free `default`: about **−55%** at 256 turns in our cost-model benchmark; exact figure in
 [RESULTS §6b](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md)).
+The optional summarizer is a separate mode (off by default) with its own cost profile.
 Overhead is roughly **sub-2 ms** per request (host-dependent), off the network path.
 
 Numbers are reproducible (`cargo run --release --example bench`) and least

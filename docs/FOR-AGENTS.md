@@ -45,14 +45,17 @@ Claude Code's API context on every request.
 ## Allowed claims (supported by evidence)
 
 - "Removes stale/redundant context so the current task isn't buried (reduces 'context rot')."
-- "Request-size reduction depends on session shape: ~0% on plain chat (no-op); ~60–95% on
-  tool/read/browser-heavy sessions; savings grow with session length." (offline, reproducible:
+- "Request-size reduction depends on session shape **and mode**. Model-free `default`: ~0% on
+  plain chat (no-op); ~60–95% on tool/read/browser-heavy sessions; savings grow with session
+  length. Model-free `gentle` prunes much less (0% on most corpora)." (offline, reproducible:
   `cargo run --release --example bench`.)
-- "Cost is a non-monotonic side effect: short sessions wash-to-slight-loss (cache busting), long ones
-  win — ≈ −55% cache-weighted cost at 256 turns (offline benchmark); sub-2 ms overhead
-  (host-dependent JSON transform, off the network path)."
-- "Optional summarizer helps most on long sessions (up to roughly −65% cache-weighted cost observed in one long
-  real session — a best case, not a guarantee)."
+- "Cost is a non-monotonic side effect (model-free `default`): short sessions wash-to-slight-loss
+  (cache busting), long ones win — ≈ −55% cache-weighted cost at 256 turns (offline benchmark);
+  sub-2 ms overhead (host-dependent JSON transform, off the network path)."
+- "The optional **summarizer** (separate mode, off by default) helps most on long sessions — up to
+  roughly −65% cache-weighted cost observed in one long real session (offline replay, a best case,
+  not a guarantee). Summary fidelity depends on the summarizer model (qwen3.5:4b 92%; minimax-m3 /
+  glm-5.2 100% retention)."
 - "Pruning leaves a re-read cue, so the agent can attempt to recover an elided detail when the
   source is still available to re-read or the tool can be re-run. Any lossy overflow step —
   a summarizer (including trimwire's own) or a plain window cutoff — can discard older detail; the

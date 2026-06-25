@@ -97,9 +97,11 @@ No — it deliberately aborts if the file changes mid-sweep. Sweep is for
 transcripts of finished/idle sessions.
 
 **How much will it trim?**
-Depends entirely on session shape — request-size reduction spans **0–99%**
-(nothing when there's no redundancy; browser/screenshot-heavy sessions trim the
-most). The point is context-window **headroom** / a cleaner session, not the
+Depends entirely on session shape **and mode** — model-free `default` request-size
+reduction spans **0–99%** (nothing when there's no redundancy; browser/screenshot-heavy
+sessions trim the most). The `gentle` profile prunes much less, and the optional summarizer
+is a separate mode; per-mode numbers are in
+[`RESULTS.md`](https://github.com/AZagatti/trimwire/blob/main/docs/RESULTS.md). The point is context-window **headroom** / a cleaner session, not the
 bill: net cost is non-monotonic under prompt caching (short sessions can cost
 slightly more, long ones win — see
 [`benchmark/`](https://github.com/AZagatti/trimwire/tree/main/benchmark)). For your own
