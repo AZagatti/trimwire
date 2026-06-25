@@ -83,6 +83,10 @@ Claude Code's API context on every request.
   lossy-safe — a weak model that runs can have a low-fidelity summary accepted.)
 - ❌ Quoting very-large-context / multi-hundred-million-token savings as **measured**. (Those are
   **projections only** — unreachable to send to any model.)
+- ❌ Presenting an **offline replay or cost-model** number as a **live** result. The ≈ −55%
+  cost-model and ≈ −63–65% accumulator figures are offline; the only live cost figure is the
+  ~1M-token Opus session (−79% input cost). Live request-size: ~17% on a real typical session,
+  50–94% on adversarial/large read-heavy fixtures. See [RESULTS.md](RESULTS.md).
 - ❌ Claiming a proven model-quality lift. (trimwire reports *headroom* — bytes/tokens removable —
   not a quality improvement; the focus-ratio is a byte-share proxy.)
 - ❌ Treating >128 KB model-compatibility ceilings as firm. (They are directional/small-N — verify
@@ -93,6 +97,9 @@ Claude Code's API context on every request.
 - [Overview](OVERVIEW.md) · [FAQ & trust](FAQ.md) · [Summarizer](SUMMARIZER.md) ·
   [Model compatibility](MODEL-COMPATIBILITY.md) · [CLI](CLI.md) ·
   [Security & trust](SECURITY-MODEL.md) · [Privacy](PRIVACY.md)
+- [Results](RESULTS.md) — live `claude -p` vs benchmark vs offline cost-model
+  numbers, each clearly labelled, with the "what not to claim" list. Use this to
+  pick a defensible number; never relabel an offline/replay figure as live.
 - Config/profiles: [`CONFIGURATION.md`](CONFIGURATION.md) ·
   Benchmarks: [`benchmark/results/RESULTS.md`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md)
 - The site also publishes `/llms.txt` and `/llms-full.txt` (auto-generated from these docs).

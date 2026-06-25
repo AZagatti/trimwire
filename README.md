@@ -298,6 +298,11 @@ per-strategy attribution, profiles, cache-stability, and the cost model live in
 [`benchmark/`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md).
 For figures from *your* traffic, run `trimwire stats`.
 
+The table above is **offline benchmark replay**. For how that compares to
+**live `claude -p`** measurements and the **offline cost-model** numbers — kept
+strictly separate so a benchmark/replay figure is never quoted as a live one —
+see [`docs/RESULTS.md`](https://github.com/AZagatti/trimwire/blob/main/docs/RESULTS.md).
+
 Eight cache-safe strategies ship enabled in `default`: `cross_turn_dedup`,
 `failed_input_purge`, `stale_input_cap`, `stale_reads`, `bloat_cap`,
 `sliding_window`, `image_strip`, `thinking_strip`. The `gentle` profile runs a
@@ -325,6 +330,8 @@ documented in
   [`docs/OVERVIEW.md`](https://github.com/AZagatti/trimwire/blob/main/docs/OVERVIEW.md)
 - **For agents:** canonical LLM/agent summary and claims to use/avoid:
   [`docs/FOR-AGENTS.md`](https://github.com/AZagatti/trimwire/blob/main/docs/FOR-AGENTS.md)
+- **Results:** live `claude -p` vs benchmark vs offline cost-model numbers, and
+  what's safe to claim: [`docs/RESULTS.md`](https://github.com/AZagatti/trimwire/blob/main/docs/RESULTS.md)
 - **FAQ & Trust:** ToS, code privacy, latency, how to try it safely first:
   [`docs/FAQ.md`](https://github.com/AZagatti/trimwire/blob/main/docs/FAQ.md)
 - **Configuration:** every strategy knob, the ledger, statusline integration:

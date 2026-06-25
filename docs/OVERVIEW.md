@@ -62,6 +62,12 @@ long 981-turn session — a best case, not a guarantee). Overhead is roughly **s
 and the cost model live in [`benchmark/`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md);
 for figures from *your* traffic, run `trimwire stats`.
 
+The figures above are **offline benchmark/cost-model replay**. [`RESULTS.md`](RESULTS.md)
+keeps the **live `claude -p`** measurements, the reproducible benchmark, and the
+offline cost-model numbers in three clearly-separated buckets — including the
+honest typical-session live figure (~17% on a real session) versus the high
+percentages from adversarial read-heavy fixtures.
+
 ## Limits & honest caveats
 
 - **Cost can go up on short sessions** (cache busting). trimwire reports *headroom*, not a
