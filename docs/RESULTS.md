@@ -34,19 +34,25 @@ claim."**
 
 ## What we can safely claim
 
-| Claim | Category | Strength |
-|---|---|---|
-| "Reduces request size / reclaims context-window headroom; the amount depends on session shape (≈0% on plain chat, more on tool/read-heavy work)." | All three agree | **Safe, headline-ready** |
-| "On reproducible benchmarks, request size is ~60–95% lighter on tool/read/browser-heavy sessions (0% when there's nothing redundant)." | Benchmark (offline replay) | **Safe — label as benchmark** |
-| "Measured live through the gateway with real `claude -p`: sent context shrinks with session size — single-digit % on short/typical sessions, ~50–65% on read-heavy mid-size sessions, ~75–94% on very large (~1–1.7 MB) ones." | Live | **Safe — label as live, note fixtures** |
-| "On a real, typical dogfooding session, model-free pruning cut sent bytes ~17% over 228 requests." | Live (real traffic) | **Safe — the honest typical-session number** |
-| "On a measured ~1M-token session (Opus), sent context dropped ~75% and input cost ~79%, with no confident-wrong answers." | Live | **Safe — single best-case session** |
-| "Cost is a non-monotonic side effect: short sessions wash-to-loss, long ones win — about −55% cache-weighted input cost at 256 turns." | Offline cost-model | **Safe — label as cost model, caveat** |
-| "The optional summarizer's accumulator saved ~63–65% cache-weighted cost on long reconstructed sessions." | Offline replay | **Use with care — offline only, see below** |
+Every row names the **mode** the number belongs to — never quote a percentage
+without it (model-free `default`, model-free `gentle`, or summarizer).
+
+| Claim | Mode | Category | Strength |
+|---|---|---|---|
+| "Reduces request size / reclaims context-window headroom; the amount depends on session shape (≈0% on plain chat, more on tool/read-heavy work)." | any | All three agree | **Safe, headline-ready** |
+| "Request size is ~60–95% lighter on tool/read/browser-heavy sessions (0% when there's nothing redundant)." | model-free `default` | Benchmark (offline replay) | **Safe — label as benchmark** |
+| "`gentle` prunes less — a conservative subset; ~0–78% on the same corpora (0% on most; it only really fires on dedup/dup-heavy shapes)." | model-free `gentle` | Benchmark (offline replay) | **Safe — label as benchmark + gentle** |
+| "Live `claude -p`: sent context shrinks with session size — single-digit % short/typical → ~50–65% read-heavy mid-size → ~75–94% very large (~1–1.7 MB)." | model-free `default` | Live | **Safe — label as live + mode, note fixtures** |
+| "On a real 228-request dogfooding session, pruning cut sent bytes ~17%." | model-free `default` | Live (real traffic) | **Safe — the honest typical-session number** |
+| "On a measured ~1M-token session (Opus), sent context dropped ~75% and input cost ~79%, with 0 confident-wrong answers." | model-free `default` | Live | **Safe — single best-case session** |
+| "Cost is a non-monotonic side effect: short sessions wash-to-loss, long ones win — about −55% cache-weighted input cost at 256 turns." | model-free `default` | Offline cost-model | **Safe — label as cost model, caveat** |
+| "The optional summarizer's accumulator saved ~63–65% cache-weighted cost on long reconstructed sessions." | **summarizer** (local) | Offline replay | **Use with care — offline + summarizer only** |
+| "When the summarizer runs, a good model keeps ≥90% of facts (qwen3.5:4b 92%, minimax-m3 / glm-5.2 100%)." | **summarizer**, per model | Probe (partly synthetic) | **Safe — retention, NOT reduction** |
 
 **Do not** turn any single number into "trimwire saves X%." There is no single
-number; the honest framing is always *"depends on session shape, and here's the
-range."*
+number; the honest framing is always *"in `<mode>`, on `<session shape>`, the
+reduction is `<range>`."* Mode + shape are part of the claim, not optional
+footnotes.
 
 ## Live online results (`claude -p` through the gateway)
 
@@ -63,47 +69,99 @@ Claude Code with its own native auto-compaction and no gateway — so this is
 > short cached session is correctly **0%**. Quote the range, and say which end a
 > given workload sits at.
 
-| Session (live `claude -p`) | Profile / mode | Sent reduction | No-harm |
+**One thing to internalise before the tables:** *sent reduction is
+model-independent.* The gateway prunes the request before any model sees it, so
+Haiku, Sonnet, and Opus all get the same byte cut for the same session. The
+**answer model only changes no-harm** (stronger models *abstain* instead of
+confabulating on an elided fact). The reduction differences between rows below
+are driven by **session size/shape**, not by the model.
+
+### A. Model-free pruning — `default` profile (the shipped default)
+
+Eight deterministic strategies, no summarizer. This is the savings engine.
+
+| Live session (size) | Answer model | Sent reduction | No-harm (vs native Claude Code) |
 |---|---|--:|---|
-| Short, cached real session (acceptance canary, 2026-06-24) | model-free default | **0%** (`in==sent`, correct no-op) | n/a (nothing pruned) |
-| Real dogfooding session, 228 requests | model-free default | **17%** (98.7 MB → 81.5 MB, cache-hit 81%) | faithful summary; no load-bearing fact dropped |
-| Adversarial read-heavy fixtures, ~150–250 KB (websvc/infra/datapipe) | model-free default, Haiku | **50–65%** | 11/15 correct; 3 confident-wrong on one adversarial shape (Haiku didn't re-read) |
-| Large synthetic session, ~1.1 MB / ~275K tok | model-free / summarizer, Haiku | **81–88%** | 0 misleading (correct or safe-abstain) |
-| Measured ~1M-context, max_in 1.18 MB / ~360K tok | model-free default, Opus-low | **−75% sent (max −91%); −79% input cost** ($1.66 → $0.35) | DIRECT 4/4 correct; trimwire 4/4 safe-abstain, **0 misleading** |
-| Opus ceiling fixture, max_in ~1.7 MB | model-free default | **89–94%** | trimwire 0 misleading; native compaction confabulated here |
-| `gentle` profile, low-repetition small content | gentle | **~1%** (DIRECT-equivalent) | 0 misleading |
-| `gentle` profile, large highly-repetitive content | gentle | up to **~75%** (dedup/bloat_cap; fixture-dependent) | 0 misleading |
-| Output/generation-heavy (~253 KB of assistant text) | model-free default | **~4%** | 0 misleading (little is pruned) |
+| Short cached real session | Haiku | **0%** (`in==sent`, correct no-op) | nothing pruned |
+| Real dogfooding session, 228 reqs | mixed real traffic | **17%** (98.7 MB → 81.5 MB, cache-hit 81%) | faithful; no load-bearing fact dropped |
+| Adversarial read-heavy, ~150–250 KB | Haiku | **50–65%** (websvc 50, infra 64, datapipe 65) | 11/15 correct; **3 confident-wrong** on the `infra` shape (Haiku didn't re-read) |
+| Adversarial read-heavy (websvc) | Sonnet-low | (same prune) | safe-abstain on pruned fact; **0 misleading** |
+| Large synthetic, ~1.1 MB / ~275K tok | Haiku | **81–88%** | 0 misleading (correct or safe-abstain) |
+| ~1M context, 1.18 MB / ~360K tok | Opus-low | **−75% sent (max −91%); −79% input cost** ($1.66→$0.35) | native 4/4 correct; trimwire 4/4 safe-abstain, **0 misleading** |
+| Ceiling fixture, ~1.7 MB | Opus-low | **89–94%** | **0 misleading** (native compaction confabulated here; trimwire safer) |
+| Output/generation-heavy, ~253 KB | Haiku | **~4%** | 0 misleading (little is prunable) |
 
-**Live takeaways that are safe to repeat:**
+> Reduction scales with read/tool context: ~0% short/typical → 50–65% mid-size
+> read-heavy → 75–94% very large. No-harm held on **Sonnet and Opus in every
+> cell**; the only confident-wrong answers were Haiku on one deliberately
+> adversarial fixture. (No-harm result — **not** a quality-lift claim.)
 
-- **Model-free pruning is the savings engine, and it scales with read/tool
-  context** — single-digit % on short/typical sessions, rising to 75–94% on very
-  large read-heavy ones. Reduction is **model-independent** (the gateway prunes
-  the wire before the model sees it).
-- **No-harm vs native Claude Code held in every measured cell on Sonnet and
-  Opus** (0 confident-wrong answers). The only confident-wrong cases were Haiku on
-  one adversarial fixture where it didn't re-read. Stronger models *abstain*
-  rather than confabulate. (This is a no-harm result, **not** a quality-lift
-  claim.)
-- **The summarizer rarely engages on automated/medium sessions** — on read-heavy
-  work model-free has already removed the bulk, so the summarizer's measured
-  incremental savings were small. Its value is on conversation/message-heavy old
-  content and very long human-paced sessions.
-- **`gentle` is content-dependent, not "always ~0 savings"** and is **not** a
-  recall-critical / safer mode — it simply prunes less. The recall-critical path
-  is *default on + agentic re-read* (the elision stub tells the agent what to
-  re-read).
+### B. Model-free pruning — `gentle` profile (lighter touch)
+
+Dedup + failed-input-purge + conservative bloat_cap + conservative thinking_strip
+(no stale_reads / sliding_window / image_strip). **Prunes less**; it is *not* a
+"safer" or recall-critical mode — just lower-savings.
+
+| Live session (size) | Answer model | Sent reduction | No-harm |
+|---|---|--:|---|
+| Low-repetition small content | Haiku | **~1%** (DIRECT-equivalent) | 15/15 correct, 0 misleading |
+| Large highly-repetitive, ~1 MB | Haiku | **0% median, up to ~75%** on big reqs (dedup/bloat_cap) | 2 abstain + 2 correct, 0 misleading |
+
+> `gentle` is content-dependent (≈1% on low-repetition content, much higher only
+> when content is highly repetitive). It did **not** buy more recall than
+> `default` in testing. Recall-critical path = `default` on + agentic re-read.
+
+### C. Summarizer mode (live behaviour) — engine = local or provider
+
+The summarizer is **off by default** and only engages once the raw body exceeds
+the 200 KB trigger *and* the old slice has ≥4 messages *and* state is initialised
+(req ≥ 2). On the live sessions tested it **rarely installed**, so the local and
+provider summarizer lanes measured **≈ model-free** — model-free had already
+removed the bulk before the summarizer ran.
+
+| Live session (size) | Engine / answer model | Sent reduction | Summarizer engaged? |
+|---|---|--:|---|
+| Sequential ~200 KB (websvc) | local & provider / Haiku | **34%** | **No** — body under 200 KB trigger → ran as model-free |
+| Large ~1.1 MB | local (qwen3.5:4b) / Haiku | **81–88%** | installs = 0 (model-free elided the big reads first) |
+| Large ~1.1 MB | provider / Haiku | **81–88%** | 1 install, ~7% coverage (tiny marginal) |
+| Large ~780 KB | provider / `gentle` | **72%** | summarizer inert (gentle profile dominates) |
+
+> **Live conclusion:** on read/tool-heavy work the summarizer's *incremental*
+> reduction over model-free is small — model-free is doing the work. The
+> summarizer's distinct value is (a) **cost** on very long conversation-heavy
+> sessions, shown **offline** (accumulator −63 to −64.6%, see the replay section),
+> and (b) **fidelity** of the compressed slice, which depends on the summarizer
+> model (next table). 0 misleading in every summarizer cell.
+
+### D. Summarizer-model fidelity (a different axis — retention, not reduction)
+
+When the summarizer *does* run, the question is whether the chosen model keeps the
+facts. This is measured by `trimwire summarizer probe` (N=10, **PASS = ≥90%
+retention of 12 facts, no false-done**) — partly synthetic, separate from the live
+runs above. A few reference points (full ranking in
+[`MODEL-COMPATIBILITY.md`](MODEL-COMPATIBILITY.md)):
+
+| Summarizer model | Engine | Retention | Note |
+|---|---|--:|---|
+| `qwen3.5:4b` | local (ollama) | **92%** | the recommended local default; validated at its default slice |
+| `minimax/minimax-m3` | provider (OpenRouter) | **100%** | best provider value; also 100% @512 KB (N=1) |
+| `glm-5.2` | provider (Z.ai) | **100%** | top of the Z.ai subscription lane |
+
+> Retention ≠ request-size reduction — it's *summary quality*. Rankings are N=10
+> and non-deterministic near the gate; verify your own pick with
+> `trimwire summarizer probe --model <id> --runs 10`. Many weaker models fail the
+> gate (e.g. `gpt-4o-mini` 50%, `gemini-2.5-flash-lite` 33%) — see the doc.
 
 Source: `internal/docs-benchmark-audit/live-canary-insights.md` (2026-06-21,
 ~$34.91 / ~145 probes across Haiku/Sonnet/Opus); raw rows in
 `internal/docs-benchmark-audit/raw/live-*-metrics-2026-06-21.jsonl`;
 real-dogfood 17% in `internal/manual-test/phase0-haiku.md` (S10); short-session
 0% in `internal/manual-test/local-claude/20260624/` (`13-gateway-requests.txt`,
-`30-stats-iso.txt`). The per-request gateway reduction logs were written to
-`/tmp/live*` and are ephemeral; the percentages above are the recorded summaries,
-and the JSONL metrics (model/effort/cost/correctness per probe) are preserved and
-authoritative for the no-harm counts.
+`30-stats-iso.txt`); summarizer-model fidelity (table D) from the public
+`docs/MODEL-COMPATIBILITY.md` ranking. The per-request gateway reduction logs
+were written to `/tmp/live*` and are ephemeral; the percentages above are the
+recorded summaries, and the JSONL metrics (model/effort/cost/correctness per
+probe) are preserved and authoritative for the no-harm counts.
 
 ## Benchmark results (reproducible request-size / headroom)
 
