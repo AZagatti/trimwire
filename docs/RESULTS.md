@@ -54,12 +54,19 @@ number; the honest framing is always *"in `<mode>`, on `<session shape>`, the
 reduction is `<range>`."* Mode + shape are part of the claim, not optional
 footnotes.
 
-## Live online results (`claude -p` through the gateway)
+## ⭐ Live online results (`claude -p` through the gateway) — the headline category
 
-These are the only numbers measured with **real `claude -p` traffic** routed
-`claude → trimwire serve → api.anthropic.com`. "DIRECT" in the sources means real
-Claude Code with its own native auto-compaction and no gateway — so this is
-*trimwire vs native Claude Code*, the real user comparison.
+**These are the strongest evidence we have: real `claude -p` traffic on the
+wire**, routed `claude → trimwire serve → api.anthropic.com`, not a synthetic
+harness or a cost model. When you need one number for the site or a buyer, take
+it from here — and say it's live. "DIRECT" in the sources means real Claude Code
+with its own native auto-compaction and no gateway, so every comparison below is
+*trimwire vs native Claude Code* — the real user-experienced comparison, not
+"trimwire vs unbounded raw context."
+
+The large-session reductions below are **reproducible from preserved raw gateway
+logs + per-request audit trails** (`in=/sent=` per request, plus body-byte/offload
+counts), not just a recorded summary — see the source note at the end.
 
 > **Read this first.** The high live percentages (50–94%) come from
 > **deliberately adversarial / synthetic read- and tool-heavy fixtures** — large
@@ -152,16 +159,43 @@ runs above. A few reference points (full ranking in
 > `trimwire summarizer probe --model <id> --runs 10`. Many weaker models fail the
 > gate (e.g. `gpt-4o-mini` 50%, `gemini-2.5-flash-lite` 33%) — see the doc.
 
-Source: `internal/docs-benchmark-audit/live-canary-insights.md` (2026-06-21,
-~$34.91 / ~145 probes across Haiku/Sonnet/Opus); raw rows in
-`internal/docs-benchmark-audit/raw/live-*-metrics-2026-06-21.jsonl`;
-real-dogfood 17% in `internal/manual-test/phase0-haiku.md` (S10); short-session
-0% in `internal/manual-test/local-claude/20260624/` (`13-gateway-requests.txt`,
-`30-stats-iso.txt`); summarizer-model fidelity (table D) from the public
-`docs/MODEL-COMPATIBILITY.md` ranking. The per-request gateway reduction logs
-were written to `/tmp/live*` and are ephemeral; the percentages above are the
-recorded summaries, and the JSONL metrics (model/effort/cost/correctness per
-probe) are preserved and authoritative for the no-harm counts.
+### Source & reproducibility
+
+- **Canary writeup:** `internal/docs-benchmark-audit/live-canary-insights.md`
+  (2026-06-21, ~$34.91 / ~145 probes across Haiku/Sonnet/Opus). Mirrored in
+  project memory at `decisions/live-canary-matrix-2026-06-21.md`.
+- **Per-probe metrics (authoritative for no-harm counts):**
+  `internal/docs-benchmark-audit/raw/live-*-metrics-2026-06-21.jsonl`
+  (model/effort/cost/correctness per probe).
+- **Raw per-request reduction — preserved:**
+  `internal/docs-benchmark-audit/raw/live-gateway-logs-preserved/` holds the
+  surviving gateway `in=/sent=` logs **and** the per-request `--audit` trails
+  (rescued from the ephemeral `/tmp/live*` on 2026-06-24). The large-session
+  figures are reproducible from these, e.g.:
+
+  | Lane | Source log | Largest request | Reduction |
+  |---|---|--:|--:|
+  | model-free `default`, Opus 1M | `livebig_op1__gw_mf_default.log` | 1,178,618 B → 296,776 B | **−75%** (max req −91%) |
+  | model-free `default`, Opus ceiling | `livebig_oc1__gw_mf_default.log` | 1,697,491 B → 242,703 B | **−86%** (max req −94%) |
+  | summarizer (local), big | `livebig_bl1__gw_local_default.log` | 1,102,045 B → 211,483 B | **−81%** (max −88%) |
+  | summarizer (provider), big | `livebig_bp1__gw_prov_default.log` | 1,098,204 B → 211,060 B | **−81%** (max −88%) |
+  | `gentle`, big repetitive | `livebig_bg1__gw_mf_gentle.log` | 1,026,868 B → 259,316 B | **−75%** (median 0%) |
+  | model-free `default`, sequential | `liveseq_sl1__gw_local_default.log` | 349,389 B → 128,535 B | **−63%** (median 34%) |
+
+  > **Median vs. largest request:** a growing session is small early on, so the
+  > *median* request reduction (32–48%) is lower than the *largest* (full-context)
+  > request (75–94%). The headline figure is the largest request — that's the one
+  > that bloats and that trimwire cuts most.
+
+- **Real-traffic 17%:** `internal/manual-test/phase0-haiku.md` (S10).
+- **Short-session 0%:** `internal/manual-test/local-claude/20260624/`
+  (`13-gateway-requests.txt`, `30-stats-iso.txt`).
+- **Summarizer-model fidelity (table D):** public `docs/MODEL-COMPATIBILITY.md`.
+
+The small-fixture lanes (websvc/infra/datapipe 50–65%) were the earliest runs and
+their `/tmp` logs were already cleared before rescue; those percentages live in
+the canary writeup, and the preserved JSONL metrics retain their per-probe
+cost/correctness rows.
 
 ## Benchmark results (reproducible request-size / headroom)
 
