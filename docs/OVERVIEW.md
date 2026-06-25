@@ -44,23 +44,36 @@ agent re-read an elided source when that source is still available as a file or 
 
 ## What the numbers look like
 
-Request-size reduction depends entirely on session shape; trimwire does nothing when there's
-no redundancy. Offline replay through the real strategy code (reproducible via
-`cargo run --release --example bench`) spans the full range:
+Request-size reduction depends entirely on session shape **and on the mode**;
+trimwire does nothing when there's no redundancy. The figures below are
+**model-free pruning, `default` profile** — offline replay through the real
+strategy code (reproducible via `cargo run --release --example bench`) — spanning
+the full range:
 
 - **~0%** on plain chat with no tools (no-op).
 - **~60–95%** on tool-, read-, and browser-heavy sessions (the common agentic case).
 - Savings **grow with session length** — the longer and more repetitive the session, the more
   there is to prune.
 
+The **`gentle`** profile prunes much less (0% on most of those corpora; it only
+fires on dedup/duplication-heavy shapes), and the **optional summarizer** is a
+separate lever (off by default). Per-mode numbers are in [`RESULTS.md`](RESULTS.md).
+
 Cost is a *side effect* and **non-monotonic** (prompt-cache hits bill at ~0.1×, so pruning old
 content can bust the cache): short sessions are a wash-to-slight-loss, long ones win
-(about **−55%** cache-weighted cost at 256 turns in our benchmark cost model). The optional
-summarizer helps most on long sessions (up to roughly **−65%** cache-weighted cost observed on one
-long 981-turn session — a best case, not a guarantee). Overhead is roughly **sub-2 ms** per request
+(about **−55%** cache-weighted cost at 256 turns in our benchmark cost model, model-free
+`default`). The optional summarizer helps most on long sessions (up to roughly **−65%**
+cache-weighted cost observed on one long 981-turn session — a summarizer-mode best case,
+offline, not a guarantee). Overhead is roughly **sub-2 ms** per request
 (host-dependent), off the network path. Full tables, profiles,
 and the cost model live in [`benchmark/`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md);
 for figures from *your* traffic, run `trimwire stats`.
+
+The figures above are **offline benchmark/cost-model replay**. [`RESULTS.md`](RESULTS.md)
+keeps the **live `claude -p`** measurements, the reproducible benchmark, and the
+offline cost-model numbers in three clearly-separated buckets — including the
+honest typical-session live figure (~17% on a real session) versus the high
+percentages from adversarial read-heavy fixtures.
 
 ## Limits & honest caveats
 

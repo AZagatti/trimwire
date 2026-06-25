@@ -1,9 +1,13 @@
 # trimwire benchmark — offline replay
 
-> **TL;DR** — request size **0–99% lighter** by session shape (nothing when
-> there's no redundancy); the point is **context-window headroom**, not money;
-> cost is non-monotonic (wash-to-loss short, ≈ −55% at 256 turns — §6b computes −54.6%); **sub-2 ms**
-> overhead; orphan-free + `system` untouched on every corpus + a 3,000-body fuzz.
+> **TL;DR** (model-free pruning, **`default` profile**) — request size
+> **0–99% lighter** by session shape (nothing when there's no redundancy);
+> the point is **context-window headroom**, not money; cost is non-monotonic
+> (wash-to-loss short, ≈ −55% at 256 turns — §6b computes −54.6%); **sub-2 ms**
+> overhead; orphan-free + `system` untouched on every corpus + a 3,000-body
+> fuzz. The **`gentle`** profile prunes much less (§2), and the **optional
+> summarizer** is a separate mode (off by default). Live `claude -p` numbers:
+> [`docs/RESULTS.md`](../../docs/RESULTS.md).
 
 Deterministic synthetic `/v1/messages` bodies fed through the real strategy
 code under the **shipped default config**, unless noted. Corpora are ordered
