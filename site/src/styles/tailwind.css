@@ -1,0 +1,26 @@
+/* Tailwind v4 entry for custom landing pages (NOT the Starlight docs).
+   Deliberately omits the `base`/preflight layer so Tailwind's global reset can't
+   disturb existing page/Starlight styles — we only pull in `theme` + `utilities`.
+   Import this file from a landing page to make the utilities available there. */
+@layer theme, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Map the dark/light design tokens (defined in hero-shared.css) into Tailwind's
+   theme so utilities like `text-ink2`, `bg-card`, `border-border` resolve to the
+   same runtime CSS variables (and keep light/dark switching). */
+@theme {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-inset: var(--inset);
+  --color-border: var(--border);
+  --color-border2: var(--border-2);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink-2);
+  --color-ink3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-accenthi: var(--accent-hi);
+  --color-summ: var(--c-summ);
+  --color-prune: var(--c-prune);
+  --font-mono: var(--mono);
+}

@@ -1,11 +1,17 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import starlightLlmsTxt from "starlight-llms-txt";
+import svelte from "@astrojs/svelte";
+import tailwindcss from "@tailwindcss/vite";
 
 // Production domain. Feeds absolute-URL generation (sitemap/canonical) and the
 // page-action button prompts (Open in ChatGPT/Claude) in PageTitle.astro.
 export default defineConfig({
   site: "https://trimwire.dev",
+  // Tailwind v4 via the Vite plugin. The Tailwind stylesheet (src/styles/tailwind.css)
+  // is imported ONLY by custom landing pages and deliberately omits preflight, so it
+  // never resets Starlight's docs theme.
+  vite: { plugins: [tailwindcss()] },
   integrations: [
     starlight({
       title: "trimwire",
@@ -84,5 +90,6 @@ export default defineConfig({
         },
       ],
     }),
+    svelte(),
   ],
 });
