@@ -9,9 +9,10 @@ A new command serves the cockpit from the same process that owns the control API
 ledger:
 
 ```
-trimwire cockpit            # start control API + static UI on loopback, open browser
-trimwire cockpit --no-open  # headless (for the app webview / remote phase)
-trimwire dashboard --serve  # alias that upgrades the existing static HTML report into the live cockpit
+trimwire cockpit            # start control API + static UI on loopback   [IMPLEMENTED in the POC]
+# Proposed (not in the POC — doc 09 ships only `trimwire cockpit`):
+#   trimwire cockpit --no-open   # headless (for the app webview / remote phase)
+#   trimwire dashboard --serve   # alias upgrading the static HTML report into the live cockpit
 ```
 
 - Static assets are **embedded into the Rust binary** at build time (`rust-embed` /

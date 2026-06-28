@@ -53,10 +53,11 @@ already exist** — plus one genuinely new piece of backend: a **local control A
 
 **The shape the whole council and specialist set converged on:**
 
-1. **One web frontend, shipped twice.** Build the cockpit UI once (vanilla DOM, reusing the
-   site's existing dashboard components + teal design system). Serve it from the trimwire
-   binary on a loopback port for the **browser web UI**, and wrap the *same bundle* in a
-   **Tauri 2** shell for the **multi-platform app**. No second UI.
+1. **One web frontend, shipped twice.** Build the cockpit UI once (the POC uses vanilla DOM
+   reusing the site's existing dashboard components + teal design system; **doc 04 recommends
+   Svelte** once the site rebrands to Svelte+Astro — an open decision, not settled). Serve it
+   from the trimwire binary on a loopback port for the **browser web UI**, and wrap the *same
+   bundle* in a **Tauri 2** shell for the **multi-platform app**. No second UI.
 2. **A separate loopback admin listener** (`127.0.0.1:8766`) carries the control API, kept
    physically off the gateway port (`8765`) that transits the Anthropic OAuth token. REST
    verbs wrap existing CLI/lib functions; SSE pushes content-free live events.

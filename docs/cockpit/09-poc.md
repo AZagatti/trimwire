@@ -57,9 +57,10 @@ GET /api/v1/health       (Origin: evil)    → 403 forbidden: bad Origin (cross-
 GET /                                       → HTML with the token injected, placeholder gone
 ```
 
-Plus 6 unit tests in `src/admin/mod.rs` (constant-time compare, Host/Origin guards,
-bearer extraction, token generation = 256-bit hex + stable, authenticator
-accept/reject). Full suite stays green: `cargo fmt --check`,
+Plus 7 unit tests in `src/admin/mod.rs` (constant-time compare, authority/Origin/
+`Sec-Fetch-Site` guards, bearer extraction, token generation = 256-bit hex + stable,
+authenticator accept/reject) and a `[admin]`-global-only regression test in
+`src/config.rs`. Full suite stays green: `cargo fmt --check`,
 `cargo clippy --all-targets -- -D warnings`, `cargo test --all-features`.
 
 ## What is deliberately NOT in the POC

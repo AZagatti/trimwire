@@ -59,7 +59,9 @@ today (zero new surface for users who never open the cockpit). `ARCHITECTURE.md`
 
 ## 3. Endpoint surface (`/api/v1`)
 
-All requests require `Authorization: Bearer <token>` (except `GET /health`). Errors use the
+All requests require `Authorization: Bearer <token>` (except `GET /health` and the SSE
+`GET /events`, which the browser `EventSource` cannot authenticate — it stays Host/Origin/
+Sec-Fetch-guarded and content-free). Errors use the
 Anthropic-shaped envelope already in `gateway.rs`. Every endpoint maps to existing code
 (Appendix A).
 
