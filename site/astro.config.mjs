@@ -11,7 +11,24 @@ export default defineConfig({
   // Tailwind v4 via the Vite plugin. The Tailwind stylesheet (src/styles/tailwind.css)
   // is imported ONLY by custom landing pages and deliberately omits preflight, so it
   // never resets Starlight's docs theme.
-  vite: { plugins: [tailwindcss()] },
+  vite: {
+    plugins: [tailwindcss()],
+    build: {
+      rollupOptions: {
+        // Svelte compiles `transition:` directives to no-ops in the SSR build
+        // pass, so Rollup sees `fade`/`slide` imports as unused and warns —
+        // a false positive (they run client-side). Suppress ONLY that case so
+        // genuine unused-import warnings still surface.
+        onwarn(warning, defaultHandler) {
+          if (
+            warning.code === "UNUSED_EXTERNAL_IMPORT" &&
+            warning.exporter === "svelte/transition"
+          ) return;
+          defaultHandler(warning);
+        },
+      },
+    },
+  },
   integrations: [
     starlight({
       title: "trimwire",

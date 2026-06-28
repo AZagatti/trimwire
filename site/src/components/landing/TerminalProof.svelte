@@ -20,6 +20,14 @@
   import { cubicOut } from "svelte/easing";
   import { fade } from "svelte/transition";
 
+  // Transform-only entrance for transcript rows: a brief upward slide with NO
+  // opacity ramp, so text is always at full contrast (avoids axe/Lighthouse
+  // flagging a mid-fade frame as low-contrast). Reduced-motion → instant.
+  function riseIn(_node, { duration = 170 } = {}) {
+    if (reduced) return { duration: 0 };
+    return { duration, easing: cubicOut, css: (t) => `transform: translateY(${(1 - t) * 4}px)` };
+  }
+
   const TABS = [
     { label: "Claude", icon: "claude" },
     { label: "Codex", icon: "openai" },
@@ -245,7 +253,7 @@
           <ol class="convo">
             {#each EV as e, i (i)}
               {#if i < shownN}
-                <li class="msg m-{e.k}" data-g={e.g ?? ""} class:m-old={e.old} class:flash={e.g && activeFlash(e.g)} class:summlit={summLink && summ !== "done" && e.old} class:summdone={summLink && summ === "done" && e.old} transition:fade={{ duration: reduced ? 0 : 170 }}>
+                <li class="msg m-{e.k}" data-g={e.g ?? ""} class:m-old={e.old} class:flash={e.g && activeFlash(e.g)} class:summlit={summLink && summ !== "done" && e.old} class:summdone={summLink && summ === "done" && e.old} transition:riseIn={{ duration: 170 }}>
                   {#if e.k === "user"}<span class="bul user">&gt;</span> <span class="utext">{e.text}</span>
                   {:else if e.k === "asst"}<span class="bul ok">⏺</span> {e.text}
                   {:else}<div class="call-line"><span class="bul ok">⏺</span> <span class="call">{e.call}</span></div><div class="res-line"><span class="elbow">⎿</span> {e.res}</div>{/if}
