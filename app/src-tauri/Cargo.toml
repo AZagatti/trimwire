@@ -1,0 +1,21 @@
+# Independent crate — NOT a member of the trimwire root package (the root has no
+# [workspace], so `cargo build` at the repo root ignores this). Build it with the
+# Tauri toolchain (`npm run tauri build`), never as part of the daemon's CI.
+[package]
+name = "trimwire-flightdeck"
+version = "0.1.0"
+edition = "2021"
+description = "Tauri 2 desktop shell for the trimwire cockpit (POC scaffold)"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+# Keep the default Tauri custom-protocol feature for production bundles.
+custom-protocol = ["tauri/custom-protocol"]

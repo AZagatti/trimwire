@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>trimwire · Flightdeck — DEMO</title>
+<!-- Standalone, mock-data PREVIEW of the cockpit (docs/cockpit/). No daemon, no
+     backend, no build step — every number here is canned, content-free sample
+     data so the UI can be previewed from a static link (githack / the site).
+     The real cockpit is served by the trimwire binary on a loopback control API
+     (src/admin/) and reads the local, content-free ledger. -->
+<style>
+  :root{
+    --accent:#2aa39c;--accent-d:#178a83;--good:#22c87a;--warn:#e0a000;--bad:#e85d3f;
+    --bg:#0f1417;--panel:#161c20;--panel2:#1b2329;--ink:#e6edf0;--dim:#8aa0a6;
+    --line:#243036;--radius:.55rem;--cap:3px;
+  }
+  :root[data-theme="light"]{
+    --accent:#178a83;--bg:#f6f8f8;--panel:#fff;--panel2:#eef3f3;--ink:#15201f;
+    --dim:#5a6b6b;--line:#dde5e5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  a{color:var(--accent)}
+  code{color:var(--accent);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  header{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;
+    padding:.8rem 1.1rem;border-bottom:1px solid var(--line);background:var(--panel)}
+  .brand{font-weight:700;letter-spacing:-.02em}.brand b{color:var(--accent)}
+  .tag{font-size:.7rem;font-weight:700;color:#0f1417;background:var(--accent);
+    padding:.1rem .4rem;border-radius:.3rem;letter-spacing:.03em}
+  .pill{font-size:.8rem;padding:.15rem .55rem;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+  .dot{width:.6rem;height:.6rem;border-radius:50%;display:inline-block;background:var(--good)}
+  button{background:transparent;color:var(--ink);border:1px solid var(--line);
+    border-radius:var(--radius);padding:.35rem .7rem;cursor:pointer;font:inherit}
+  button:hover{border-color:var(--accent)}
+  .layout{display:grid;grid-template-columns:200px 1fr;min-height:calc(100vh - 56px)}
+  nav{border-right:1px solid var(--line);background:var(--panel);padding:.8rem .5rem}
+  nav .grp{color:var(--dim);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;margin:.7rem .6rem .3rem}
+  nav a{display:block;padding:.4rem .6rem;border-radius:var(--radius);color:var(--ink);
+    text-decoration:none;cursor:pointer;font-size:.92rem}
+  nav a:hover{background:var(--panel2)}
+  nav a.active{background:var(--panel2);box-shadow:inset var(--cap) 0 0 var(--accent)}
+  main{padding:1.1rem 1.3rem;max-width:980px}
+  .banner{background:var(--panel2);border:1px solid var(--line);border-left:var(--cap) solid var(--warn);
+    border-radius:var(--radius);padding:.5rem .8rem;color:var(--dim);font-size:.85rem;margin-bottom:1rem}
+  h2{font-size:1.05rem;margin:.2rem 0 .9rem}
+  .sub{color:var(--dim);font-size:.85rem;margin:-.5rem 0 1rem}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.8rem}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    border-top:var(--cap) solid var(--accent);padding:.85rem 1rem}
+  .card .label{color:var(--dim);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}
+  .card .value{font-size:1.7rem;font-weight:700;font-variant-numeric:tabular-nums;margin-top:.15rem}
+  .card .delta{font-size:.78rem;color:var(--good);margin-top:.1rem}
+  h3{font-size:.9rem;color:var(--dim);font-weight:600;margin:1.6rem 0 .5rem}
+  table{width:100%;border-collapse:collapse;font-size:.88rem}
+  th,td{text-align:left;padding:.45rem .5rem;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  th{color:var(--dim);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.03em}
+  td.num,th.num{text-align:right}
+  .bar{position:relative;height:.5rem;background:var(--panel2);border-radius:999px;overflow:hidden;min-width:60px}
+  .bar>span{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:999px}
+  .chip{display:inline-block;font-size:.72rem;color:var(--dim);border:1px solid var(--line);
+    border-radius:999px;padding:.05rem .45rem;margin:0 .15rem .15rem 0}
+  .days{display:flex;align-items:flex-end;gap:3px;height:120px;padding:.5rem 0}
+  .days .d{flex:1;background:var(--accent);border-radius:3px 3px 0 0;opacity:.85;min-height:2px}
+  .days .d:hover{opacity:1}
+  .seg{display:flex;height:1.6rem;border-radius:var(--radius);overflow:hidden;border:1px solid var(--line)}
+  .seg>div{display:flex;align-items:center;justify-content:center;font-size:.72rem;color:#0f1417;font-weight:600}
+  .log{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:.55rem .8rem;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);max-height:200px;overflow:auto}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:.45rem .2rem;border-bottom:1px solid var(--line)}
+  .toggle{width:34px;height:18px;border-radius:999px;background:var(--accent);position:relative;display:inline-block}
+  .toggle.off{background:var(--line)}
+  .toggle::after{content:"";position:absolute;top:2px;left:18px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.15s}
+  .toggle.off::after{left:2px}
+  .muted{color:var(--dim)}
+  footer{color:var(--dim);font-size:.8rem;padding:1.4rem 1.3rem;border-top:1px solid var(--line);max-width:980px}
+  .hide{display:none}
+  @media (max-width:720px){.layout{grid-template-columns:1fr}nav{display:flex;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}nav .grp{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <span class="brand"><b>trim</b>wire · Flightdeck</span> <span class="tag">DEMO</span>
+  <span class="pill"><span class="dot"></span> gateway serving</span>
+  <span class="pill" id="profile">profile default</span>
+  <span class="pill">demo build</span>
+  <span style="margin-left:auto"></span>
+  <button id="theme">◑ theme</button>
+</header>
+
+<div class="layout">
+  <nav id="nav">
+    <div class="grp">Monitor</div>
+    <a data-pane="live" class="active">Live</a>
+    <a data-pane="savings">Savings</a>
+    <a data-pane="strategies">Strategies</a>
+    <a data-pane="sessions">Sessions</a>
+    <div class="grp">Tune</div>
+    <a data-pane="config">Config</a>
+  </nav>
+  <main>
+    <div class="banner">
+      <b>Preview with mock data.</b> Every figure here is canned, content-free sample
+      data so the cockpit UI can be viewed from a static link — there is no daemon and
+      no network. The real cockpit is served by the <code>trimwire</code> binary on a
+      loopback control API and reads the local content-free ledger.
+    </div>
+
+    <!-- LIVE -->
+    <section id="pane-live">
+      <h2>Live session monitor</h2>
+      <p class="sub">Per-request savings as you work — content-free (bytes, tokens, strategy names).</p>
+      <div class="grid">
+        <div class="card"><div class="label">Requests</div><div class="value" id="k-req">1,284</div><div class="delta">+3 just now</div></div>
+        <div class="card"><div class="label">Bytes trimmed</div><div class="value">213.4 MB</div><div class="delta">40.7% lighter</div></div>
+        <div class="card"><div class="label">Reduction</div><div class="value">41%</div><div class="delta muted">context, not $</div></div>
+        <div class="card"><div class="label">Cache hit</div><div class="value">93%</div><div class="delta muted">read vs creation</div></div>
+      </div>
+      <h3>Live feed (SSE · content-free)</h3>
+      <div class="log" id="log"></div>
+    </section>
+
+    <!-- SAVINGS -->
+    <section id="pane-savings" class="hide">
+      <h2>Savings</h2>
+      <p class="sub">Totals over the last 14 days. "Headroom, not dollars" — reduction is context bytes trimmed.</p>
+      <div class="grid">
+        <div class="card"><div class="label">In</div><div class="value">524 MB</div></div>
+        <div class="card"><div class="label">Out</div><div class="value">311 MB</div></div>
+        <div class="card"><div class="label">Saved</div><div class="value">213 MB</div></div>
+        <div class="card"><div class="label">Est. tokens removed</div><div class="value">~53.4M</div></div>
+      </div>
+      <h3>Per-day (in → out bytes)</h3>
+      <div class="days" id="days"></div>
+      <h3>Token source breakdown</h3>
+      <div class="seg" id="seg"></div>
+      <p class="sub" id="seg-legend" style="margin-top:.5rem"></p>
+    </section>
+
+    <!-- STRATEGIES -->
+    <section id="pane-strategies" class="hide">
+      <h2>Strategies</h2>
+      <p class="sub">What each of the pruning strategies did, for the active <b>default</b> profile.</p>
+      <table>
+        <thead><tr><th>Strategy</th><th class="num">Bytes trimmed</th><th>share</th><th class="num">Times fired</th></tr></thead>
+        <tbody id="strat-body"></tbody>
+      </table>
+    </section>
+
+    <!-- SESSIONS -->
+    <section id="pane-sessions" class="hide">
+      <h2>Sessions</h2>
+      <p class="sub">Recent sessions from the ledger (id, model, savings) — no prompts or content.</p>
+      <table>
+        <thead><tr><th>Session</th><th>Model</th><th class="num">Requests</th><th class="num">Reduction</th><th class="num">Cache hit</th></tr></thead>
+        <tbody id="sess-body"></tbody>
+      </table>
+    </section>
+
+    <!-- CONFIG -->
+    <section id="pane-config" class="hide">
+      <h2>Config</h2>
+      <p class="sub">Profile + per-strategy knobs. (Demo is read-only; the real editor validates and applies via restart.)</p>
+      <div class="card" style="margin-bottom:1rem">
+        <div class="row" style="border:0"><span>Profile</span><span><span class="chip" style="border-color:var(--accent);color:var(--accent)">● default</span><span class="chip">gentle</span></span></div>
+      </div>
+      <div id="cfg-body"></div>
+      <p style="margin-top:1rem"><button disabled title="disabled in the mock demo">Save &amp; restart (demo)</button>
+        <span class="muted" style="font-size:.82rem">— saving applies on daemon restart (off → on).</span></p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  trimwire Flightdeck — static preview with mock data. Plan + POC:
+  <a href="https://github.com/AZagatti/trimwire/tree/claude/trimwire-cockpit-ui-8s69wn/docs/cockpit">docs/cockpit/</a>.
+  The real cockpit runs locally via <code>trimwire cockpit</code> and is content-free by construction.
+</footer>
+
+<script>
+  // ---- mock, content-free sample data (no network) ----------------------------
+  const fmtB = n => { const u=["B","KB","MB","GB"];let i=0,v=n;while(v>=1024&&i<3){v/=1024;i++}return v.toFixed(i?1:0)+" "+u[i]; };
+  const days = [38,42,40,51,44,39,55,48,61,47,52,58,49,54].map((red,i)=>{
+    const inB = (28+(i%5)*6)*1024*1024, out = Math.round(inB*(1-red/100));
+    return {inB, out, red};
+  });
+  const strategies = [
+    ["bloat_cap", 88_400_000, 412],
+    ["thinking_strip", 51_200_000, 980],
+    ["sliding_window", 33_900_000, 305],
+    ["stale_reads", 18_600_000, 174],
+    ["cross_turn_dedup", 9_800_000, 251],
+    ["image_strip", 6_300_000, 41],
+    ["stale_input_cap", 3_100_000, 122],
+    ["failed_input_purge", 1_700_000, 63],
+  ];
+  const sessions = [
+    ["a1c9…f3", "claude-opus-4-8", 312, 44, 94],
+    ["7b22…0e", "claude-opus-4-8", 188, 41, 91],
+    ["e4f0…9a", "claude-haiku-4-5", 96, 28, 67],
+    ["33ad…71", "claude-opus-4-8", 254, 47, 95],
+    ["90cc…b2", "claude-sonnet-4-6", 140, 36, 88],
+    ["d5e1…44", "claude-opus-4-8", 94, 39, 90],
+  ];
+  const cfg = [
+    ["cross_turn_dedup", true], ["failed_input_purge", true], ["stale_input_cap", true],
+    ["bloat_cap", true], ["sliding_window", true], ["image_strip", true],
+    ["thinking_strip", true], ["stale_reads", true], ["simhash_dedup", false],
+  ];
+
+  // ---- render ------------------------------------------------------------------
+  // per-day bars (height = saved bytes)
+  const maxIn = Math.max(...days.map(d=>d.inB));
+  document.getElementById("days").innerHTML = days.map(d=>{
+    const h = Math.round((d.inB/maxIn)*100);
+    return `<div class="d" style="height:${h}%" title="in ${fmtB(d.inB)} → out ${fmtB(d.out)} · ${d.red}%"></div>`;
+  }).join("");
+
+  // token segmented bar (cache read / creation / uncached)
+  const seg=[["cache read",83,"#22c87a"],["uncached",11,"#2aa39c"],["cache creation",6,"#e0a000"]];
+  document.getElementById("seg").innerHTML = seg.map(s=>`<div style="width:${s[1]}%;background:${s[2]}">${s[1]>9?s[1]+"%":""}</div>`).join("");
+  document.getElementById("seg-legend").innerHTML = seg.map(s=>`<span class="chip">${s[0]} · ${s[1]}%</span>`).join("");
+
+  // strategies table
+  const maxS = Math.max(...strategies.map(s=>s[1]));
+  document.getElementById("strat-body").innerHTML = strategies.map(([n,b,c])=>`
+    <tr><td><code>${n}</code></td><td class="num">${fmtB(b)}</td>
+    <td><div class="bar"><span style="width:${(b/maxS*100).toFixed(0)}%"></span></div></td>
+    <td class="num">${c.toLocaleString()}</td></tr>`).join("");
+
+  // sessions table
+  document.getElementById("sess-body").innerHTML = sessions.map(([id,m,r,red,ch])=>`
+    <tr><td><code>${id}</code></td><td class="muted">${m}</td><td class="num">${r}</td>
+    <td class="num">${red}%</td><td class="num">${ch}%</td></tr>`).join("");
+
+  // config rows
+  document.getElementById("cfg-body").innerHTML = cfg.map(([n,on])=>`
+    <div class="row"><span><code>${n}</code></span>
+    <span class="toggle ${on?"":"off"}" title="${on?"enabled":"disabled"} (demo)"></span></div>`).join("");
+
+  // simulated live feed
+  const log = document.getElementById("log");
+  const models=["claude-opus-4-8","claude-opus-4-8","claude-haiku-4-5"];
+  const strat=["bloat_cap thinking_strip","cross_turn_dedup stale_reads","sliding_window bloat_cap","thinking_strip image_strip"];
+  let reqN=1284, tick=0;
+  function emit(){
+    const inB=(180+(tick*37)%260)*1024, red=38+(tick*7)%18, out=Math.round(inB*(1-red/100));
+    reqN++; document.getElementById("k-req").textContent=reqN.toLocaleString();
+    const t=new Date().toLocaleTimeString();
+    const line=`${t}  ${models[tick%3]}  ${fmtB(inB)} → ${fmtB(out)}  ${red}%  [${strat[tick%4]}]  ${(700+tick*13%500)}ms`;
+    log.textContent = line + "\n" + log.textContent.split("\n").slice(0,40).join("\n");
+    tick++;
+  }
+  for(let i=0;i<6;i++) emit();
+  setInterval(emit, 2600);
+
+  // nav + theme
+  document.getElementById("nav").addEventListener("click", e=>{
+    const a=e.target.closest("a[data-pane]"); if(!a) return;
+    document.querySelectorAll("nav a").forEach(x=>x.classList.remove("active"));
+    a.classList.add("active");
+    ["live","savings","strategies","sessions","config"].forEach(p=>
+      document.getElementById("pane-"+p).classList.toggle("hide", p!==a.dataset.pane));
+  });
+  document.getElementById("theme").onclick=()=>{const r=document.documentElement;
+    r.dataset.theme = r.dataset.theme==="light"?"dark":"light";};
+</script>
+</body>
+</html>

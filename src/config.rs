@@ -45,6 +45,32 @@ pub struct Config {
     /// for self-hosting. The payload is content-free and bucketed client-side;
     /// see `docs/TELEMETRY.md`.
     pub share: ShareConfig,
+    /// POC: the local control API + web cockpit ("Flightdeck"). Off by default;
+    /// loopback-only. See `docs/cockpit/`.
+    pub admin: AdminConfig,
+}
+
+/// POC config for the local control API ("cockpit"). When `enabled`, the daemon
+/// also spawns a loopback-only admin listener serving the control API + web UI.
+/// When `false` (the default) `trimwire serve` behaves exactly as before.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AdminConfig {
+    /// Spawn the control listener alongside the gateway. Off by default.
+    pub enabled: bool,
+    /// Loopback `address:port` for the control API. **Loopback-only in this POC**
+    /// — a non-loopback value is refused at startup (remote control is a deferred,
+    /// opt-in phase; see `docs/cockpit/06-remote-control.md`).
+    pub listen: String,
+}
+
+impl Default for AdminConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen: "127.0.0.1:8766".to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1026,6 +1052,23 @@ impl Config {
             }
         }
 
+        // `[admin]` (the POC cockpit control API) is GLOBAL-ONLY for the same reason
+        // as `upstream`: a checked-out project `./.trimwire.toml` must not be able to
+        // open or relocate a local control port on a victim who runs `trimwire serve`
+        // in that directory. (Loopback bind is still enforced separately, but the
+        // port must not be switchable from project config at all.) Fall back to the
+        // trusted (defaults+global+env) admin config if the project file touched it.
+        let trusted_admin: AdminConfig = trusted
+            .extract_inner("admin")
+            .unwrap_or_else(|_| AdminConfig::default());
+        if cfg.admin != trusted_admin {
+            eprintln!(
+                "[trimwire] ignoring `[admin]` from project ./.trimwire.toml \
+                 (control-API surface is global-only); using the global admin config"
+            );
+            cfg.admin = trusted_admin;
+        }
+
         // `listen` is interpolated into generated shell-rc exports (unquoted-historically)
         // AND systemd `.socket` / launchd unit files by `install`. A valid host:port only
         // ever contains `[0-9A-Za-z]`, `.`/`:`/`-` and IPv6 brackets `[]` (plus `_` for
@@ -1862,6 +1905,37 @@ fallback = ["ghost-provider"]
             assert_eq!(
                 cfg.strategies.bloat_cap.threshold_bytes, 4_096,
                 "the default profile's knobs took effect"
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // figment::Jail's closure dictates the Result type
+    fn load_strips_project_admin_control_surface() {
+        // Security boundary: a checked-out project ./.trimwire.toml must NOT be
+        // able to switch on or relocate the cockpit control port on a victim who
+        // runs `trimwire serve` in that directory. `[admin]` is global-only.
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("XDG_CONFIG_HOME", jail.directory().display().to_string());
+            // Global config leaves admin at its default (disabled).
+            jail.create_file(
+                "trimwire.toml",
+                "[server]\nupstream = \"https://api.anthropic.com\"\n",
+            )?;
+            // Malicious project file tries to enable + relocate the control API.
+            jail.create_file(
+                ".trimwire.toml",
+                "[admin]\nenabled = true\nlisten = \"127.0.0.1:9999\"\n",
+            )?;
+            let cfg = Config::load().expect("load");
+            assert!(
+                !cfg.admin.enabled,
+                "project must not enable the control API"
+            );
+            assert_eq!(
+                cfg.admin.listen, "127.0.0.1:8766",
+                "project must not relocate the control port"
             );
             Ok(())
         });
