@@ -22,15 +22,24 @@
     { plain: "Old search output", verb: "collapsed", detail: "Old, re-runnable output like searches or screenshots, once it's no longer recent.", tech: "sliding_window", on: ["default", "summ"], hue: "dedup" },
     { plain: "Solved-step reasoning", verb: "removed", detail: "Reasoning notes from steps the agent already finished.", tech: "thinking_strip", on: ["default", "gentle", "summ"], hue: "prune" },
   ];
-  // Live, long-session reductions (docs/RESULTS.md §A/B). NOT the offline replay
-  // numbers — those over-state typical use. Read-heavy long sessions land 50–65%
-  // on default; gentle is a lighter, content-dependent touch; summarizer's value
-  // is retention of the older tail, not a bigger size cut, so it tracks default.
-  const REDUCE = { default: 60, gentle: 35, summ: 62 };
+  // Live, long-session numbers (docs/RESULTS.md §A–D). NOT the offline replay
+  // figures — those over-state typical use.
+  //   default — read-heavy long session lands 50–65% smaller; ~60% is mid-band.
+  //   gentle  — a lighter touch (dedup + conservative caps only); ~35%.
+  //   summ    — the summarizer's incremental SIZE win over model-free is small
+  //             (model-free already removed the bulk, §C). Its real, measured
+  //             value is RETENTION of the folded older tail — qwen3.5:4b keeps
+  //             ~92% of facts (§D). So summarizer shows a *retention* metric,
+  //             not a bigger reduction %, which would be dishonest.
+  const METRIC = {
+    default: { kind: "reduce", num: 60, unit: "%", label: "smaller request", sub: "live read-heavy session" },
+    gentle: { kind: "reduce", num: 35, unit: "%", label: "smaller request", sub: "lighter touch · live" },
+    summ: { kind: "retain", num: 92, unit: "%", label: "of facts kept", sub: "qwen3.5:4b · summarizer probe" },
+  };
   const LEDE = {
     default: "Trimwire keeps your recent work and edits intact, then removes repeated or heavy tool output before the request is sent.",
     gentle: "A lighter setting — only the safest, most certain trims run. Less reduction, more caution.",
-    summ: "On a long session, the older turns become a short, useful summary. Your recent work stays intact.",
+    summ: "On a very long session the older turns fold into a short summary. The size win is mostly already done by the passes above — what the summarizer adds is keeping the old context faithful.",
   };
 
   let mode = $state("default");
@@ -38,7 +47,8 @@
   const reduced = $derived(prefersReducedMotion.current);
   const pctT = new Tween(60, { duration: 500, easing: cubicOut });
   const pctN = $derived(Math.round(pctT.current));
-  function setMode(m) { mode = m; openIdx = -1; pctT.set(REDUCE[m], { duration: reduced ? 0 : 500 }); }
+  const metric = $derived(METRIC[mode]);
+  function setMode(m) { mode = m; openIdx = -1; pctT.set(METRIC[m].num, { duration: reduced ? 0 : 500 }); }
   const active = (r) => r.on.includes(mode);
 </script>
 
@@ -96,8 +106,8 @@
 
   <div class="ins-foot">
     <div class="foot-metric">
-      <span class="fm-num" class:summ={mode === "summ"}>≈{pctN}%</span>
-      <span class="fm-lbl">smaller request <span class="dim">· live long session</span></span>
+      <span class="fm-num" class:summ={mode === "summ"}>≈{pctN}{metric.unit}</span>
+      <span class="fm-lbl">{metric.label} <span class="dim">· {metric.sub}</span></span>
     </div>
     <p class="foot-note">
       {#if mode === "summ"}
