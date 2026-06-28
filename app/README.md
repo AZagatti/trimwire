@@ -56,7 +56,7 @@ app/
 - Add desktop signing via `tauri-action`; defer mobile/iOS signing to the mobile
   phase. Remote control (phone -> laptop) is the deferred, ToS-gated v3 phase
   (`06-remote-control.md`) — the app just points the same window at a remote URL.
-- **Lock Tauri's CSP + capabilities.** `src-tauri/tauri.conf.json` sets `security.csp: null`
-  for the scaffold; the Aug-2024 Tauri audit found any-origin IPC + an unauthenticated
-  dev-server disk exposure, so deny-by-default capabilities and a real CSP are required
-  before this ships. See `../docs/cockpit/10-security-fresh-sources.md` G5.
+- **Lock Tauri's CSP + capabilities.** `src-tauri/tauri.conf.json` now ships a **restrictive
+  CSP** (not `null`), but capabilities still need scoping to deny-by-default before this ships —
+  the Aug-2024 Tauri audit found any-origin IPC + an unauthenticated dev-server disk exposure.
+  See `../docs/cockpit/10-security-fresh-sources.md` G5.

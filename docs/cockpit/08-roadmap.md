@@ -52,11 +52,6 @@ don't change). **Open for maintainer confirmation.**
 Add-to-Home-Screen. This is the *multi-platform app* for most users; v2 is just a nicer desktop
 shell on top.
 
-**Frontend stack decision:** vanilla DOM vs **Svelte** (doc 04 §2). Given the site is being
-rebranded to Svelte+Astro, the recommendation is **Svelte** so the cockpit shares one idiom +
-component library with the new site — *unless* the cockpit ships before the rebrand, in which case
-start vanilla (a direct lift) and port later (mechanical; data contracts + tokens don't change).
-
 **Exit:** people actually use it locally. That usage is the evidence (AGENTS.md: "measure, don't
 guess") that justifies climbing to v2+.
 

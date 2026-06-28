@@ -58,9 +58,11 @@ the sibling-localhost threat. ([Chrome for Developers](https://developer.chrome.
 
 Any **XSS in the cockpit UI exfiltrates the control token** (then full control). Precedent
 is mixed (VS Code's connection-token is widely seen as the weak link). Corrections:
-- **Mandatory strict CSP** (ideally nonces, not `'unsafe-inline'`) on the token-bearing
-  page. The POC adds a CSP + `X-Frame-Options: DENY` (`src/admin/mod.rs` `build`); production
-  should move inline script/style to nonces.
+- **Mandatory strict CSP** (nonces, not `'unsafe-inline'`) on the token-bearing page.
+  **Done in the POC:** the cockpit HTML is served with a **per-render nonce CSP**
+  (`script-src 'nonce-…'; style-src 'nonce-…'; worker-src 'none'`, no `'unsafe-inline'`) via
+  `html_response` in `src/admin/mod.rs`; an injected `<script>` can't run. The remaining
+  hardening is the HttpOnly-cookie handshake below (so the token isn't in the DOM at all).
 - **Prefer a one-time same-origin handshake → `HttpOnly; SameSite=Strict; Secure` cookie +
   the custom anti-CSRF header** over an in-DOM bearer (cookie unreadable by XSS; header
   unsettable cross-site). `localhost` is a secure context, so `Secure` cookies work.
@@ -105,14 +107,17 @@ the token in any other tool" — and keep R6's hard defer-and-re-review gate on 
 ## What was implemented in the POC from this pass
 
 - `Sec-Fetch-Site` gate, ordered before the token compare (G1).
-- CSP + `X-Frame-Options: DENY` on every response, incl. the token-bearing HTML (G3, partial).
+- **Per-render nonce CSP** on the token-bearing HTML (no `'unsafe-inline'`; `worker-src 'none'`)
+  + `X-Frame-Options: DENY`; a strict no-script CSP on the JSON/manifest/SVG surface (G3).
 - Authority check uses the request authority (h2 `:authority` ∪ `Host`), default-deny (G1).
+- **`upstream` stripped from `/api/v1/version`** — credential-routing info never crosses the
+  control surface (a contract test asserts its absence). *(added in the cross-model review round)*
 - (Already present:) loopback-only bind, content-free responses, token never returned.
 
 ## Production follow-ups (tracked for v1, not done in the POC)
 
 - Custom preflight-forcing header on all mutating endpoints (G1).
-- CSP nonces instead of `'unsafe-inline'`; consider the HttpOnly-cookie handshake (G3).
+- HttpOnly-cookie handshake so the token isn't in the DOM at all (G3 — nonce CSP is done).
 - `[admin]` global-only — **done** (`src/config.rs`, with a regression test).
 - `db_path` stripped from the control-API `/stats` response — **done** (G-equivalent to the
   content-free red line).

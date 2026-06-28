@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="Flightdeck" />
-<style>
+<style nonce="__TRIMWIRE_NONCE__">
   /* Lifted tokens from site/src/styles/custom.css so the cockpit reads as one
      brand. POC uses vanilla DOM; production may use Svelte (see
      docs/cockpit/04-web-cockpit-ui.md). */
@@ -96,7 +96,7 @@
     <code>docs/cockpit/</code>.
   </p>
 </main>
-<script>
+<script nonce="__TRIMWIRE_NONCE__">
   // Same-origin token bootstrap (substituted server-side; never travels in a URL).
   const TOKEN = "__TRIMWIRE_TOKEN__";
   const authed = (path) => fetch(path, { headers: { Authorization: "Bearer " + TOKEN } });

@@ -121,7 +121,6 @@ struct AdminState {
     gateway_listen: String,
     admin_listen: String,
     profile: String,
-    upstream: String,
 }
 
 // ---- server ----------------------------------------------------------------
@@ -151,7 +150,6 @@ pub async fn run(addr: SocketAddr, config: Arc<Config>, gateway_listen: String) 
             .profile
             .clone()
             .unwrap_or_else(|| "default".to_owned()),
-        upstream: config.server.upstream.clone(),
     });
 
     let listener = tokio::net::TcpListener::bind(addr)
@@ -293,22 +291,23 @@ async fn handle(req: Request<Incoming>, state: Arc<AdminState>) -> Response<Full
 // ---- handlers --------------------------------------------------------------
 
 fn serve_cockpit(state: &AdminState) -> Response<Full<Bytes>> {
-    let html = COCKPIT_HTML.replace("__TRIMWIRE_TOKEN__", &state.token);
-    build(
-        StatusCode::OK,
-        "text/html; charset=utf-8",
-        html.into_bytes(),
-    )
+    let nonce = gen_nonce();
+    let html = COCKPIT_HTML
+        .replace("__TRIMWIRE_TOKEN__", &state.token)
+        .replace("__TRIMWIRE_NONCE__", &nonce);
+    html_response(&nonce, html.into_bytes())
 }
 
 fn version_payload(state: &AdminState) -> serde_json::Value {
+    // Deliberately does NOT include `[server] upstream`: it's the field that decides
+    // where the OAuth token is forwarded, and a *custom* upstream URL can embed
+    // credentials (userinfo/query). Even the destination is "derived" credential-
+    // routing info (doc 07 R3), and the UI doesn't need it — so it never crosses the
+    // control surface. (Cross-model PR review consensus.)
     serde_json::json!({
         "version": VERSION,
         "control_api": "v1-poc",
         "profile": state.profile,
-        // The upstream DESTINATION URL (not the OAuth token — that is never read
-        // or returned by the control plane; doc 07 R3).
-        "upstream": state.upstream,
         "gateway_listen": state.gateway_listen,
         "admin_listen": state.admin_listen,
     })
@@ -351,8 +350,14 @@ fn stats_payload(state: &AdminState) -> serde_json::Value {
 }
 
 /// One-shot SSE snapshot of aggregate, content-free counts. The browser
-/// `EventSource` reconnects on stream end, so this behaves as a light live feed
-/// for the POC; production replaces it with the broadcast channel in doc 03 §4.
+/// `EventSource` reconnects on stream end (~2s), so this behaves as a light live
+/// feed for the POC.
+///
+/// COST (cross-model PR review): each reconnect re-runs `Ledger::report()` (a
+/// SQLite aggregate over the `requests` table), so an open tab issues one ledger
+/// read every ~2s. Fine for a POC on a single loopback client; production replaces
+/// this with a `tokio::sync::broadcast` channel fed at ledger-write time (doc 03
+/// §4) so there is zero per-connection query.
 fn events_response(state: &AdminState) -> Response<Full<Bytes>> {
     let stats = stats_payload(state);
     let snapshot = serde_json::json!({
@@ -440,24 +445,55 @@ fn text(status: StatusCode, msg: &str) -> Response<Full<Bytes>> {
     build(status, "text/plain; charset=utf-8", msg.as_bytes().to_vec())
 }
 
+/// Response builder for the non-HTML surface (JSON / manifest / SVG). These carry
+/// no inline script or style, so the CSP is maximally strict — no `script-src`,
+/// no `'unsafe-inline'`. The token-bearing HTML uses [`html_response`] instead.
 fn build(status: StatusCode, content_type: &str, body: Vec<u8>) -> Response<Full<Bytes>> {
     Response::builder()
         .status(status)
         .header(CONTENT_TYPE, content_type)
         .header("Cache-Control", "no-store")
         .header("X-Content-Type-Options", "nosniff")
-        // Defense-in-depth for the token-bearing HTML: forbid framing and lock the
-        // page to its own origin + inline assets (it makes only same-origin
-        // `fetch`/`EventSource` calls). Harmless on the JSON responses too.
         .header("X-Frame-Options", "DENY")
         .header(
             "Content-Security-Policy",
-            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; \
-             connect-src 'self'; img-src 'self'; manifest-src 'self'; base-uri 'none'; \
-             form-action 'none'",
+            "default-src 'none'; img-src 'self'; connect-src 'self'; manifest-src 'self'; \
+             base-uri 'none'; form-action 'none'",
         )
         .body(Full::new(Bytes::from(body)))
         .unwrap_or_else(|_| Response::new(Full::new(Bytes::from_static(b"{}"))))
+}
+
+/// Response builder for the token-bearing cockpit HTML. Uses a **per-render CSP
+/// nonce** instead of `'unsafe-inline'` so an injected `<script>` can't run and
+/// exfiltrate the in-DOM control token (cross-model PR review consensus / doc 10
+/// G3). `worker-src 'none'` blocks a script-registered service worker.
+fn html_response(nonce: &str, body: Vec<u8>) -> Response<Full<Bytes>> {
+    let csp = format!(
+        "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; \
+         connect-src 'self'; img-src 'self'; manifest-src 'self'; worker-src 'none'; \
+         base-uri 'none'; form-action 'none'"
+    );
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/html; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("X-Frame-Options", "DENY")
+        .header("Content-Security-Policy", csp)
+        .body(Full::new(Bytes::from(body)))
+        .unwrap_or_else(|_| Response::new(Full::new(Bytes::from_static(b"<!doctype html>"))))
+}
+
+/// A random 128-bit CSP nonce (hex), fresh per response.
+fn gen_nonce() -> String {
+    let mut buf = [0u8; 16];
+    // A nonce only needs to be unguessable per response; if the OS RNG hiccups we
+    // still must not reuse a constant, so fall back to a process+addr-derived value.
+    if getrandom::fill(&mut buf).is_err() {
+        return format!("{:x}", std::process::id() as u128).repeat(2);
+    }
+    hex::encode(buf)
 }
 
 /// `control.token` lives next to the ledger DB (same `~/.trimwire/` dir by
@@ -472,51 +508,59 @@ fn token_path(db_path: &str) -> PathBuf {
     parent.join("control.token")
 }
 
-/// Load the existing per-install control token, or generate a fresh 256-bit one
-/// (hex) and persist it `0600`.
+/// Load the existing per-install control token, or atomically create a fresh
+/// 256-bit one (hex, `0600`). Concurrency-safe: two daemons starting at once
+/// can't end up with mismatched tokens — the create is `O_EXCL`, and the loser of
+/// the race adopts the winner's token (cross-model PR review: TOCTOU fix).
 fn load_or_create_token(db_path: &str) -> Result<String> {
     let path = token_path(db_path);
-    if let Ok(existing) = std::fs::read_to_string(&path) {
-        let t = existing.trim().to_owned();
-        if !t.is_empty() {
-            return Ok(t);
-        }
+    if let Some(t) = read_token(&path) {
+        return Ok(t);
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
     }
     let mut buf = [0u8; 32];
     getrandom::fill(&mut buf).map_err(|e| anyhow::anyhow!("getrandom: {e}"))?;
     let token = hex::encode(buf);
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    match create_new_token(&path, &token) {
+        Ok(()) => Ok(token),
+        // Lost a concurrent-create race: adopt the token the other process wrote,
+        // so both processes share one token rather than overwriting each other.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            read_token(&path).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "control token {} exists but is empty/corrupt — delete it and restart",
+                    path.display()
+                )
+            })
+        }
+        Err(e) => Err(anyhow::anyhow!("create {}: {e}", path.display())),
     }
-    write_token_secure(&path, &token)?;
-    Ok(token)
 }
 
-/// Persist the control token, creating the file `0600` from the start on Unix so
-/// there is no world-readable window between `create` and `chmod` (the token IS a
-/// secret, unlike the content-free ledger).
-fn write_token_secure(path: &Path, token: &str) -> Result<()> {
+/// Read a non-empty trimmed token from `path`, or `None` if absent/empty.
+fn read_token(path: &Path) -> Option<String> {
+    let t = std::fs::read_to_string(path).ok()?.trim().to_owned();
+    (!t.is_empty()).then_some(t)
+}
+
+/// Atomically create the token file with `O_EXCL` (fails if it already exists) and
+/// `0600` from the start on Unix — no TOCTOU, no concurrent-create overwrite, and
+/// no world-readable window between create and chmod (the token IS a secret).
+fn create_new_token(path: &Path, token: &str) -> std::io::Result<()> {
     use std::io::Write;
     let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut f = opts
-        .open(path)
-        .with_context(|| format!("create {}", path.display()))?;
-    f.write_all(token.as_bytes())
-        .with_context(|| format!("write {}", path.display()))?;
-    // Belt-and-braces: if the file pre-existed with looser perms (mode() only
-    // applies on create), tighten it. Surface a failure rather than swallow it.
-    if let Err(e) = crate::fsperm::restrict_to_owner(path) {
-        eprintln!(
-            "[cockpit] warning: could not restrict {} to 0600: {e}",
-            path.display()
-        );
-    }
+    let mut f = opts.open(path)?;
+    f.write_all(token.as_bytes())?;
+    // Belt-and-braces on platforms where mode() at create isn't honored (non-Unix).
+    let _ = crate::fsperm::restrict_to_owner(path);
     Ok(())
 }
 
@@ -536,7 +580,6 @@ mod tests {
             gateway_listen: "127.0.0.1:8765".to_owned(),
             admin_listen: "127.0.0.1:8766".to_owned(),
             profile: "default".to_owned(),
-            upstream: "https://api.anthropic.com".to_owned(),
         }
     }
 
@@ -562,9 +605,13 @@ mod tests {
                 "control_api",
                 "gateway_listen",
                 "profile",
-                "upstream",
-                "version",
+                "version"
             ]
+        );
+        // The credential-routing `upstream` must NEVER be on the control surface.
+        assert!(
+            v.get("upstream").is_none(),
+            "upstream (credential routing) must not be exposed"
         );
     }
 
@@ -594,6 +641,59 @@ mod tests {
         let icons = m["icons"].as_array().expect("icons array");
         assert!(!icons.is_empty(), "at least one icon for installability");
         assert!(COCKPIT_ICON.starts_with("<svg"), "icon is an SVG document");
+    }
+
+    /// Build-correctness guard (Sonnet PR review S1): the served HTML must carry
+    /// both substitution placeholders, else the token/nonce silently won't inject.
+    #[test]
+    fn cockpit_html_has_token_and_nonce_placeholders() {
+        assert!(
+            COCKPIT_HTML.contains("__TRIMWIRE_TOKEN__"),
+            "token placeholder"
+        );
+        assert!(
+            COCKPIT_HTML.contains("__TRIMWIRE_NONCE__"),
+            "nonce placeholder"
+        );
+        // The nonce must guard both the inline <style> and <script>.
+        assert_eq!(
+            COCKPIT_HTML.matches("nonce=\"__TRIMWIRE_NONCE__\"").count(),
+            2,
+            "both inline <style> and <script> must carry the nonce"
+        );
+    }
+
+    /// The token-bearing HTML response must use a nonce CSP, never `'unsafe-inline'`
+    /// (cross-model review consensus / doc 10 G3).
+    #[test]
+    fn html_response_uses_nonce_csp_not_unsafe_inline() {
+        let resp = html_response("deadbeef", b"<!doctype html>".to_vec());
+        let csp = resp
+            .headers()
+            .get("Content-Security-Policy")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            csp.contains("script-src 'nonce-deadbeef'"),
+            "nonce script-src"
+        );
+        assert!(
+            !csp.contains("'unsafe-inline'"),
+            "no unsafe-inline on the token page"
+        );
+        assert!(
+            csp.contains("worker-src 'none'"),
+            "block script-registered workers"
+        );
+    }
+
+    #[test]
+    fn gen_nonce_is_unique_and_hex() {
+        let a = gen_nonce();
+        let b = gen_nonce();
+        assert_eq!(a.len(), 32, "128-bit hex");
+        assert_ne!(a, b, "fresh per call");
+        assert!(a.bytes().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]

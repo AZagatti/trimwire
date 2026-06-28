@@ -487,7 +487,7 @@ elvish  — source inline from rc.elv:\n\
     /// listener on even if `[admin] enabled` is false. Loopback-only; the OAuth
     /// token is never exposed and only content-free stats are shown. See
     /// docs/cockpit/.
-    #[command(display_order = 30)]
+    #[command(display_order = 24)]
     Cockpit,
 
     /// Check whether a newer trimwire release is available (read-only). Never

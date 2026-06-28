@@ -84,7 +84,7 @@
   <span class="brand"><b>trim</b>wire · Flightdeck</span> <span class="tag">DEMO</span>
   <span class="pill"><span class="dot"></span> gateway serving</span>
   <span class="pill" id="profile">profile default</span>
-  <span class="pill">v0.3.16</span>
+  <span class="pill">demo build</span>
   <span style="margin-left:auto"></span>
   <button id="theme">◑ theme</button>
 </header>
@@ -242,7 +242,7 @@
   // simulated live feed
   const log = document.getElementById("log");
   const models=["claude-opus-4-8","claude-opus-4-8","claude-haiku-4-5"];
-  const strat=["bloat_cap thinking_strip","dedup stale_reads","sliding_window bloat_cap","thinking_strip image_strip"];
+  const strat=["bloat_cap thinking_strip","cross_turn_dedup stale_reads","sliding_window bloat_cap","thinking_strip image_strip"];
   let reqN=1284, tick=0;
   function emit(){
     const inB=(180+(tick*37)%260)*1024, red=38+(tick*7)%18, out=Math.round(inB*(1-red/100));
