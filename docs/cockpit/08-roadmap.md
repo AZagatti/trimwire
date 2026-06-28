@@ -77,20 +77,23 @@ R1–R10) so this is new endpoints (`/pair`, `/devices`) + a transport, not a v2
 **Relay (c)/reverse-tunnel (d) are v3.x last resorts** — zero-knowledge, off by default, built
 only if BYO-overlay friction demands it.
 
-## v4 — Mobile
+## v4 — Mobile (no paid app store)
 
-**What:** a phone client (remote controller) — the same web frontend in Tauri-mobile or, if it
-still lags, Capacitor. Depends on v3 (remote) being in place. The heaviest CI/signing tax
-(App Store / Play) — pay it only if mobile is genuinely wanted vs "cross-OS desktop + a browser
-PWA on phones" already satisfying "multi-platform" (doc 05 §7 open question).
+**What:** a phone client (remote controller) = the **same web frontend as an installable PWA**
+(add-to-home-screen on iOS + Android, $0, no store) — the recommended default. Optionally a
+**Tauri-Android / Capacitor APK** distributed via **GitHub Releases + F-Droid** (also $0, no Play
+account) if a native Android shell is wanted. **No Apple Developer / Google Play fee is required**
+(maintainer constraint), and **Flutter is not the fallback** — it's always the same web frontend
+(doc 05 §4). Depends on v3 (remote) being in place for cross-device control.
 
 ## Cross-cutting workstreams
 
 - **Docs:** update `ARCHITECTURE.md` (new `admin/` module + layer rows + decision log),
   `CONFIGURATION.md` (`[admin]`), `SECURITY.md` (loopback+token+Host-pin model, content-free
   events) as the relevant phase lands.
-- **Tests:** content-free event test (mirrors `audit.rs`); token-leak CI test; JSON-shape
-  snapshots equal to the CLI `--json`; atomic-write crash-safety; hot-reload visibility.
+- **Tests:** content-free event test (mirrors `audit.rs`); token-leak CI test; **API contract
+  tests** so the cockpit can't break when CLI commands change (`/api/v1` shape pinned; byte-equal
+  to `--json` from the shared builder — doc 11); atomic-write crash-safety; hot-reload visibility.
 - **Parity oracle:** untouched throughout — the control plane never touches `strategies/` or
   `pairing/`.
 

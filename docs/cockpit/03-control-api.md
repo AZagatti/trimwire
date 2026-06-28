@@ -22,6 +22,10 @@
    knobs via an `ArcSwap<Config>`; **restart-required** for `[server] listen`/`upstream`.
 6. **Build:** 5 PRs, each green through the existing CI. The control plane never touches
    `strategies/`/`pairing/`, so the **Python parity oracle is unaffected**.
+7. **Stability:** the cockpit speaks **only** this versioned `/api/v1` contract — it never
+   shells out to the CLI or parses CLI output. The CLI and the API are two consumers of one
+   library, and contract tests fail CI on any shape drift, so **CLI commands can change freely
+   without breaking the cockpit**. See [doc 11](11-api-stability.md).
 
 ## 1. Why a separate loopback admin listener
 

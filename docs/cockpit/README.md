@@ -39,6 +39,17 @@ Maintainer decisions captured up front (these framed the whole investigation):
 | 08 | [Roadmap](08-roadmap.md) | The phased plan tying it all together, with a security/ToS gate at each step |
 | 09 | [Proof of Concept](09-poc.md) | A small, end-to-end vertical slice (control API + auth + web UI + Tauri scaffold) that compiles, tests, and runs |
 | 10 | [Security: fresh-sources addendum](10-security-fresh-sources.md) | A second adversarial pass (2026 sources): Host-pin needs 2 more gates, LNA doesn't cover localhost, token-in-HTML tradeoff, base-proxy ToS — with the POC hardening applied |
+| 11 | [API stability](11-api-stability.md) | **How the cockpit is guaranteed not to break when CLI commands change** — versioned `/api/v1` contract, two-consumers-one-library, contract tests that fail CI on drift |
+
+## Maintainer constraints (incorporated)
+
+- **No Flutter/Dart.** It was only ever a runner-up flip-case and is now ruled out; the mobile
+  fallback is the *same web frontend* (PWA/Capacitor), never a second-language UI (docs 02, 05).
+- **No paid app stores for this app.** Mobile ships as an installable **PWA** ($0, both iOS +
+  Android) with an optional Android APK via **GitHub Releases / F-Droid** — no Apple Developer /
+  Play fee (docs 05 §4, 08 v4).
+- **CLI changes must not break the cockpit.** The cockpit speaks only the versioned `/api/v1`
+  contract (never the CLI); contract tests fail CI on shape drift (doc 11; tests in `src/admin/`).
 
 ## Executive summary
 

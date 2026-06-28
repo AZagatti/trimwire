@@ -482,6 +482,64 @@ fn write_token_secure(path: &Path, token: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// A synthetic state for the payload-contract tests (no I/O).
+    fn test_state(db_path: &str) -> AdminState {
+        AdminState {
+            auth: Arc::new(LoopbackToken {
+                token: "t".to_owned(),
+            }),
+            token: "t".to_owned(),
+            port: 8766,
+            db_path: db_path.to_owned(),
+            gateway_listen: "127.0.0.1:8765".to_owned(),
+            admin_listen: "127.0.0.1:8766".to_owned(),
+            profile: "default".to_owned(),
+            upstream: "https://api.anthropic.com".to_owned(),
+        }
+    }
+
+    /// CONTRACT TEST (see docs/cockpit/11-api-stability.md): the cockpit frontend
+    /// codes against these exact top-level keys. If a refactor changes the
+    /// `/api/v1/version` shape, this fails loudly — forcing a conscious, additive
+    /// change or an `/api/v2`, never a silent break. The CLI command surface can
+    /// change freely; the cockpit depends only on this contract.
+    #[test]
+    fn version_payload_contract_keys_are_stable() {
+        let v = version_payload(&test_state("/nope/ledger.db"));
+        let mut keys: Vec<&str> = v
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "admin_listen",
+                "control_api",
+                "gateway_listen",
+                "profile",
+                "upstream",
+                "version",
+            ]
+        );
+    }
+
+    /// CONTRACT TEST: the missing-ledger branch is a documented, stable shape
+    /// (`available:false`), and the control API must NEVER expose `db_path` (the
+    /// content-free red line, doc 07 R7/R8) even though the underlying `Report`
+    /// carries it.
+    #[test]
+    fn stats_payload_missing_ledger_is_available_false_and_pathless() {
+        let v = stats_payload(&test_state("/nonexistent/dir/ledger.db"));
+        assert_eq!(v["available"], serde_json::Value::Bool(false));
+        assert!(
+            v.get("db_path").is_none(),
+            "control API must never expose db_path"
+        );
+    }
+
     #[test]
     fn constant_time_eq_matches_and_rejects() {
         assert!(constant_time_eq(b"abc", b"abc"));

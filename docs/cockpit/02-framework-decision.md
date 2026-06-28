@@ -60,9 +60,11 @@ frontend is *already* a browser PWA (the "web UI" deliverable) **and** the conte
 shell (the "app" deliverable). PWA-now and Tauri-later is a coherent sequence, not a rewrite,
 because both start from one clean web frontend talking to the `/api/v1` control surface.
 
-**Flutter** is the only option that beats Tauri on *mobile today* and shares Rust logic via
-`flutter_rust_bridge` — pick it **only if** mobile becomes v1-critical *and* the web and app
-UIs are allowed to diverge. Under the brief (mobile deferred, share the web UI), neither holds.
+**Flutter is ruled out** (maintainer preference: no Flutter/Dart) — and it lost on the merits
+anyway (it throws away the shared web UI for a separate Dart frontend). So the mobile story does
+**not** fall back to Flutter. The mobile fallback, if Tauri-mobile ever disappoints, is the
+**same web frontend as a PWA / Capacitor wrapper** — never a second UI in another language. See
+doc 05 for mobile, including distribution **without paid app-store accounts**.
 
 ## Top risks of Tauri 2 + mitigations
 

@@ -45,19 +45,40 @@ needs (doc 04), so it's not net-new tooling.
 | Linux | AppImage / DEB / RPM | optional | incremental on the existing 3-platform matrix; WebKitGTK is the rendering risk (doc 02 R1) — test with Playwright/WebKit |
 | macOS | DMG / `.app` | notarization (Apple Developer acct) | add when shipping publicly; avoid `externalBin` notarization pitfalls by talking to a *separate* daemon process (shape A) rather than bundling, where possible |
 | Windows | NSIS / MSI | Authenticode | Tauri GitHub Action handles it |
-| iOS / Android | App Store / Play | full mobile signing | **deferred to the mobile phase** — the heaviest CI tax; don't pay it until then |
+| iOS / Android | **see §4 — no paid store required** | self-sign / sideload / PWA | **deferred to the mobile phase**; the no-store distribution paths below avoid the App Store / Play fees entirely |
 
-Use Tauri's official `tauri-action` GitHub workflow. **Defer all mobile/iOS pipeline + Apple
-Developer cost** to the mobile phase. Early internal builds can be unsigned/ad-hoc.
+Use Tauri's official `tauri-action` GitHub workflow. **Defer all mobile pipeline cost** to the
+mobile phase. Early internal builds can be unsigned/ad-hoc.
 
-## 4. Mobile (deferred)
+## 4. Mobile — without paying Google Play or the App Store
 
-Tauri 2 mobile is *stable-API but maturing* — fine for a **webview-driven remote-control panel**
-(the cockpit's exact shape), weak for deep-native. Since mobile is a later phase, time is on our
-side (plugin ecosystem is growing). The mobile client is a **remote** controller (phone →
-laptop's trimwire), so it depends on the remote architecture (doc 06) being in place. If Tauri
-mobile still lags at that point, **Capacitor-wrapping the same web UI** is the cheap fallback —
-again, same frontend.
+**Maintainer constraint:** *won't pay for Google Play / Apple Developer just for this app.* That
+is fine — none of trimwire's other distribution (the binary ships via GitHub releases / crates.io
+/ binstall) goes through an app store, and mobile here is a **remote-control panel** (phone →
+laptop's trimwire), not a consumer app. Distribution options, by platform, that need **no paid
+store account**:
+
+| Platform | No-store option(s) | Cost | Notes |
+|---|---|---|---|
+| **Android** | (a) **PWA / "Add to Home Screen"** of the cockpit web UI; (b) **direct APK** from GitHub Releases (sideload); (c) **F-Droid** (free, open-source store) | **$0** | Android allows sideloading by default. A Tauri-Android or Capacitor APK built in CI and attached to a release is installable with no Play account. F-Droid is the free "real store" path. |
+| **iOS** | (a) **PWA / "Add to Home Screen"** (Safari) — *recommended*; (b) free **sideload** (AltStore/SideStore, 7-day re-sign on a free Apple ID) | **$0** | iOS has no free public store, but an installable PWA covers the remote-control use case with zero fee and zero signing. Native sideload exists but is higher-friction (7-day expiry). |
+| **Desktop** | GitHub Releases (DMG/MSI/AppImage), Homebrew, etc. | $0–low | Optional code-signing only when shipping publicly. |
+
+**Recommendation: PWA-first for mobile.** Because the cockpit is one web frontend (doc 04), the
+phone "app" can simply be the **installable PWA** — add-to-home-screen on both iOS and Android,
+zero store, zero fee, zero second codebase. Layer a **Tauri-Android / Capacitor APK** (distributed
+via GitHub Releases + F-Droid) on top *only if* a native Android shell is wanted later. This keeps
+the maintainer's "no paid stores" constraint as a first-class design choice, not a compromise.
+
+> Note: a **remote** PWA controlling a laptop over the network interacts with the deferred remote
+> architecture (doc 06) and Chrome's Local Network Access (doc 10 G2/G4) — the phone reaches the
+> daemon over the user's **overlay/LAN** (a loopback-equivalent origin via the tunnel), not a
+> public page hitting `127.0.0.1`. Same-machine use stays trivial; cross-device is the v3 gate.
+
+Tauri 2 mobile itself is *stable-API but maturing* — fine for this webview-driven panel, weak for
+deep-native; re-evaluate at the mobile-phase kickoff. **Flutter is not the fallback** (maintainer
+preference, and it would mean a second UI); the fallback is always **the same web frontend** as a
+PWA or Capacitor wrapper.
 
 ## 5. What to share vs not
 
