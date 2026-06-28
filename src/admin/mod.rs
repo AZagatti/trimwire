@@ -168,13 +168,33 @@ pub async fn run(addr: SocketAddr, config: Arc<Config>, gateway_listen: String) 
 async fn handle(req: Request<Incoming>, state: Arc<AdminState>) -> Response<Full<Bytes>> {
     let headers = req.headers();
 
-    // DNS-rebinding / drive-by-browser guard (doc 03 §5, doc 06 R7): the literal
-    // loopback `Host` must match our authority, and any `Origin` must be same-origin.
-    if !host_allowed(headers, state.port) {
+    // DNS-rebinding / drive-by-browser guard (doc 03 §5, doc 06 R7): the request
+    // authority must be the literal loopback authority, and any `Origin` must be
+    // same-origin. Use the URI authority (HTTP/2 `:authority`) when present, else
+    // the `Host` header (HTTP/1.1) — checking only `Host` would mis-handle h2.
+    let authority = req
+        .uri()
+        .authority()
+        .map(|a| a.as_str().to_owned())
+        .or_else(|| {
+            headers
+                .get(HOST)
+                .and_then(|h| h.to_str().ok())
+                .map(str::to_owned)
+        });
+    if !authority_allowed(authority.as_deref(), state.port) {
         return text(StatusCode::FORBIDDEN, "forbidden: bad Host");
     }
     if !origin_allowed(headers, state.port) {
         return text(StatusCode::FORBIDDEN, "forbidden: bad Origin");
+    }
+    // Third independent gate: the browser-set, page-unforgeable `Sec-Fetch-Site`
+    // fetch-metadata (OWASP CSRF defense). Reject anything a cross-site context
+    // initiated, regardless of Host/Origin. These checks run BEFORE the token
+    // compare and before any side effect, so a DNS-rebinding caller never reaches
+    // the auth path even if the token check had a bug.
+    if !sec_fetch_site_ok(headers) {
+        return text(StatusCode::FORBIDDEN, "forbidden: cross-site request");
     }
 
     let method = req.method().clone();
@@ -274,6 +294,12 @@ fn stats_payload(state: &AdminState) -> serde_json::Value {
             Ok(mut v) => {
                 if let Some(obj) = v.as_object_mut() {
                     obj.insert("available".to_owned(), serde_json::Value::Bool(true));
+                    // Content-free guarantee (doc 07 R7/R8): `Report` carries the
+                    // local ledger `db_path` (an absolute filesystem path leaking
+                    // the OS username/layout). Never expose it on the network
+                    // surface — the CLI `stats --json` keeps it, the control API
+                    // strips it.
+                    obj.remove("db_path");
                 }
                 v
             }
@@ -311,9 +337,13 @@ fn authorities(port: u16) -> [String; 3] {
     ]
 }
 
-fn host_allowed(headers: &HeaderMap, port: u16) -> bool {
-    match headers.get(HOST).and_then(|h| h.to_str().ok()) {
-        Some(h) => authorities(port).iter().any(|a| a == h),
+/// Default-deny: a missing/unparseable authority is rejected; otherwise it must
+/// be one of the literal loopback authorities for our port (defeats DNS-rebinding,
+/// which keeps the attacker's `Host`/authority even when the name resolves to
+/// 127.0.0.1).
+fn authority_allowed(authority: Option<&str>, port: u16) -> bool {
+    match authority {
+        Some(a) => authorities(port).iter().any(|allowed| allowed == a),
         None => false,
     }
 }
@@ -324,6 +354,17 @@ fn origin_allowed(headers: &HeaderMap, port: u16) -> bool {
         // cross-origin page sends its own (rejected). Non-browser clients (curl,
         // top-level navigation) send no Origin — allowed.
         Some(o) => authorities(port).iter().any(|a| format!("http://{a}") == o),
+        None => true,
+    }
+}
+
+/// `Sec-Fetch-Site` is set by the browser and cannot be forged by page JS. A
+/// same-origin `fetch`/`EventSource` sends `same-origin`; a typed/bookmarked
+/// navigation sends `none`; a cross-site page sends `cross-site`/`same-site`.
+/// Allow only `same-origin`/`none`; absent header (curl, non-browser) is allowed.
+fn sec_fetch_site_ok(headers: &HeaderMap) -> bool {
+    match headers.get("sec-fetch-site").and_then(|h| h.to_str().ok()) {
+        Some(v) => v == "same-origin" || v == "none",
         None => true,
     }
 }
@@ -364,6 +405,15 @@ fn build(status: StatusCode, content_type: &str, body: Vec<u8>) -> Response<Full
         .header(CONTENT_TYPE, content_type)
         .header("Cache-Control", "no-store")
         .header("X-Content-Type-Options", "nosniff")
+        // Defense-in-depth for the token-bearing HTML: forbid framing and lock the
+        // page to its own origin + inline assets (it makes only same-origin
+        // `fetch`/`EventSource` calls). Harmless on the JSON responses too.
+        .header("X-Frame-Options", "DENY")
+        .header(
+            "Content-Security-Policy",
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; \
+             connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'",
+        )
         .body(Full::new(Bytes::from(body)))
         .unwrap_or_else(|_| Response::new(Full::new(Bytes::from_static(b"{}"))))
 }
@@ -396,9 +446,36 @@ fn load_or_create_token(db_path: &str) -> Result<String> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    std::fs::write(&path, &token).with_context(|| format!("write {}", path.display()))?;
-    let _ = crate::fsperm::restrict_to_owner(&path);
+    write_token_secure(&path, &token)?;
     Ok(token)
+}
+
+/// Persist the control token, creating the file `0600` from the start on Unix so
+/// there is no world-readable window between `create` and `chmod` (the token IS a
+/// secret, unlike the content-free ledger).
+fn write_token_secure(path: &Path, token: &str) -> Result<()> {
+    use std::io::Write;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts
+        .open(path)
+        .with_context(|| format!("create {}", path.display()))?;
+    f.write_all(token.as_bytes())
+        .with_context(|| format!("write {}", path.display()))?;
+    // Belt-and-braces: if the file pre-existed with looser perms (mode() only
+    // applies on create), tighten it. Surface a failure rather than swallow it.
+    if let Err(e) = crate::fsperm::restrict_to_owner(path) {
+        eprintln!(
+            "[cockpit] warning: could not restrict {} to 0600: {e}",
+            path.display()
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -413,20 +490,17 @@ mod tests {
     }
 
     #[test]
-    fn host_guard_pins_loopback_authority() {
-        let mut h = HeaderMap::new();
-        h.insert(HOST, "127.0.0.1:8766".parse().unwrap());
-        assert!(host_allowed(&h, 8766));
+    fn authority_guard_pins_loopback() {
+        assert!(authority_allowed(Some("127.0.0.1:8766"), 8766));
+        assert!(authority_allowed(Some("localhost:8766"), 8766));
+        assert!(authority_allowed(Some("[::1]:8766"), 8766));
 
-        // DNS-rebinding: attacker domain resolved to 127.0.0.1 keeps its own Host.
-        let mut bad = HeaderMap::new();
-        bad.insert(HOST, "evil.example.com".parse().unwrap());
-        assert!(!host_allowed(&bad, 8766));
-
-        // Wrong port is rejected too.
-        let mut wrong_port = HeaderMap::new();
-        wrong_port.insert(HOST, "127.0.0.1:9999".parse().unwrap());
-        assert!(!host_allowed(&wrong_port, 8766));
+        // DNS-rebinding: attacker domain resolved to 127.0.0.1 keeps its own authority.
+        assert!(!authority_allowed(Some("evil.example.com"), 8766));
+        // Wrong port, bare scheme-less host, and a missing authority are all rejected.
+        assert!(!authority_allowed(Some("127.0.0.1:9999"), 8766));
+        assert!(!authority_allowed(Some("127.0.0.1"), 8766));
+        assert!(!authority_allowed(None, 8766)); // default-deny
     }
 
     #[test]
@@ -441,6 +515,28 @@ mod tests {
 
         // No Origin (curl / top-level navigation) is allowed.
         assert!(origin_allowed(&HeaderMap::new(), 8766));
+    }
+
+    #[test]
+    fn sec_fetch_site_rejects_cross_site_only() {
+        let mut same = HeaderMap::new();
+        same.insert("sec-fetch-site", "same-origin".parse().unwrap());
+        assert!(sec_fetch_site_ok(&same));
+
+        let mut nav = HeaderMap::new();
+        nav.insert("sec-fetch-site", "none".parse().unwrap());
+        assert!(sec_fetch_site_ok(&nav));
+
+        let mut cross = HeaderMap::new();
+        cross.insert("sec-fetch-site", "cross-site".parse().unwrap());
+        assert!(!sec_fetch_site_ok(&cross));
+
+        let mut sibling = HeaderMap::new();
+        sibling.insert("sec-fetch-site", "same-site".parse().unwrap());
+        assert!(!sec_fetch_site_ok(&sibling));
+
+        // Non-browser clients (curl) send no fetch-metadata — allowed.
+        assert!(sec_fetch_site_ok(&HeaderMap::new()));
     }
 
     #[test]

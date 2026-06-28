@@ -38,6 +38,7 @@ Maintainer decisions captured up front (these framed the whole investigation):
 | 07 | [Security, ToS & red lines](07-security-tos-redlines.md) | The disagree-seeking review, the risk register, and the non-negotiable red lines |
 | 08 | [Roadmap](08-roadmap.md) | The phased plan tying it all together, with a security/ToS gate at each step |
 | 09 | [Proof of Concept](09-poc.md) | A small, end-to-end vertical slice (control API + auth + web UI + Tauri scaffold) that compiles, tests, and runs |
+| 10 | [Security: fresh-sources addendum](10-security-fresh-sources.md) | A second adversarial pass (2026 sources): Host-pin needs 2 more gates, LNA doesn't cover localhost, token-in-HTML tradeoff, base-proxy ToS — with the POC hardening applied |
 
 ## Executive summary
 

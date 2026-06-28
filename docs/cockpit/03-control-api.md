@@ -130,6 +130,14 @@ the `Event` serializer can only emit allowlisted fields.
 
 ## 5. Auth & security
 
+> **Fresh-sources update (doc 10):** Host-pin alone is necessary-but-not-sufficient.
+> Add two more independent gates, ordered **before** the token compare and any side
+> effect: (a) **`Sec-Fetch-Site`** enforcement (browser-set, unforgeable — reject
+> non-`same-origin`/`none`), and (b) a **custom non-simple header** on mutating
+> endpoints (e.g. `X-Trimwire-Control`) to force a CORS preflight that default-deny
+> CORS fails. Note Chrome 142 **Local Network Access does NOT cover localhost→localhost**,
+> so do not rely on browser prompts for sibling-localhost threats. See doc 10.
+
 - **Loopback-only bind** (`127.0.0.1`/`[::1]`); a non-loopback admin bind is **rejected** at
   bind time (analogous to `config.rs`'s `is_unsafe_listen`).
 - **Bearer token:** 256-bit random, `~/.trimwire/control.token` mode `0600` (reuse

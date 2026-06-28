@@ -66,6 +66,21 @@
   layer rules say must not contain mutation). Don't erode the layer discipline that keeps the
   core testable.
 
+## Fresh-sources update (doc 10)
+
+A second adversarial pass against 2026 sources added these constraints (full detail +
+citations in [doc 10](10-security-fresh-sources.md)):
+
+- **R4 strengthened:** Host-pin is necessary-but-not-sufficient. Require a **`Sec-Fetch-Site`**
+  gate **and** a **custom preflight-forcing header** on writes, ordered before the token check.
+- **Token-in-HTML is a tradeoff, not solved:** any XSS exfiltrates the control token → require
+  a **strict CSP** (nonces, not `'unsafe-inline'`) or move to an **`HttpOnly` cookie handshake**;
+  native client reads the token from the **OS keychain**.
+- **New ToS note (R6 reinforced):** the 2026-02-20 clarification has **no carve-out for local
+  proxies/middleware**, and the **base passthrough proxy itself** (which modifies request bodies)
+  is grayer now — pre-write the affirmative compliance argument; keep remote hard-gated.
+- **Browser LNA (Chrome 142) does NOT cover localhost→localhost** — don't lean on it.
+
 ## The safest minimal viable cockpit (the dissent's counter-proposal)
 
 If trimwire wanted the *smallest* responsible step:
