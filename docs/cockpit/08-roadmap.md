@@ -11,10 +11,10 @@
 | Phase | Deliverable | Reach | Risk | Gate to start |
 |---|---|---|---|---|
 | **v0** | Read-only cockpit (live, served by the binary) | local loopback | very low | none — it's a reskin of `dashboard` |
-| **v1** | Full **local** control (the control API + Flightdeck UI) | local loopback | low–med | v0 shipped; red lines R1–R9 enforced; token-leak CI test green |
-| **v2** | **Desktop app** (Tauri) wrapping the same UI | local | med | v1 shipped; app is a thin client of the v1 API |
-| **v3** | **Remote** control (BYO overlay + opt-in LAN) | cross-network, opt-in | high | **written ToS re-review (R6)**; remote seams from v1 in place; pairing/devices built |
-| **v4** | **Mobile** app (remote controller) | remote | high | v3 shipped; Tauri-mobile (or Capacitor) maturity check; Apple/Play pipeline |
+| **v1** | Full **local** control (the control API + Flightdeck UI), **installable as a PWA** | local loopback | low–med | v0 shipped; red lines R1–R9 enforced; token-leak CI test green |
+| **v2** | **Tauri desktop wrapper** of the same PWA (tray, autostart, sidecar) | local | med | v1 shipped; shell is a thin client of the v1 API |
+| **v3** | **Remote** control (BYO overlay + opt-in LAN) — the **PWA over TLS/overlay** | cross-network, opt-in | high | **written ToS re-review (R6)**; remote seams from v1 in place; pairing/devices built |
+| **v4** | **Mobile = the PWA** (Add-to-Home-Screen, no store/fee); native APK only if ever needed | remote | low–med | v3 shipped (for cross-device); **no Apple/Play pipeline required** |
 
 ## v0 — Read-only cockpit (the cheap, near-free win)
 
@@ -47,19 +47,30 @@ one idiom + component library with the new site — *unless* the cockpit ships b
 in which case start vanilla (a direct lift) and port later (mechanical; data contracts + tokens
 don't change). **Open for maintainer confirmation.**
 
+**PWA in v1:** the binary serves a Web App Manifest + icon (already in the POC), so v1 is
+**installable** — desktop browsers get "Install app", and phones on the same machine/overlay get
+Add-to-Home-Screen. This is the *multi-platform app* for most users; v2 is just a nicer desktop
+shell on top.
+
+**Frontend stack decision:** vanilla DOM vs **Svelte** (doc 04 §2). Given the site is being
+rebranded to Svelte+Astro, the recommendation is **Svelte** so the cockpit shares one idiom +
+component library with the new site — *unless* the cockpit ships before the rebrand, in which case
+start vanilla (a direct lift) and port later (mechanical; data contracts + tokens don't change).
+
 **Exit:** people actually use it locally. That usage is the evidence (AGENTS.md: "measure, don't
 guess") that justifies climbing to v2+.
 
-## v2 — Desktop app (Tauri)
+## v2 — Tauri desktop wrapper (optional convenience)
 
-**What:** a Tauri 2 desktop shell wrapping the **same** web bundle (doc 05). Shape **A**
-(talk-to-running-daemon) first; optional sidecar mode (B) later. Adds desktop packaging/signing
-to the existing 3-platform CI via `tauri-action`. **Still local** — the app talks to
-`127.0.0.1:8766`.
+**What:** a Tauri 2 desktop shell wrapping the **same** PWA bundle (doc 05). Shape **A**
+(talk-to-running-daemon) first; optional sidecar mode (B) later. Adds desktop packaging to the
+existing 3-platform CI via `tauri-action`. **Still local** — the shell talks to `127.0.0.1:8766`.
+It adds tray/autostart/sidecar + OS-keychain token storage; it does **not** add a new UI.
 
-**Why after v1:** the app is a thin client of the v1 API; building it earlier would mean building
-the API and a native shell at once. The HTTP-first design means v2 is low-regret (the PWA still
-works if Tauri disappoints).
+**Why after v1, and why optional:** the shell is a thin client of the v1 API, and the PWA already
+covers "an installable app on every platform." Tauri is a desktop *enhancement*, not the thing
+that makes the cockpit multi-platform. The HTTP-first design means v2 is low-regret (if Tauri
+disappoints, the PWA still works).
 
 ## v3 — Remote control (the gated leap)
 

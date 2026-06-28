@@ -21,8 +21,9 @@ the trimwire binary on a loopback-only control API.*
 | ↳ Read endpoints | `GET /api/v1/{health,version,service,stats}` — `stats` reuses the content-free ledger `Report` verbatim | real |
 | ↳ Live events (doc 03 §4) | `GET /api/v1/events` — SSE, content-free aggregate snapshot | real (one-shot; prod uses a broadcast channel) |
 | **Web cockpit** (doc 04) | `src/admin/cockpit.html` — embedded single-file UI, teal design tokens, same-origin token bootstrap, KPIs + SSE log | real (vanilla; prod may use Svelte) |
+| ↳ **PWA install** (doc 05 — PWA-first) | served `GET /manifest.webmanifest` + `GET /icon.svg`, linked from the HTML → **installable** ("Install app" / Add-to-Home-Screen, no store) | real (manifest+icon; service worker is a follow-up) |
 | ↳ CLI surface | `trimwire cockpit` subcommand + `[admin]` config section | real |
-| **Multi-platform app** (doc 05) | `app/` — Tauri 2 shell scaffold (shape A: thin webview onto the loopback cockpit) | scaffold (not in CI) |
+| **Multi-platform app** (doc 05) | **PWA-primary** (the page above is the app on every platform) + `app/` Tauri 2 desktop-shell scaffold | PWA real; Tauri scaffold (not in CI) |
 | **Remote** (doc 06) | non-loopback bind **refused** at startup; auth/identity seam present | seam only (deferred, by design) |
 | **Security red lines** (doc 07) | loopback-only, token never exposed, `upstream` never written, content-free responses, separate module (not in `gateway.rs`) | enforced |
 

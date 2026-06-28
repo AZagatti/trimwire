@@ -1,10 +1,34 @@
-# 05 — Multi-platform App (Tauri 2)
+# 05 — Multi-platform App: PWA-primary, Tauri-for-desktop
 
-> The desktop (and later mobile) app that controls an installed trimwire. Per doc 02 the stack
-> is **Tauri 2**, wrapping the **same web frontend** as the browser cockpit (doc 04). This doc
-> is the app-specific plan: process model, build/sign/CI, mobile, and what to share vs not.
+> The "multi-platform app" that controls an installed trimwire. **Strategy (updated):
+> PWA-first.** The cockpit is one installable web app — that single artifact *is* the app on
+> every platform: desktop browsers, and **iOS + Android via Add-to-Home-Screen**, with **no app
+> store and no developer fee**. **Tauri 2** (doc 02) is the optional *desktop convenience wrapper*
+> around that same PWA (native window, tray, autostart, manage-the-daemon). Native mobile builds
+> are **deliberately de-prioritized** — see §4.
 
-## 1. Process model — app is a thin shell over the daemon
+## 0. Why PWA-first (and why native mobile is the wrong bet)
+
+- **Maximal code-sharing:** the PWA *is* the shared artifact — one build, every surface (§6).
+  A native mobile app would, at best, wrap the same web view; at worst, fork the UI. PWA gets the
+  reach with zero extra UI.
+- **No paid stores, on both OSes** (maintainer constraint): add-to-home-screen is free on iOS and
+  Android; the binary already serves the manifest + icon (the POC, doc 09).
+- **Android is converging toward iOS.** Google's **developer-verification** requirement begins
+  **Sept 2026** (Brazil/Indonesia/Singapore/Thailand first, then global): all apps — *including
+  sideloaded ones* — must be registered by a verified developer on certified devices
+  ([Android Developers Blog](https://android-developers.googleblog.com/2026/03/android-developer-verification-rolling-out-to-all-developers.html),
+  [Gadget Hacks](https://android.gadgethacks.com/news/googles-new-android-sideloading-rules-start-august-2026/)).
+  So a "free APK sideload" path is becoming as gated as iOS — **the durable store-free path on
+  both is the PWA.**
+- **The cockpit doesn't need native capabilities.** It's a foreground control panel over a live
+  local daemon. The known PWA gaps are all *background* features — no background sync / data-only
+  push, ~70–85% iOS push delivery
+  ([MagicBell](https://www.magicbell.com/blog/pwa-ios-limitations-safari-support-complete-guide)) —
+  none of which a foreground panel uses. (Caveat: EU DMA can downgrade standalone PWAs to a Safari
+  tab; acceptable for self-hosted dev tooling.)
+
+## 1. Process model — every shell is a thin client over the daemon
 
 The app does **not** reimplement trimwire. Two viable shapes (pick per-platform; they're not
 exclusive):
@@ -80,14 +104,65 @@ deep-native; re-evaluate at the mobile-phase kickoff. **Flutter is not the fallb
 preference, and it would mean a second UI); the fallback is always **the same web frontend** as a
 PWA or Capacitor wrapper.
 
-## 5. What to share vs not
+## 5. Code & component sharing (app ↔ web cockpit) — the core of the strategy
 
-**Share:** the entire `dist/` frontend (browser + desktop + mobile); the design tokens; the
-typed control-API client; (if the app links trimwire crates) the `config`/`ledger`/`preview`
-Rust code.
+The cockpit is **one codebase, one build artifact**. The browser PWA, the Tauri desktop shell,
+and any future remote/mobile client are the **same `dist/`** plus a thin per-platform adapter.
+That is the whole reason this is cheap for a solo maintainer.
 
-**Don't share / keep platform-local:** the thin shell (window, tray, native menus, secure-store
-access for the remote phase's device token); signing/packaging config.
+**Shared — ~100% of the frontend (single source of truth):**
+
+- **UI components** — KPI cards, sortable/sticky tables, in-cell bars, config forms, dialogs,
+  the live-monitor list (doc 04 inventory).
+- **Design tokens** — `tokens.css` (teal palette, `0.55rem` radius, dark/light, `tabular-nums`),
+  lifted verbatim from the site so cockpit + site read as one brand.
+- **The typed API client** for `/api/v1` — the *only* way any shell talks to the daemon (doc 11).
+- **The reactive store** + screen/route definitions + formatting/validation helpers
+  (`fmtBytes` stays 1024-based to match `stats::human_bytes`).
+
+**Not shared — a thin platform adapter (tens of lines), behind one interface:**
+
+| Concern | Browser **PWA** | **Tauri** desktop | Remote/mobile (deferred) |
+|---|---|---|---|
+| transport (`api.*`) | same-origin `fetch` / `EventSource` | same-origin to loopback/sidecar, or `invoke` | base URL + device token over TLS/overlay |
+| token / secure store | server-injected same-origin bootstrap | **OS keychain** | OS keychain + pairing (doc 06) |
+| shell chrome | browser tab / installed PWA window | native window, tray, autostart, manage-daemon | mobile home-screen PWA |
+
+**Adding a platform = writing one small adapter, never a new UI.** Screens are
+transport-agnostic; they call typed `api.*` methods and never know which shell they're in.
+
+**Build once, serve/embed everywhere:** a single Vite (or SvelteKit) build emits `dist/` + the
+PWA `manifest`/icon (and later a service worker). The trimwire binary `include_str!`/`rust-embed`s
+and serves it — **the POC already serves the HTML + `manifest.webmanifest` + `icon.svg` this way**
+(doc 09) — and the Tauri shell bundles the *same* `dist/`. One build feeds the browser, the PWA,
+and the desktop app.
+
+**An extra sharing layer on desktop only:** because Tauri's core is Rust, the desktop shell can
+*additionally* reuse trimwire's own crates (ledger read, config types, the typed control-API
+client) — a second layer of sharing no other framework offers (doc 02). The PWA can't link Rust
+and doesn't need to: it speaks the same `/api/v1` contract.
+
+**Net:** sharing isn't just "some components" — it's the **entire frontend artifact + the API
+contract**, with platform differences quarantined to a tiny adapter, plus a bonus Rust-crate layer
+on desktop. That is what lets "one app" mean *every* platform without a second team.
+
+### Offline / service-worker note (additional finding)
+
+A control panel needs the *live* daemon for data, so "offline" is limited by nature: a service
+worker can cache the **app shell** (HTML/CSS/JS/manifest/icon) so the window opens instantly and
+shows a clean "daemon unreachable" state, but the data panes still require the daemon. The POC
+ships the manifest + icon (installable today); the **service worker for app-shell caching is a
+tracked follow-up** — it must be served with a permissive-enough CSP (`worker-src 'self'`) and
+must never cache `/api/*` responses (always network for live, content-free data).
+
+### Secure-context / remote tie-in (additional finding)
+
+PWA install + service workers require a **secure context** (HTTPS *or* `localhost`). Same-machine
+use is `localhost` → secure → works with no TLS (the common case). A **remote** PWA (phone →
+laptop) therefore inherits the **v3 TLS/overlay requirement** (doc 06): the daemon must be reached
+over an HTTPS overlay/LAN origin, not a public page hitting `127.0.0.1` (which also trips Chrome
+Local Network Access, doc 10 G2/G4). So "PWA-first" and "remote is gated on TLS" are consistent,
+not in tension.
 
 ## 6. Risks specific to the app
 

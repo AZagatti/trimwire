@@ -45,9 +45,11 @@ Maintainer decisions captured up front (these framed the whole investigation):
 
 - **No Flutter/Dart.** It was only ever a runner-up flip-case and is now ruled out; the mobile
   fallback is the *same web frontend* (PWA/Capacitor), never a second-language UI (docs 02, 05).
-- **No paid app stores for this app.** Mobile ships as an installable **PWA** ($0, both iOS +
-  Android) with an optional Android APK via **GitHub Releases / F-Droid** — no Apple Developer /
-  Play fee (docs 05 §4, 08 v4).
+- **No paid app stores for this app — and PWA-first.** Mobile ships as an installable **PWA**
+  ($0, both iOS + Android via Add-to-Home-Screen). Native mobile builds are de-prioritized:
+  Android is tightening toward iOS-style developer verification (Sept 2026), so the PWA is the
+  *durable* store-free path on both. The POC already serves a valid `manifest.webmanifest` + icon,
+  so it's installable today (docs 05 §0/§4, 08 v4).
 - **CLI changes must not break the cockpit.** The cockpit speaks only the versioned `/api/v1`
   contract (never the CLI); contract tests fail CI on shape drift (doc 11; tests in `src/admin/`).
 
@@ -64,17 +66,22 @@ already exist** — plus one genuinely new piece of backend: a **local control A
 
 **The shape the whole council and specialist set converged on:**
 
-1. **One web frontend, shipped twice.** Build the cockpit UI once (the POC uses vanilla DOM
-   reusing the site's existing dashboard components + teal design system; **doc 04 recommends
-   Svelte** once the site rebrands to Svelte+Astro — an open decision, not settled). Serve it
-   from the trimwire binary on a loopback port for the **browser web UI**, and wrap the *same
-   bundle* in a **Tauri 2** shell for the **multi-platform app**. No second UI.
+1. **One web frontend = the whole app, everywhere (PWA-primary).** Build the cockpit UI once
+   (the POC uses vanilla DOM reusing the site's dashboard components + teal tokens; **doc 04
+   recommends Svelte** once the site rebrands — open decision). That single artifact is an
+   **installable PWA**: the **browser web UI** on desktop and the **mobile app via
+   Add-to-Home-Screen on iOS + Android — no app store, no fee**. **Tauri 2** is the optional
+   *desktop wrapper* of the same PWA (tray, autostart, sidecar). **No second UI; ~100% of the
+   frontend is shared**, with platform differences confined to a tiny transport/secure-store
+   adapter (doc 05 §5).
 2. **A separate loopback admin listener** (`127.0.0.1:8766`) carries the control API, kept
    physically off the gateway port (`8765`) that transits the Anthropic OAuth token. REST
-   verbs wrap existing CLI/lib functions; SSE pushes content-free live events.
-3. **Tauri 2** wins the framework council *unanimously* — it's the only option that honors
-   trimwire's lightweight single-binary ethos, shares Rust crates with the daemon, and
-   reuses the existing web UI. Desktop now; mobile and remote are later phases.
+   verbs wrap existing CLI/lib functions; SSE pushes content-free live events. The cockpit
+   speaks **only** this versioned `/api/v1` contract — never the CLI — so CLI changes can't
+   break it (doc 11).
+3. **Tauri 2** wins the framework council *unanimously* as the desktop wrapper — it honors
+   trimwire's lightweight single-binary ethos, shares Rust crates with the daemon, and reuses
+   the same web UI. PWA covers mobile (no native build); remote is a later, gated phase.
 4. **Remote control stays local-only in v1**, but the control API ships ten cheap "seams"
    (auth abstraction, capability scoping, an upstream-credential firewall enforced by a CI
    leak test, Host/Origin validation, …) so the remote phase is *additive*. The recommended

@@ -44,6 +44,31 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// from the design) so the page can authenticate its `fetch` calls.
 const COCKPIT_HTML: &str = include_str!("cockpit.html");
 
+/// Web App Manifest — makes the cockpit an installable PWA (browser "Install app",
+/// iOS/Android "Add to Home Screen"). PWA-first is the multi-platform strategy
+/// (doc 05): one installable web app covers desktop browsers and both mobile OSes
+/// with no app-store account or fee. Served unauthenticated (non-sensitive static).
+const COCKPIT_MANIFEST: &str = r##"{
+  "name": "trimwire Flightdeck",
+  "short_name": "Flightdeck",
+  "description": "Control panel for a local trimwire daemon (content-free).",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1417",
+  "theme_color": "#0f1417",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}"##;
+
+/// A tiny scalable app icon (teal rounded square + "t" glyph), echoing the site logo.
+const COCKPIT_ICON: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="112" fill="#0f1417"/>
+<rect x="40" y="40" width="432" height="432" rx="88" fill="none" stroke="#2aa39c" stroke-width="20"/>
+<path d="M180 168h152M256 168v210" fill="none" stroke="#2aa39c" stroke-width="40" stroke-linecap="round"/>
+</svg>"##;
+
 // ---- auth seam -------------------------------------------------------------
 
 /// Authentication seam (doc 06, R1): handlers receive a yes/no verdict from an
@@ -203,6 +228,22 @@ async fn handle(req: Request<Incoming>, state: Arc<AdminState>) -> Response<Full
     // Same-origin web UI (token injected at load). Host/Origin-guarded above.
     if method == Method::GET && (path == "/" || path == "/index.html") {
         return serve_cockpit(&state);
+    }
+    // PWA install assets (static, non-sensitive). Make the cockpit installable on
+    // desktop browsers and mobile home screens with no app store (doc 05).
+    if method == Method::GET && path == "/manifest.webmanifest" {
+        return build(
+            StatusCode::OK,
+            "application/manifest+json",
+            COCKPIT_MANIFEST.as_bytes().to_vec(),
+        );
+    }
+    if method == Method::GET && path == "/icon.svg" {
+        return build(
+            StatusCode::OK,
+            "image/svg+xml",
+            COCKPIT_ICON.as_bytes().to_vec(),
+        );
     }
 
     // Unauthenticated, content-free endpoints (parity with `/healthz`):
@@ -412,7 +453,8 @@ fn build(status: StatusCode, content_type: &str, body: Vec<u8>) -> Response<Full
         .header(
             "Content-Security-Policy",
             "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; \
-             connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'",
+             connect-src 'self'; img-src 'self'; manifest-src 'self'; base-uri 'none'; \
+             form-action 'none'",
         )
         .body(Full::new(Bytes::from(body)))
         .unwrap_or_else(|_| Response::new(Full::new(Bytes::from_static(b"{}"))))
@@ -538,6 +580,20 @@ mod tests {
             v.get("db_path").is_none(),
             "control API must never expose db_path"
         );
+    }
+
+    /// The PWA manifest must be valid JSON with the keys a browser needs to offer
+    /// "Install" / "Add to Home Screen" (doc 05 — PWA is the multi-platform path).
+    #[test]
+    fn pwa_manifest_is_valid_and_installable() {
+        let m: serde_json::Value =
+            serde_json::from_str(COCKPIT_MANIFEST).expect("manifest is valid JSON");
+        assert_eq!(m["display"], "standalone");
+        assert_eq!(m["start_url"], "/");
+        assert!(m["name"].is_string());
+        let icons = m["icons"].as_array().expect("icons array");
+        assert!(!icons.is_empty(), "at least one icon for installability");
+        assert!(COCKPIT_ICON.starts_with("<svg"), "icon is an SVG document");
     }
 
     #[test]

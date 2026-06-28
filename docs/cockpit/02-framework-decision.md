@@ -16,6 +16,15 @@ ever becomes a v1 priority. They independently derived the *same* architecture:
 > **multi-platform app**. The daemon exposes a plain HTTP control API, so the browser, the
 > desktop app, and a future phone client are *one frontend with three transports*.
 
+> **Refinement (maintainer steer): PWA is the *primary* multi-platform vehicle; Tauri is the
+> *desktop convenience wrapper*.** The runner-up and the winner are not in tension — the cockpit
+> is one installable web app (the PWA) that covers desktop browsers and **iOS + Android via
+> Add-to-Home-Screen, no store, no fee**, and Tauri simply gives that same app a nicer desktop
+> shell (tray, autostart, sidecar daemon, OS-keychain token). With Android tightening toward
+> iOS-style verification (Sept 2026, doc 05 §0), the PWA is also the *durable* store-free path on
+> both mobile OSes. So the "framework decision" is really **PWA + Tauri-for-desktop**, not "a
+> native app per platform." Native mobile builds are de-prioritized (doc 05 §0/§4).
+
 ## Scored trade-off (representative; the three councils agreed within rounding)
 
 Weights reflect the brief's priorities. Scores 1–5 (5 = best fit).
