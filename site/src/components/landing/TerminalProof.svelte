@@ -367,7 +367,7 @@
   .cl-model { color: var(--ink-2); } .cl-sep { color: #3c4947; }
   .cl-bar { color: var(--ok); letter-spacing: -0.08em; } .cl-empty { color: #2a3534; }
   .cl-pct { color: var(--ink-2); font-variant-numeric: tabular-nums; } .cl-tok { color: var(--ink-3); font-variant-numeric: tabular-nums; }
-  .ccline2 { padding: 0 0.9rem 0.4rem; font-size: 0.64rem; color: #5a6b69; }
+  .ccline2 { padding: 0 0.9rem 0.4rem; font-size: 0.64rem; color: #7c8b89; }
 
   .tw-head { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-bottom: 1px solid #141b1a; }
   .tw-name { font-size: var(--t-fs-sub); color: var(--ink-3); } .tw-head .grow { flex: 1; }
