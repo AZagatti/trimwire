@@ -154,19 +154,22 @@
   // it settle back. Works on touch (no hover needed) and is self-clearing so the
   // highlight never stays stuck. `groups` may be one or several row-group keys.
   let clickTok = 0;
+  let poking = $state(false); // true only while a click-poke's timed highlight is live
   async function pokeGroups(groups) {
     const set = new Set(groups.filter(Boolean));
     if (!set.size) return;
     const my = ++clickTok;
+    poking = true;
     hoverG = set;
     reveal(`[data-g="${[...set][0]}"]`);
     await wait(1500);
     if (my !== clickTok) return;          // another click superseded us
+    poking = false;
     hoverG = null;
     if (phase === "done") live();
   }
 
-  function reset() { shownN = 0; typed = ""; log = []; shaped = false; flashG = new Set(); hoverG = null; summLink = false; summ = "idle"; clickTok++; }
+  function reset() { shownN = 0; typed = ""; log = []; shaped = false; flashG = new Set(); hoverG = null; summLink = false; summ = "idle"; clickTok++; poking = false; }
   function idleLog() {
     return gateway
       ? [{ kind: "req" }, { kind: "idle" }]
@@ -362,7 +365,7 @@
               class="lg lg-{l.kind}"
               class:linkable={(l.kind === "op" && l.op.g) || (l.kind === "turnop" && l.tp.g) || l.kind === "summ"}
               onmouseenter={() => { if (l.kind === "op" && l.op.g) { hoverG = new Set([l.op.g]); reveal(`[data-g="${l.op.g}"]`); } else if (l.kind === "turnop" && l.tp.g) { hoverG = new Set([l.tp.g]); reveal(`[data-g="${l.tp.g}"]`); } }}
-              onmouseleave={() => { if (clickTok === 0) { hoverG = null; if (phase === "done") live(); } }}
+              onmouseleave={() => { if (!poking) { hoverG = null; if (phase === "done") live(); } }}
               onclick={() => { if (l.kind === "op" && l.op.g) pokeGroups([l.op.g]); else if (l.kind === "turnop" && l.tp.g) pokeGroups([l.tp.g]); else if (l.kind === "summ") pokeGroups(["reads", "window", "bloat", "dedup"]); }}
               transition:fade={{ duration: reduced ? 0 : 150 }}
             >
