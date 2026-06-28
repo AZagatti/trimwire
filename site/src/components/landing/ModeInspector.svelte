@@ -12,16 +12,21 @@
   import { slide, fade } from "svelte/transition";
 
   // Each row: plain behavior first; `tech` (the real strategy id) is secondary.
-  // `on` lists which modes the pass runs in.
+  // `on` lists which modes the pass runs in. `hue` tints the row's dot + state
+  // so the list reads as differentiated actions, not one monotone column.
   const ROWS = [
-    { plain: "Recent work & edits", verb: "kept raw", detail: "Your current task, every file edit, and the latest turns are always sent untouched.", tech: "authoring + recent window", on: ["default", "gentle", "summ"], always: true },
-    { plain: "Repeated tool output", verb: "collapsed", detail: "When the same command runs twice, only the latest result is sent.", tech: "cross_turn_dedup", on: ["default", "gentle", "summ"] },
-    { plain: "A file you later changed", verb: "removed", detail: "A file you read earlier and then edited is removed — the newer version is what counts.", tech: "stale_reads", on: ["default", "summ"] },
-    { plain: "Oversized tool output", verb: "trimmed", detail: "A huge result — like an install log — is trimmed to its head and tail.", tech: "bloat_cap", on: ["default", "gentle", "summ"] },
-    { plain: "Old search output", verb: "collapsed", detail: "Old, re-runnable output like searches or screenshots, once it's no longer recent.", tech: "sliding_window", on: ["default", "summ"] },
-    { plain: "Solved-step reasoning", verb: "removed", detail: "Reasoning notes from steps the agent already finished.", tech: "thinking_strip", on: ["default", "gentle", "summ"] },
+    { plain: "Recent work & edits", verb: "kept raw", detail: "Your current task, every file edit, and the latest turns are always sent untouched.", tech: "authoring + recent window", on: ["default", "gentle", "summ"], always: true, hue: "keep" },
+    { plain: "Repeated tool output", verb: "collapsed", detail: "When the same command runs twice, only the latest result is sent.", tech: "cross_turn_dedup", on: ["default", "gentle", "summ"], hue: "dedup" },
+    { plain: "A file you later changed", verb: "removed", detail: "A file you read earlier and then edited is removed — the newer version is what counts.", tech: "stale_reads", on: ["default", "summ"], hue: "prune" },
+    { plain: "Oversized tool output", verb: "trimmed", detail: "A huge result — like an install log — is trimmed to its head and tail.", tech: "bloat_cap", on: ["default", "gentle", "summ"], hue: "bloat" },
+    { plain: "Old search output", verb: "collapsed", detail: "Old, re-runnable output like searches or screenshots, once it's no longer recent.", tech: "sliding_window", on: ["default", "summ"], hue: "dedup" },
+    { plain: "Solved-step reasoning", verb: "removed", detail: "Reasoning notes from steps the agent already finished.", tech: "thinking_strip", on: ["default", "gentle", "summ"], hue: "prune" },
   ];
-  const REDUCE = { default: 65, gentle: 40, summ: 78 };
+  // Live, long-session reductions (docs/RESULTS.md §A/B). NOT the offline replay
+  // numbers — those over-state typical use. Read-heavy long sessions land 50–65%
+  // on default; gentle is a lighter, content-dependent touch; summarizer's value
+  // is retention of the older tail, not a bigger size cut, so it tracks default.
+  const REDUCE = { default: 60, gentle: 35, summ: 62 };
   const LEDE = {
     default: "Trimwire keeps your recent work and edits intact, then removes repeated or heavy tool output before the request is sent.",
     gentle: "A lighter setting — only the safest, most certain trims run. Less reduction, more caution.",
@@ -31,7 +36,7 @@
   let mode = $state("default");
   let openIdx = $state(-1);
   const reduced = $derived(prefersReducedMotion.current);
-  const pctT = new Tween(65, { duration: 500, easing: cubicOut });
+  const pctT = new Tween(60, { duration: 500, easing: cubicOut });
   const pctN = $derived(Math.round(pctT.current));
   function setMode(m) { mode = m; openIdx = -1; pctT.set(REDUCE[m], { duration: reduced ? 0 : 500 }); }
   const active = (r) => r.on.includes(mode);
@@ -56,7 +61,7 @@
 
   <ul class="rows">
     {#each ROWS as r, i (r.tech)}
-      <li class="row" class:off={!active(r)}>
+      <li class="row" class:off={!active(r)} data-hue={r.hue}>
         <button type="button" class="row-btn" aria-expanded={openIdx === i} onclick={() => (openIdx = openIdx === i ? -1 : i)}>
           <span class="dot" class:keep={r.always}></span>
           <span class="r-plain">{r.plain}</span>
@@ -92,7 +97,7 @@
   <div class="ins-foot">
     <div class="foot-metric">
       <span class="fm-num" class:summ={mode === "summ"}>≈{pctN}%</span>
-      <span class="fm-lbl">smaller request <span class="dim">· illustrative session</span></span>
+      <span class="fm-lbl">smaller request <span class="dim">· live long session</span></span>
     </div>
     <p class="foot-note">
       {#if mode === "summ"}
@@ -129,9 +134,18 @@
   .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--accent); flex-shrink: 0; }
   .dot.keep { background: var(--ok); } .dot.summ { background: var(--c-summ); }
   .row.off .dot { background: var(--ink-3); }
+  /* per-action hues so the list reads as differentiated passes, not one column.
+     Tasteful, low-saturation; reuses the existing token palette. */
+  .row[data-hue="keep"] .dot { background: var(--ok); }
+  .row[data-hue="dedup"] .dot { background: var(--accent-hi); }
+  .row[data-hue="prune"] .dot { background: var(--c-summ); }
+  .row[data-hue="bloat"] .dot { background: var(--c-prune); }
   .r-plain { font-weight: 500; } .grow { flex: 1; }
   .r-state { font-family: var(--mono); font-size: 0.74rem; color: var(--ink-3); white-space: nowrap; }
   .row:not(.off) .r-state { color: var(--accent-hi); }
+  .row:not(.off)[data-hue="keep"] .r-state { color: var(--ok); }
+  .row:not(.off)[data-hue="prune"] .r-state { color: var(--c-summ); }
+  .row:not(.off)[data-hue="bloat"] .r-state { color: var(--c-prune); }
   .row.off .r-state { color: var(--ink-3); }
   .row-memory .r-state { color: var(--ink-3); } .row-memory.summon .r-state { color: var(--c-summ); }
   .chev { font-family: var(--mono); color: var(--ink-3); width: 1rem; text-align: center; }

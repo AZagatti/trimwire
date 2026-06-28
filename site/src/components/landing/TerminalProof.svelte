@@ -40,52 +40,77 @@
 
   // Real session output only. `g` links a row to the daemon strategy that shapes
   // it on the wire (text never changes). `old` = turn-1 backlog the summarizer
-  // folds. `ctx` = native context-window usage % the bar should reach after this
-  // row (rises through turn 1, drops at the prune, rises again through turn 2).
+  // folds. `ctx` = native context-window usage % the bar reaches after this row.
+  // Longer multi-turn session: usage climbs, the gateway prunes each request, so
+  // the bar oscillates in a healthy band instead of running away. `prune` on a
+  // row = the gateway shapes that turn's request there (turn 1 = full showcase,
+  // later turns = compact one-line prunes → the daemon keeps pace with the agent).
   const EV = [
-    { k: "user", text: "refactor the storage layer to use sqlite", ctx: 11 },
-    { k: "asst", text: "Let me see how storage works today.", ctx: 14 },
-    { k: "tool", call: "Read(app/storage.ts)", res: "86 lines", g: "reads", old: 1, ctx: 23 },
-    { k: "tool", call: 'Grep("interface Store")', res: "12 matches · 4 files", g: "window", old: 1, ctx: 30 },
-    { k: "asst", text: "It's a JSON-backed store. I'll add a sqlite implementation.", ctx: 33 },
-    { k: "tool", call: "Bash(npm i better-sqlite3)", res: "added 1 package · 612 lines", g: "bloat", old: 1, ctx: 46 },
-    { k: "tool", call: "Edit(app/storage.ts)", res: "+48 −12", keep: 1, ctx: 50 },
-    { k: "tool", call: "Bash(npm test)", res: "FAIL · 2 failing · “no such table: todos”", g: "dedup", old: 1, ctx: 58 },
-    { k: "asst", text: "Migration's missing — I'll add the schema.", ctx: 61 },
-    { k: "tool", call: "Write(app/migrations/001_init.sql)", res: "created · 14 lines", keep: 1, ctx: 65 },
+    // ── turn 1 — refactor storage to sqlite (the teaching moment) ──
+    { k: "user", text: "refactor the storage layer to use sqlite", ctx: 9 },
+    { k: "asst", text: "Let me see how storage works today.", ctx: 12 },
+    { k: "tool", call: "Read(app/storage.ts)", res: "86 lines", g: "reads", old: 1, ctx: 19 },
+    { k: "tool", call: 'Grep("interface Store")', res: "12 matches · 4 files", g: "window", old: 1, ctx: 26 },
+    { k: "asst", text: "It's a JSON-backed store. I'll add a sqlite implementation.", ctx: 30 },
+    { k: "tool", call: "Bash(npm i better-sqlite3)", res: "added 1 package · 612 lines", g: "bloat", old: 1, ctx: 41 },
+    { k: "tool", call: "Edit(app/storage.ts)", res: "+48 −12", keep: 1, ctx: 46 },
+    { k: "tool", call: "Bash(npm test)", res: "FAIL · 2 failing · “no such table: todos”", g: "dedup", old: 1, ctx: 54 },
+    { k: "asst", text: "Migration's missing — I'll add the schema.", ctx: 58 },
+    { k: "tool", call: "Write(app/migrations/001_init.sql)", res: "created · 14 lines", keep: 1, ctx: 63 },
     { k: "tool", call: "Edit(app/db.ts)", res: "+9 −0", keep: 1, ctx: 68 },
-    { k: "tool", call: "Bash(npm test)", res: "40 passing · 3.0s", keep: 1, ctx: 73 },
-    { k: "asst", text: "sqlite storage is in and the suite passes." }, // OPS_AT: prune fires → drop
-    { k: "user", text: "also keep the JSON export working", ctx: 36 },
-    { k: "asst", text: "Routing the export through sqlite.", ctx: 39 },
-    { k: "tool", call: "Edit(app/export.ts)", res: "+21 −3", keep: 1, ctx: 45 },
-    { k: "tool", call: "Bash(npm test)", res: "41 passing · 3.1s", keep: 1, ctx: 50 },
-    { k: "asst", text: "Done — the JSON export now reads from sqlite. Tests green (41).", ctx: 53 },
+    { k: "tool", call: "Bash(npm test)", res: "40 passing · 3.0s", keep: 1, ctx: 73 }, // turn-1 peak
+    { k: "asst", text: "sqlite storage is in and the suite passes.", prune: "show" },
+    // ── turn 2 — keep the JSON export working ──
+    { k: "user", text: "also keep the JSON export working", ctx: 44 },
+    { k: "asst", text: "Routing the export through sqlite.", ctx: 48 },
+    { k: "tool", call: "Edit(app/export.ts)", res: "+21 −3", keep: 1, ctx: 52 },
+    { k: "tool", call: "Bash(npm test)", res: "41 passing · 3.1s", g: "dedup2", ctx: 56 },
+    { k: "asst", text: "JSON export now reads from sqlite.", prune: "t2" },
+    // ── turn 3 — concurrency safety ──
+    { k: "user", text: "make sure concurrent writes don't corrupt the db", ctx: 53 },
+    { k: "asst", text: "I'll wrap writes in a transaction and turn on WAL.", ctx: 58 },
+    { k: "tool", call: "Read(app/db.ts)", res: "63 lines", g: "reads2", ctx: 64 },
+    { k: "tool", call: "Edit(app/db.ts)", res: "+12 −2 · BEGIN IMMEDIATE + WAL", keep: 1, ctx: 69 },
+    { k: "tool", call: "Bash(npm test -- --concurrency)", res: "44 passing · 4.2s", g: "dedup2", ctx: 72 }, // turn-3 peak
+    { k: "asst", text: "Writes are transactional now and WAL is on.", prune: "t3" },
+    // ── turn 4 — query performance ──
+    { k: "user", text: "add an index so the list query is fast", ctx: 56 },
+    { k: "asst", text: "Adding an index on (done, created_at).", ctx: 60 },
+    { k: "tool", call: "Edit(app/migrations/002_index.sql)", res: "created · 3 lines", keep: 1, ctx: 63 },
+    { k: "tool", call: "Bash(npm test)", res: "45 passing · 3.4s", g: "dedup2", ctx: 66 },
+    { k: "asst", text: "Indexed — list query 40ms → 3ms. Tests green (45).", prune: "t4" },
   ];
-  const OPS_AT = 12;
 
-  // Real pruning strategies + per-strategy KB (illustrative session). Each links
-  // to its source row group. sent = inbound − Σ kb.
+  // Real pruning strategies + per-strategy KB. The turn-1 totals match the live
+  // `resumed_session` long-session result (186.4 KB → 65.2 KB sent, 65% on
+  // default), with bloat_cap dominant as it is on real read-heavy sessions.
+  // Later turns prune smaller, per-request deltas (the gateway runs every turn).
   const IN_KB = 186;
   const OPS = {
     default: [
-      { s: "cross_turn_dedup", kb: 92, why: "repeated test run", g: "dedup" },
-      { s: "stale_reads", kb: 41, why: "superseded read", g: "reads" },
-      { s: "bloat_cap", kb: 8, why: "install log", g: "bloat" },
-      { s: "sliding_window", kb: 4, why: "old search output", g: "window" },
+      { s: "bloat_cap", kb: 92, why: "install log + old results", g: "bloat" },
+      { s: "stale_reads", kb: 14, why: "superseded read", g: "reads" },
+      { s: "cross_turn_dedup", kb: 9, why: "repeated test run", g: "dedup" },
+      { s: "sliding_window", kb: 6, why: "old search output", g: "window" },
     ],
     gentle: [
-      { s: "cross_turn_dedup", kb: 92, why: "repeated test run", g: "dedup" },
-      { s: "bloat_cap", kb: 8, why: "install log", g: "bloat" },
+      { s: "bloat_cap", kb: 71, why: "conservative cap on old results", g: "bloat" },
+      { s: "cross_turn_dedup", kb: 9, why: "repeated test run", g: "dedup" },
     ],
+  };
+  // compact per-turn prunes for the later requests (each is one daemon line)
+  const TURN_PRUNES = {
+    t2: { kb: 12, ops: "cross_turn_dedup", g: "dedup2" },
+    t3: { kb: 21, ops: "stale_reads · cross_turn_dedup", g: "reads2" },
+    t4: { kb: 9, ops: "cross_turn_dedup", g: "dedup2" },
   };
   const sentKb = (m) => IN_KB - (OPS[m] ?? OPS.default).reduce((a, o) => a + o.kb, 0);
 
-  // context-usage settling points (%)
-  const CTX_PRUNE = 31;          // immediate drop when turn-1 prune fires
-  const CTX_DONE = { default: 53, gentle: 64 }; // settled after turn 2 continues
-  const CTX_SUMM = 27;           // after summarizer folds older spans
-  const CTX_OFF = 74;            // gateway off → no prune → pressure stays high
+  // context-usage settling points (%). The bar oscillates: each turn climbs, each
+  // prune nudges it back. CTX_DONE = where it rests after the whole session.
+  const CTX_DONE = { default: 50, gentle: 60 }; // live read-heavy default band
+  const CTX_SUMM = 41;           // after summarizer folds older spans
+  const CTX_OFF = 78;            // gateway off → no prune → pressure stays high
 
   let gateway = $state(true);
   let mode = $state("default");
@@ -114,6 +139,9 @@
   const ctxK = $derived(Math.round((ctx.current / 100) * CTX_TOTAL));
   const BAR = 12;
   const ctxFill = $derived(Math.max(0, Math.min(BAR, Math.round((ctx.current / 100) * BAR))));
+  // usage level drives the bar colour, like a real Claude Code statusline:
+  // green under pressure, amber as it fills, red when the window is nearly full.
+  const ctxLevel = $derived(ctx.current >= 80 ? "hi" : ctx.current >= 60 ? "mid" : "ok");
 
   function activeFlash(g) { return flashG.has(g) || (hoverG && hoverG.has(g)); }
   async function follow(el, on) { await tick(); if (el && on) el.scrollTop = el.scrollHeight; }
@@ -122,27 +150,53 @@
   function live() { stickC = true; if (convoEl) convoEl.scrollTo({ top: convoEl.scrollHeight, behavior: reduced ? "auto" : "smooth" }); }
   async function flash(g) { flashG = new Set([g]); await wait(1200); if (flashG.has(g)) flashG = new Set(); }
 
-  function reset() { shownN = 0; typed = ""; log = []; shaped = false; flashG = new Set(); hoverG = null; summLink = false; summ = "idle"; }
+  // Click a daemon line → reveal the linked row(s), highlight briefly, then let
+  // it settle back. Works on touch (no hover needed) and is self-clearing so the
+  // highlight never stays stuck. `groups` may be one or several row-group keys.
+  let clickTok = 0;
+  async function pokeGroups(groups) {
+    const set = new Set(groups.filter(Boolean));
+    if (!set.size) return;
+    const my = ++clickTok;
+    hoverG = set;
+    reveal(`[data-g="${[...set][0]}"]`);
+    await wait(1500);
+    if (my !== clickTok) return;          // another click superseded us
+    hoverG = null;
+    if (phase === "done") live();
+  }
+
+  function reset() { shownN = 0; typed = ""; log = []; shaped = false; flashG = new Set(); hoverG = null; summLink = false; summ = "idle"; clickTok++; }
   function idleLog() {
     return gateway
       ? [{ kind: "req" }, { kind: "idle" }]
       : [{ kind: "req" }, { kind: "off" }];
   }
 
-  // build the daemon log for the current gateway/mode (transcript untouched)
-  async function applyShaping(my, animate) {
-    summ = "idle"; summLink = false; shaped = false;
-    if (!gateway) { log = idleLog(); return; }
+  // Turn-1 full prune showcase — the teaching moment. Built incrementally so it
+  // interleaves with the agent's turn-1 stream (feels concurrent, not "wait then
+  // prune"). Returns when the forward line is on screen.
+  async function shapeTurn1(my, animate) {
+    if (!gateway) { log = idleLog(); shaped = false; return; }
     log = [{ kind: "req" }, { kind: "head" }];
-    await follow(daemonEl, stickD); if (animate) { await wait(240); if (my !== gen) return; }
-    for (const op of (OPS[mode] ?? OPS.default)) { // summarizer reuses the default passes
+    await follow(daemonEl, stickD); if (animate) { await wait(200); if (my !== gen) return; }
+    for (const op of (OPS[mode] ?? OPS.default)) {
       log = [...log, { kind: "op", op }];
       if (op.g && animate) flash(op.g);
       await follow(daemonEl, stickD);
-      if (animate) { await wait(340); await gate(); if (my !== gen) return; }
+      if (animate) { await wait(300); await gate(); if (my !== gen) return; }
     }
     log = [...log, { kind: "retain" }, { kind: "fwd", sent: sentKb(mode) }, { kind: "edits" }];
     shaped = true;
+    await follow(daemonEl, stickD);
+  }
+
+  // Compact per-turn prune (one request → one line) for turns 2+.
+  async function shapeTurn(my, key) {
+    if (!gateway || !shaped) return;
+    const tp = TURN_PRUNES[key]; if (!tp) return;
+    log = [...log, { kind: "turnreq" }, { kind: "turnop", tp }];
+    if (tp.g) flash(tp.g);
     await follow(daemonEl, stickD);
   }
 
@@ -158,30 +212,39 @@
     live(); // keep older spans subtly grouped (summLink stays true → .summdone)
   }
 
-  // full play — stream the transcript once; prune fires partway; summarizer at end
+  // re-shape the daemon for the current mode/gateway without re-streaming the
+  // transcript (used when toggling after the run settled)
+  async function reshapeDaemon(my, animate) {
+    summ = "idle"; summLink = false;
+    await shapeTurn1(my, animate); if (my !== gen) return;
+    for (const e of EV) { if (e.prune && e.prune !== "show") { await shapeTurn(my, e.prune); if (my !== gen) return; } }
+  }
+
+  // full play — stream the transcript once; daemon prunes each turn as it lands;
+  // summarizer at the end (summarizer mode only)
   async function run() {
     const my = ++gen; paused = false; resumeFn = null;
     reset(); ctx.set(7, { duration: 0 }); phase = "running"; log = idleLog();
     if (reduced) {
       shownN = EV.length;
-      await applyShaping(my, false);
-      ctx.set(gateway ? CTX_DONE[mode] ?? 53 : CTX_OFF, { duration: 0 });
+      await reshapeDaemon(my, false);
+      ctx.set(gateway ? CTX_DONE[mode] ?? 50 : CTX_OFF, { duration: 0 });
       phase = "done"; await runSummarizer(my); return;
     }
     await wait(650); await gate(); if (my !== gen) return;
     for (let i = 0; i < EV.length; i++) {
       const e = EV[i];
-      if (e.k === "user") { await wait(600); await gate(); if (my !== gen) return; for (let c = 0; c <= e.text.length; c++) { typed = e.text.slice(0, c); await wait(46); if (my !== gen) return; } await wait(360); typed = ""; }
+      if (e.k === "user") { await wait(600); await gate(); if (my !== gen) return; for (let c = 0; c <= e.text.length; c++) { typed = e.text.slice(0, c); await wait(40); if (my !== gen) return; } await wait(320); typed = ""; }
       shownN = i + 1;
       if (e.ctx != null) ctx.set(gateway ? e.ctx : Math.max(e.ctx, CTX_OFF * (i / EV.length)), { duration: 700 });
       await follow(convoEl, stickC);
-      if (i === OPS_AT) {
-        await applyShaping(my, true); if (my !== gen) return;
-        if (gateway) ctx.set(CTX_PRUNE, { duration: reduced ? 0 : 850 }); // the drop
-      }
-      await wait(e.k === "tool" ? 520 : 320); await gate(); if (my !== gen) return;
+      // daemon shapes the turn's request right as the agent closes the turn —
+      // turn 1 = the full showcase, later turns = a compact one-liner
+      if (e.prune === "show") { await shapeTurn1(my, true); if (my !== gen) return; }
+      else if (e.prune) { await shapeTurn(my, e.prune); if (my !== gen) return; }
+      await wait(e.k === "tool" ? 480 : 300); await gate(); if (my !== gen) return;
     }
-    if (gateway) ctx.set(CTX_DONE[mode] ?? 53, { duration: reduced ? 0 : 700 });
+    if (gateway) ctx.set(CTX_DONE[mode] ?? 50, { duration: reduced ? 0 : 700 });
     phase = "done";
     await runSummarizer(my);
   }
@@ -189,9 +252,10 @@
   // mode/gateway change after `done` → re-shape (no re-stream) + settle the bar
   function reshape() {
     const my = ++gen; paused = false; const r = resumeFn; resumeFn = null; if (r) r();
-    applyShaping(my, true).then(() => {
+    if (!gateway) { log = idleLog(); shaped = false; ctx.set(CTX_OFF, { duration: reduced ? 0 : 700 }); return; }
+    reshapeDaemon(my, true).then(() => {
       if (my !== gen) return;
-      ctx.set(!gateway ? CTX_OFF : CTX_DONE[mode] ?? 53, { duration: reduced ? 0 : 700 });
+      ctx.set(CTX_DONE[mode] ?? 50, { duration: reduced ? 0 : 700 });
       runSummarizer(my);
     });
   }
@@ -203,9 +267,15 @@
     else run();
   }
 
+  // Auto-run once when scrolled into view. Re-running only happens on an explicit
+  // replay click — casual scrolling back (especially on mobile) must NOT restart
+  // it. A high threshold means it triggers only when the terminal is genuinely
+  // the focus, not on a glancing scroll-by.
+  let hasRun = false;
   function inview(node) {
-    let was = false;
-    const o = new IntersectionObserver((es) => { const v = es[0].isIntersecting; if (v && !was) { was = true; run(); } else if (!v) was = false; }, { threshold: 0.2 });
+    const o = new IntersectionObserver((es) => {
+      if (es[0].isIntersecting && !hasRun) { hasRun = true; run(); o.disconnect(); }
+    }, { threshold: 0.55 });
     o.observe(node); return { destroy() { o.disconnect(); } };
   }
 </script>
@@ -264,7 +334,7 @@
         </div>
         <div class="cc-input"><span class="cc-ps">&gt;</span> <span class="typed">{typed}</span><span class="cursor"></span></div>
         <!-- native Claude Code statusline (context bar = window usage) -->
-        <div class="ccline" aria-hidden="true">
+        <div class="ccline" data-level={ctxLevel} aria-hidden="true">
           <span class="cl-model">{MODEL}</span>
           <span class="cl-sep">·</span>
           <span class="cl-bar">{"█".repeat(ctxFill)}<span class="cl-empty">{"░".repeat(BAR - ctxFill)}</span></span>
@@ -288,7 +358,14 @@
         </div>
         <div class="daemon" aria-hidden="true" bind:this={daemonEl} onscroll={() => onScroll("d")}>
           {#each log as l, i (i)}
-            <div class="lg lg-{l.kind}" class:linkable={l.kind === "op" && l.op.g} onmouseenter={() => { if (l.kind === "op" && l.op.g) { hoverG = new Set([l.op.g]); reveal(`[data-g="${l.op.g}"]`); } }} onmouseleave={() => { hoverG = null; if (phase === "done") live(); }} transition:fade={{ duration: reduced ? 0 : 150 }}>
+            <div
+              class="lg lg-{l.kind}"
+              class:linkable={(l.kind === "op" && l.op.g) || (l.kind === "turnop" && l.tp.g) || l.kind === "summ"}
+              onmouseenter={() => { if (l.kind === "op" && l.op.g) { hoverG = new Set([l.op.g]); reveal(`[data-g="${l.op.g}"]`); } else if (l.kind === "turnop" && l.tp.g) { hoverG = new Set([l.tp.g]); reveal(`[data-g="${l.tp.g}"]`); } }}
+              onmouseleave={() => { if (clickTok === 0) { hoverG = null; if (phase === "done") live(); } }}
+              onclick={() => { if (l.kind === "op" && l.op.g) pokeGroups([l.op.g]); else if (l.kind === "turnop" && l.tp.g) pokeGroups([l.tp.g]); else if (l.kind === "summ") pokeGroups(["reads", "window", "bloat", "dedup"]); }}
+              transition:fade={{ duration: reduced ? 0 : 150 }}
+            >
               {#if l.kind === "req"}
                 <span class="route">POST /v1/messages</span> <span class="dim">· session 3f8a2c · {MODEL}</span>
               {:else if l.kind === "idle"}
@@ -305,6 +382,10 @@
                 <span class="fwd">sent {l.sent} KB</span> <span class="dim">· TTFT 0.48s · in 11.2K tok · cache read 8.1K</span>
               {:else if l.kind === "edits"}
                 <span class="dim">applied_edits 3</span>
+              {:else if l.kind === "turnreq"}
+                <span class="route">POST /v1/messages</span> <span class="dim">· next turn</span>
+              {:else if l.kind === "turnop"}
+                <span class="op-s">{l.tp.ops}</span> <span class="op-kb">−{l.tp.kb} KB</span> <span class="dim">· kept raw tail</span>
               {:else if l.kind === "summhead"}
                 <span class="summc">summarizer</span> <span class="dim">· folding 3 older spans → 1 summary</span>
               {:else if l.kind === "summ"}
@@ -375,12 +456,15 @@
   .cl-model { color: var(--ink-2); } .cl-sep { color: #3c4947; }
   .cl-bar { color: var(--ok); letter-spacing: -0.08em; } .cl-empty { color: #2a3534; }
   .cl-pct { color: var(--ink-2); font-variant-numeric: tabular-nums; } .cl-tok { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  /* context-usage level colours the bar + percent (real CC statusline behaviour) */
+  .ccline[data-level="mid"] .cl-bar { color: #e0b341; } .ccline[data-level="mid"] .cl-pct { color: #e0b341; }
+  .ccline[data-level="hi"] .cl-bar { color: #e0664f; } .ccline[data-level="hi"] .cl-pct { color: #e0664f; }
   .ccline2 { padding: 0 0.9rem 0.4rem; font-size: 0.64rem; color: #7c8b89; }
 
-  .tw-head { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-bottom: 1px solid #141b1a; }
-  .tw-name { font-size: var(--t-fs-sub); color: var(--ink-3); } .tw-head .grow { flex: 1; }
-  .modesw { display: inline-flex; gap: 0.1rem; padding: 0.15rem; border: 1px solid var(--border-2); border-radius: 999px; background: var(--inset); }
-  .modesw button { font-family: var(--mono); font-size: 0.66rem; color: var(--ink-3); background: transparent; border: 0; border-radius: 999px; padding: 0.22rem 0.5rem; cursor: pointer; transition: color 0.15s, background 0.15s; }
+  .tw-head { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-bottom: 1px solid #141b1a; flex-wrap: nowrap; min-height: 2.1rem; }
+  .tw-name { font-size: var(--t-fs-sub); color: var(--ink-3); white-space: nowrap; flex-shrink: 0; } .tw-head .grow { flex: 1; }
+  .modesw { display: inline-flex; gap: 0.1rem; padding: 0.15rem; border: 1px solid var(--border-2); border-radius: 999px; background: var(--inset); flex-shrink: 0; flex-wrap: nowrap; }
+  .modesw button { font-family: var(--mono); font-size: 0.66rem; color: var(--ink-3); background: transparent; border: 0; border-radius: 999px; padding: 0.22rem 0.5rem; cursor: pointer; transition: color 0.15s, background 0.15s; white-space: nowrap; }
   .modesw button.on { color: #04100f; background: var(--accent); }
   .modesw button.m-summ.on { color: #0a0612; background: var(--c-summ); }
   .modesw.locked { opacity: 0.55; }

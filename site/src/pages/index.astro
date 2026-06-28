@@ -67,13 +67,11 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
 
       /* terminal is the only wide element (Superset/Conductor canvas) */
       .term-wide { width: min(86rem, 96vw); margin-inline: auto; }
-      /* mobile: pan the natural-width scene across the viewport (no squeeze) */
+      /* mobile: the terminal window itself pans (overflow-x on .termwin), so the
+         wrapper must NOT add a second scroller or an edge mask — the mask faded
+         the window border + text mid-read. Just let it be full-width. */
       @media (max-width: 52rem) {
-        .term-wide {
-          width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0.3rem;
-          -webkit-mask-image: linear-gradient(to right, transparent 0, #000 2%, #000 93%, transparent 100%);
-          mask-image: linear-gradient(to right, transparent 0, #000 2%, #000 93%, transparent 100%);
-        }
+        .term-wide { width: 100%; max-width: 100%; }
       }
 
       .vx-footer a { color: var(--ink-2); } .vx-footer a:hover { color: var(--accent-hi); }
