@@ -1,10 +1,13 @@
 # trimwire Cockpit — Research & Plan
 
-> **Status: PLANNING / RESEARCH. Nothing here is implemented yet.** This folder is a
-> design dossier for a proposed control UI for trimwire — a **browser web UI** plus a
-> **multi-platform app**, both able to **control an installed trimwire daemon**. It was
-> produced by an overnight multi-agent research+design session (a framework council, four
-> specialist designers, and a disagree-seeking reviewer), then reconciled into the plan below.
+> **Status: PLANNING / RESEARCH + a small working POC.** This folder is a design dossier
+> for a proposed control UI for trimwire — a **browser web UI** plus a **multi-platform
+> app**, both able to **control an installed trimwire daemon** — plus a deliberately small
+> **end-to-end proof of concept** ([doc 09](09-poc.md): `src/admin/`, an embedded web
+> cockpit, a `trimwire cockpit` command, and a Tauri `app/` scaffold) that compiles clean,
+> passes the full test suite, and runs. It was produced by an overnight multi-agent
+> research+design session (a framework council, four specialist designers, and a
+> disagree-seeking reviewer), then reconciled into the plan below and a first slice of code.
 >
 > **Internal doc** — not published to trimwire.dev (not in `site/scripts/sync-docs.mjs`).
 > Treat every recommendation as a proposal for maintainer review, not a committed roadmap.
@@ -34,6 +37,7 @@ Maintainer decisions captured up front (these framed the whole investigation):
 | 06 | [Remote control](06-remote-control.md) | The deferred remote architecture + the v1 seams that keep it additive |
 | 07 | [Security, ToS & red lines](07-security-tos-redlines.md) | The disagree-seeking review, the risk register, and the non-negotiable red lines |
 | 08 | [Roadmap](08-roadmap.md) | The phased plan tying it all together, with a security/ToS gate at each step |
+| 09 | [Proof of Concept](09-poc.md) | A small, end-to-end vertical slice (control API + auth + web UI + Tauri scaffold) that compiles, tests, and runs |
 
 ## Executive summary
 

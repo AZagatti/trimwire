@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="referrer" content="no-referrer" />
+<title>trimwire · Flightdeck (POC)</title>
+<style>
+  /* Lifted tokens from site/src/styles/custom.css so the cockpit reads as one
+     brand. POC uses vanilla DOM; production may use Svelte (see
+     docs/cockpit/04-web-cockpit-ui.md). */
+  :root {
+    --accent: #2aa39c; --good: #22c87a; --warn: #e0a000; --bad: #e85d3f;
+    --bg: #0f1417; --panel: #161c20; --ink: #e6edf0; --dim: #8aa0a6;
+    --line: #243036; --radius: 0.55rem; --cap: 3px;
+  }
+  :root[data-theme="light"] {
+    --accent: #178a83; --bg: #f6f8f8; --panel: #fff; --ink: #15201f;
+    --dim: #5a6b6b; --line: #dde5e5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+    padding: 0.9rem 1.2rem; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  .brand { font-weight: 700; letter-spacing: -0.02em; }
+  .brand b { color: var(--accent); }
+  .pill {
+    font-size: 0.8rem; padding: 0.15rem 0.55rem; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--dim);
+  }
+  .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; display: inline-block; background: var(--dim); }
+  .dot.on { background: var(--good); } .dot.off { background: var(--bad); }
+  main { padding: 1.2rem; max-width: 880px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.9rem; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); border-top: var(--cap) solid var(--accent);
+    padding: 0.9rem 1rem;
+  }
+  .card .label { color: var(--dim); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .card .value { font-size: 1.7rem; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 0.2rem; }
+  h2 { font-size: 0.95rem; color: var(--dim); margin: 1.6rem 0 0.6rem; font-weight: 600; }
+  .log {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 0.6rem 0.8rem; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--dim); max-height: 180px; overflow: auto;
+  }
+  button {
+    background: transparent; color: var(--ink); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 0.35rem 0.7rem; cursor: pointer; font: inherit;
+  }
+  button:hover { border-color: var(--accent); }
+  .note { color: var(--dim); font-size: 0.82rem; margin-top: 1.4rem; }
+  code { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand"><b>trim</b>wire · Flightdeck <span class="pill">POC</span></span>
+  <span class="pill"><span class="dot" id="svc-dot"></span> <span id="svc">checking…</span></span>
+  <span class="pill" id="profile">profile —</span>
+  <span class="pill" id="version">v—</span>
+  <span style="margin-left:auto"></span>
+  <button id="theme">◑ theme</button>
+  <button id="refresh">↻ refresh</button>
+</header>
+<main>
+  <div class="grid">
+    <div class="card"><div class="label">Requests</div><div class="value" id="k-req">—</div></div>
+    <div class="card"><div class="label">Bytes trimmed</div><div class="value" id="k-saved">—</div></div>
+    <div class="card"><div class="label">Reduction</div><div class="value" id="k-pct">—</div></div>
+    <div class="card"><div class="label">Cache hit</div><div class="value" id="k-cache">—</div></div>
+  </div>
+
+  <h2>Live feed (SSE · content-free)</h2>
+  <div class="log" id="log">connecting to /api/v1/events…</div>
+
+  <p class="note">
+    This is a proof-of-concept cockpit served by the trimwire binary on a
+    loopback-only control API. It shows only content-free counts from the local
+    ledger — never prompts, tool results, or file paths. The control token was
+    injected same-origin at page load. Full plan:
+    <code>docs/cockpit/</code>.
+  </p>
+</main>
+<script>
+  // Same-origin token bootstrap (substituted server-side; never travels in a URL).
+  const TOKEN = "__TRIMWIRE_TOKEN__";
+  const authed = (path) => fetch(path, { headers: { Authorization: "Bearer " + TOKEN } });
+  const fmtBytes = (n) => {
+    if (n == null) return "—";
+    const u = ["B","KB","MB","GB"]; let i = 0, v = Number(n);
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return v.toFixed(i ? 1 : 0) + " " + u[i]; // 1024-based, matches stats::human_bytes
+  };
+  const pct = (n) => (n == null ? "—" : Number(n).toFixed(0) + "%");
+  const log = (msg) => {
+    const el = document.getElementById("log");
+    el.textContent = new Date().toLocaleTimeString() + "  " + msg + "\n" + el.textContent;
+  };
+
+  async function loadStats() {
+    try {
+      const r = await authed("/api/v1/stats");
+      const s = await r.json();
+      if (s.available === false) { log("ledger: " + (s.reason || "unavailable")); return; }
+      document.getElementById("k-req").textContent = s.total_requests ?? "—";
+      document.getElementById("k-saved").textContent = fmtBytes(s.bytes_saved);
+      document.getElementById("k-pct").textContent = pct(s.reduction_pct);
+      const rm = s.response_metrics || {};
+      const read = rm.total_cache_read_input_tokens ?? 0;
+      const create = rm.total_cache_creation_input_tokens ?? 0;
+      const denom = read + create;
+      document.getElementById("k-cache").textContent = denom ? pct((100 * read) / denom) : "—";
+    } catch (e) { log("stats error: " + e); }
+  }
+
+  async function loadMeta() {
+    try {
+      const v = await (await authed("/api/v1/version")).json();
+      document.getElementById("version").textContent = "v" + v.version;
+      document.getElementById("profile").textContent = "profile " + v.profile;
+      const svc = await (await authed("/api/v1/service")).json();
+      const dot = document.getElementById("svc-dot");
+      dot.className = "dot " + (svc.serving ? "on" : "off");
+      document.getElementById("svc").textContent = svc.serving ? "gateway serving" : "gateway down";
+    } catch (e) { log("meta error: " + e); }
+  }
+
+  // Live feed via SSE. EventSource auto-reconnects (the POC endpoint is a one-shot
+  // snapshot; production streams from a broadcast channel — doc 03 §4).
+  function connectEvents() {
+    try {
+      const es = new EventSource("/api/v1/events");
+      es.addEventListener("snapshot", (ev) => {
+        const d = JSON.parse(ev.data);
+        log("snapshot · " + (d.requests ?? "—") + " req · " + fmtBytes(d.bytes_saved) + " trimmed · " + pct(d.reduction_pct));
+        loadStats();
+      });
+      es.onerror = () => log("sse: reconnecting…");
+    } catch (e) { log("sse unsupported: " + e); }
+  }
+
+  document.getElementById("theme").onclick = () => {
+    const r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === "light" ? "dark" : "light";
+  };
+  document.getElementById("refresh").onclick = () => { loadMeta(); loadStats(); };
+
+  loadMeta(); loadStats(); connectEvents();
+</script>
+</body>
+</html>

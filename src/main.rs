@@ -203,7 +203,7 @@ enum ShareAction {
     after_help = "\
 Commands by group:\n\
 \x20 LIFECYCLE    install · uninstall · update · upgrade · on · off · status · doctor · run\n\
-\x20 INSPECT      stats · recall · preview · dashboard\n\
+\x20 INSPECT      stats · recall · preview · dashboard · cockpit\n\
 \x20 SUMMARIZER   summarizer  (setup · status · benchmark · probe)\n\
 \x20 SHARE        share  (enable · disable · stats · benchmark)   — opt-in, content-free\n\
 \x20 MAINTENANCE  sweep (list/all/file/undo) · config (show/edit)\n\
@@ -482,6 +482,14 @@ elvish  — source inline from rc.elv:\n\
     #[command(display_order = 17)]
     Hook,
 
+    /// POC: start the gateway plus the local control API + web cockpit
+    /// ("Flightdeck"), then print the loopback URL to open. Forces the admin
+    /// listener on even if `[admin] enabled` is false. Loopback-only; the OAuth
+    /// token is never exposed and only content-free stats are shown. See
+    /// docs/cockpit/.
+    #[command(display_order = 30)]
+    Cockpit,
+
     /// Check whether a newer trimwire release is available (read-only). Never
     /// downloads artifacts and never changes anything — use `trimwire upgrade` to
     /// verify or apply an update. For a curl|sh install it reports the available
@@ -674,6 +682,7 @@ fn main() -> Result<()> {
         } => cli::serve(listen, upstream, audit),
         Cmd::Run { args, audit } => cli::run(&args, audit),
         Cmd::Hook => cli::hook(),
+        Cmd::Cockpit => cli::cockpit(),
         Cmd::Update {
             dry_run,
             apply,

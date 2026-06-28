@@ -7,6 +7,11 @@
 //!
 //! See `ARCHITECTURE.md` for the design, `SPIKE.md` for the rationale.
 
+/// POC: the local control API + web cockpit ("Flightdeck") — a separate
+/// loopback admin listener that drives a browser/desktop UI without sharing a
+/// surface with the token-bearing gateway. Off by default (`[admin] enabled`).
+/// See `docs/cockpit/` for the full plan.
+pub mod admin;
 pub mod config;
 pub mod error;
 pub mod fsperm;

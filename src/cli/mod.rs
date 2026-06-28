@@ -30,7 +30,7 @@ pub use install::{install, statusline_add};
 pub use preview::preview;
 pub use recall::recall;
 pub use run::run;
-pub use serve::serve;
+pub use serve::{cockpit, serve};
 pub use share::share_benchmark;
 pub use share::{share_disable, share_enable, share_stats};
 pub use stats::stats;

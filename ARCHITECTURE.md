@@ -286,6 +286,7 @@ writer + concurrent readers).
 | `ledger.rs` | (external only: `rusqlite`, `serde_json`, `sha2`) — callers pass `db_path: &str` + `retain_days`, so ledger stays decoupled from `config` | `strategies`, `proxy::*` |
 | `config.rs` | `error` | Everything else |
 | `error.rs` | – | – |
+| `admin/*` *(POC: cockpit control API)* | `config`, `ledger`, `fsperm`, `proxy::*` read-only handles (external: `hyper`, `http-body-util`, `serde_json`, `getrandom`, `hex`) | `proxy::gateway` internals, `strategies::*` mutation — reads config/ledger only; **must not** share a surface with the OAuth-token-bearing gateway listener |
 | `summarizer/mod.rs` | `config`, `proxy::upstream`, `strategies`, `reprune`, `ledger`, `summarizer::{api,harm_check,slice}` | `proxy::gateway` |
 | `summarizer/api.rs` | `config`, `proxy::upstream`, `summarizer` (sibling constants) | `strategies`, `pairing`, `ledger` |
 | `summarizer/harm_check.rs` | `summarizer` (sibling constants) | Everything else |

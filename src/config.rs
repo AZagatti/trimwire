@@ -45,6 +45,32 @@ pub struct Config {
     /// for self-hosting. The payload is content-free and bucketed client-side;
     /// see `docs/TELEMETRY.md`.
     pub share: ShareConfig,
+    /// POC: the local control API + web cockpit ("Flightdeck"). Off by default;
+    /// loopback-only. See `docs/cockpit/`.
+    pub admin: AdminConfig,
+}
+
+/// POC config for the local control API ("cockpit"). When `enabled`, the daemon
+/// also spawns a loopback-only admin listener serving the control API + web UI.
+/// When `false` (the default) `trimwire serve` behaves exactly as before.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AdminConfig {
+    /// Spawn the control listener alongside the gateway. Off by default.
+    pub enabled: bool,
+    /// Loopback `address:port` for the control API. **Loopback-only in this POC**
+    /// — a non-loopback value is refused at startup (remote control is a deferred,
+    /// opt-in phase; see `docs/cockpit/06-remote-control.md`).
+    pub listen: String,
+}
+
+impl Default for AdminConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen: "127.0.0.1:8766".to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
