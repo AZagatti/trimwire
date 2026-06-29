@@ -67,7 +67,7 @@ getrandom = "0.4"   # OS CSPRNG for the telemetry install-id (BCryptGenRandom on
 # uses the std `cfg_select!` macro (stabilized well after 1.85) and fails on the
 # declared MSRV. 0.39.x keeps libsqlite3-sys at 0.37 (cfg_select-free). Bump once
 # the project's MSRV is raised. See deps/refresh-all PR notes.
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 clap_mangen = "0.3"
