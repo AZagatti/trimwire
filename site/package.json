@@ -16,7 +16,7 @@
     "test:e2e": "npm run build && playwright test"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.40.0",
+    "@astrojs/starlight": "^0.41.1",
     "astro": "^6.4.8",
     "sharp": "^0.35.2",
     "starlight-llms-txt": "^0.10.0"
