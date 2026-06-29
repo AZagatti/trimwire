@@ -143,7 +143,7 @@ on Haiku (`claude -p`, golden-harness posture; real ledger untouched).
 > summarizer **folds the discussion turns themselves** and reaches **78%**, the
 > only mode that materially shrinks a long conversation. The summarizer always
 > runs the model-free passes too; it **adds** a summary on top, it does not
-> replace them. 0 misleading in every summarizer cell.
+> replace them.
 
 These are **largest-request** sent reductions read straight off preserved gateway
 `in=/sent=` logs (summary replay visible as `stable_reprune` stubs on the wire).

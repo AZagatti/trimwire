@@ -1,16 +1,17 @@
 ---
 title: Performance
-description: What trimwire's pruning actually buys — measured by offline replay of real strategy code. Headroom, not dollars.
+description: What trimwire's pruning actually buys — live per-mode reductions from real claude -p sessions, plus byte-exact offline replay. Headroom, not dollars.
 sidebar:
   order: 0
 ---
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
 
-trimwire optimizes for **clean context — window headroom**, not your bill. These
-numbers come from **offline replay**: deterministic `/v1/messages` bodies fed
-through the *real* strategy code under the shipped `default` config. Byte figures
-are exact and reproducible; cost/token figures are estimates; timing is
+trimwire optimizes for **clean context — window headroom**, not your bill. Two
+kinds of numbers below: **live** per-mode reductions from real `claude -p`
+sessions (what the home-page inspector shows), and **byte-exact offline replay**
+of deterministic `/v1/messages` bodies through the *real* strategy code. Byte
+figures are exact and reproducible; cost/token figures are estimates; timing is
 host-dependent.
 
 <CardGrid>
@@ -34,6 +35,52 @@ host-dependent.
   </Card>
 </CardGrid>
 
+## Live per-mode reduction (real `claude -p` sessions)
+
+The interactive inspector on the [home page](/) shows these numbers. They are
+**live**, not replay: a real Claude Code (`claude -p`, Haiku) session driven
+through the actual gateway, reduction read from the preserved `in=`/`sent=` wire
+logs. Each mode was measured on the *same* two ~800 KB workloads so they're
+directly comparable. **The reduction depends on the session shape**, so the
+inspector lets you pick one:
+
+**File-heavy** — a session dominated by file reads / tool output (~810 KB):
+
+| Mode | largest request | sustained median |
+|---|--:|--:|
+| gentle | 35% | 24% |
+| default (model-free) | 73% | 41% |
+| summarizer (GLM-5.2) | 73% | 51% |
+
+Here the model-free passes already remove the bulk (re-readable file content is
+stubbed), so **default leads and the summarizer ties on size** — the summarizer's
+extra value is *fidelity*: the agent keeps a summary of the old turns instead of
+losing them.
+
+**Chat-heavy** — a long session that's mostly discussion, with no tool reads (~790 KB):
+
+| Mode | largest request | sustained median |
+|---|--:|--:|
+| default (model-free) | 15% | 11% |
+| gentle | 22% | 4% |
+| summarizer (GLM-5.2) | **78%** | 39% |
+
+Here there's almost nothing for the model-free passes to elide (no tool output),
+so default caps at ~15% — while the **summarizer folds the discussion itself** and
+is the only mode that materially shrinks the request. A stronger summarizer model
+with a larger slice budget compresses more: a small local `qwen3.5:4b` reaches
+~31% on the same session; GLM-5.2 reaches ~78%.
+
+:::note
+Live figures are size reductions on the largest in-context request (and the
+sustained median across the session), measured on Haiku via `claude -p`. The
+operator's own gateway and ledger are isolated during measurement. Your own
+numbers will vary with session shape — verify with `trimwire stats`.
+:::
+
+## Byte-level methodology (offline replay)
+
+
 ## Why "headroom, not dollars"
 
 Prompt caching makes net cost non-monotonic: pruning can bust a cached prefix
@@ -52,7 +99,9 @@ output crowding the model. On a redundancy-heavy corpus, focus climbs (e.g.
   [benchmark/results/RESULTS.md](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md).
 
 :::note
-The headline figures are **offline-replay** measurements of synthetic-but-realistic
-session shapes, not a live A/B on your account. Treat cost/token numbers as
+Two kinds of figures here. The **live per-mode** numbers come from real `claude -p`
+sessions through the actual gateway (isolated from your own gateway and ledger). The
+**byte-level methodology** numbers come from offline replay of synthetic-but-realistic
+session shapes. Neither is a live A/B on your account — treat cost/token numbers as
 estimates and verify with your own `trimwire stats` over time.
 :::

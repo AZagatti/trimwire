@@ -48,7 +48,7 @@
   const LEDE = {
     default: "Trimwire keeps your recent work and edits intact, then removes repeated or heavy tool output before the request is sent.",
     gentle: "A lighter setting — only the safest, most certain trims run. Less reduction, more caution.",
-    summ: "Runs every model-free pass, then folds the older turns into a short summary — so the agent keeps the knowledge from those turns instead of losing it. The big win on long, conversation-heavy sessions.",
+    summ: "Runs every model-free pass, then folds older turns into a short summary — the agent keeps their knowledge instead of losing it. The big win on long, conversation-heavy sessions.",
   };
 
   let mode = $state("default");
@@ -149,7 +149,7 @@
   @media (hover: hover) { .modesw button:not(.on):hover { color: var(--accent-hi); } }
 
   /* fixed-height lede so mode changes don't jump the layout */
-  .ins-lede { position: relative; margin: 0; padding: 0.9rem 1.2rem; color: var(--ink-2); font-size: 0.92rem; line-height: 1.5; min-height: 3.4rem; max-width: 68ch; }
+  .ins-lede { position: relative; margin: 0; padding: 0.9rem 1.2rem 0.4rem; color: var(--ink-2); font-size: 0.92rem; line-height: 1.5; min-height: 5rem; max-width: 68ch; }
   /* light cross-fade of the explanation text between modes (no layout shift) */
   .lede-txt { position: absolute; left: 1.2rem; right: 1.2rem; top: 0.9rem; }
 
@@ -200,7 +200,7 @@
 
   @media (max-width: 40rem) {
     .ins-head { flex-direction: column; align-items: stretch; } .modesw { width: 100%; } .modesw button { flex: 1; padding: 0.4rem 0.4rem; }
-    .ins-lede { min-height: 4.6rem; }
+    .ins-lede { min-height: 6.2rem; }
     .ins-foot { grid-template-columns: 1fr; } .foot-note { grid-column: 1; }
   }
 </style>
