@@ -22,33 +22,45 @@
     { plain: "Old search output", verb: "collapsed", detail: "Old, re-runnable output like searches or screenshots, once it's no longer recent.", tech: "sliding_window", on: ["default", "summ"], hue: "dedup" },
     { plain: "Solved-step reasoning", verb: "removed", detail: "Reasoning notes from steps the agent already finished.", tech: "thinking_strip", on: ["default", "gentle", "summ"], hue: "prune" },
   ];
-  // Live, long-session numbers (docs/RESULTS.md §A–D). NOT the offline replay
-  // figures — those over-state typical use.
-  //   default — read-heavy long session lands 50–65% smaller; ~60% is mid-band.
-  //   gentle  — a lighter touch (dedup + conservative caps only); ~35%.
-  //   summ    — the summarizer's incremental SIZE win over model-free is small
-  //             (model-free already removed the bulk, §C). Its real, measured
-  //             value is RETENTION of the folded older tail — qwen3.5:4b keeps
-  //             ~92% of facts (§D). So summarizer shows a *retention* metric,
-  //             not a bigger reduction %, which would be dishonest.
+  // Real LIVE long-session size reductions (largest-request, preserved gateway
+  // in=/sent= logs; NOT offline replay). Two matched ~800 KB workloads measured —
+  // file-heavy (tool reads dominate) and chat-heavy (pure discussion, no reads).
+  // The reduction depends on the workload, so we let the visitor pick:
+  //   file-heavy → model-free already removes the bulk (re-readable file content),
+  //                so default leads (73%) and summarizer ties on size.
+  //   chat-heavy → nothing for model-free to elide (no tool output), so default
+  //                caps at 15% while the summarizer FOLDS THE DISCUSSION ITSELF
+  //                → 78%, the only mode that materially shrinks a long chat.
+  // Summarizer always runs the model-free passes too; it ADDS a summary on top, so
+  // the agent keeps the knowledge from old turns instead of losing it.
   const METRIC = {
-    default: { kind: "reduce", num: 60, unit: "%", label: "smaller request", sub: "live read-heavy session" },
-    gentle: { kind: "reduce", num: 35, unit: "%", label: "smaller request", sub: "lighter touch · live" },
-    summ: { kind: "retain", num: 92, unit: "%", label: "of facts kept", sub: "qwen3.5:4b · summarizer probe" },
+    file: {
+      default: { num: 73, sub: "file-heavy · model-free" },
+      gentle: { num: 35, sub: "lighter touch" },
+      summ: { num: 73, sub: "file-heavy · keeps the knowledge" },
+    },
+    chat: {
+      default: { num: 15, sub: "chat-heavy · little to trim" },
+      gentle: { num: 21, sub: "lighter touch" },
+      summ: { num: 78, sub: "chat-heavy · folds old turns" },
+    },
   };
   const LEDE = {
     default: "Trimwire keeps your recent work and edits intact, then removes repeated or heavy tool output before the request is sent.",
     gentle: "A lighter setting — only the safest, most certain trims run. Less reduction, more caution.",
-    summ: "On a very long session the older turns fold into a short summary. The size win is mostly already done by the passes above — what the summarizer adds is keeping the old context faithful.",
+    summ: "Runs every model-free pass, then folds the older turns into a short summary — so the agent keeps the knowledge from those turns instead of losing it. The big win on long, conversation-heavy sessions.",
   };
 
   let mode = $state("default");
+  let work = $state("file");
   let openIdx = $state(-1);
   const reduced = $derived(prefersReducedMotion.current);
-  const pctT = new Tween(60, { duration: 500, easing: cubicOut });
+  const pctT = new Tween(73, { duration: 500, easing: cubicOut });
   const pctN = $derived(Math.round(pctT.current));
-  const metric = $derived(METRIC[mode]);
-  function setMode(m) { mode = m; openIdx = -1; pctT.set(METRIC[m].num, { duration: reduced ? 0 : 500 }); }
+  const metric = $derived(METRIC[work][mode]);
+  function refresh() { pctT.set(METRIC[work][mode].num, { duration: reduced ? 0 : 500 }); }
+  function setMode(m) { mode = m; openIdx = -1; refresh(); }
+  function setWork(w) { work = w; refresh(); }
   const active = (r) => r.on.includes(mode);
 </script>
 
@@ -106,8 +118,13 @@
 
   <div class="ins-foot">
     <div class="foot-metric">
-      <span class="fm-num" class:summ={mode === "summ"}>≈{pctN}{metric.unit}</span>
-      <span class="fm-lbl">{metric.label} <span class="dim">· {metric.sub}</span></span>
+      <span class="fm-num" class:summ={mode === "summ"}>≈{pctN}%</span>
+      <span class="fm-lbl">smaller request <span class="dim">· {metric.sub}</span></span>
+      <span class="grow"></span>
+      <div class="workswitch" role="tablist" aria-label="session type">
+        <button type="button" role="tab" class:on={work === "file"} aria-selected={work === "file"} onclick={() => setWork("file")}>file-heavy</button>
+        <button type="button" role="tab" class:on={work === "chat"} aria-selected={work === "chat"} onclick={() => setWork("chat")}>chat-heavy</button>
+      </div>
     </div>
     <p class="foot-note">
       {#if mode === "summ"}
@@ -167,10 +184,15 @@
   .mem-body { } .mem-sum { margin: 0 0.5rem 0.6rem 1.6rem; padding: 0.5rem 0.6rem; border-left: 2px solid color-mix(in srgb, var(--c-summ) 50%, transparent); background: color-mix(in srgb, var(--c-summ) 7%, transparent); color: var(--ink); font-size: 0.84rem; line-height: 1.5; }
 
   .ins-foot { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 1.1rem; align-items: center; padding: 0.9rem 1.2rem 1.1rem; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 2%, var(--card)); }
-  .foot-metric { display: flex; align-items: baseline; gap: 0.4rem; }
+  .foot-metric { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
   .fm-num { font-family: var(--mono); font-size: 1.5rem; font-weight: 700; color: var(--accent-hi); font-variant-numeric: tabular-nums; transition: color 0.3s ease; }
   .fm-num.summ { color: var(--c-summ); }
   .fm-lbl { font-size: 0.8rem; color: var(--ink-2); } .fm-lbl .dim { color: var(--ink-3); }
+  .foot-metric .grow { flex: 1 1 auto; }
+  .workswitch { display: inline-flex; gap: 0.12rem; padding: 0.16rem; border: 1px solid var(--border-2); border-radius: 999px; background: var(--inset); align-self: center; }
+  .workswitch button { font-family: var(--mono); font-size: 0.68rem; color: var(--ink-3); background: transparent; border: 0; border-radius: 999px; padding: 0.3rem 0.6rem; min-height: 30px; cursor: pointer; transition: color 0.15s, background 0.15s; }
+  .workswitch button.on { color: var(--ink-1); background: var(--border-2); }
+  @media (hover: hover) { .workswitch button:not(.on):hover { color: var(--ink-1); } }
   .foot-note { grid-column: 2; margin: 0; font-size: 0.8rem; color: var(--ink-3); line-height: 1.45; }
   .foot-note code { font-family: var(--mono); font-size: 0.85em; color: var(--accent-hi); background: var(--inset); padding: 0.02em 0.32em; border-radius: 4px; }
   .foot-link { grid-column: 1 / -1; margin: 0.2rem 0 0; font-family: var(--mono); font-size: 0.74rem; }

@@ -44,6 +44,7 @@ without it (model-free `default`, model-free `gentle`, or summarizer).
 | "`gentle` prunes less — a conservative subset; ~0–78% on the same corpora (0% on most; it only really fires on dedup/dup-heavy shapes)." | model-free `gentle` | Benchmark (offline replay) | **Safe — label as benchmark + gentle** |
 | "Live `claude -p`: sent context shrinks with session size — single-digit % short/typical → ~50–65% read-heavy mid-size → ~75–94% very large (~1–1.7 MB)." | model-free `default` | Live | **Safe — label as live + mode, note fixtures** |
 | "On a real 228-request dogfooding session, pruning cut sent bytes ~17%." | model-free `default` | Live (real traffic) | **Safe — the honest typical-session number** |
+| "On a matched ~800 KB live pair: `default` cuts the largest request 73% on file-heavy work but only 15% on pure chat; the summarizer reaches 78% on that same chat by folding old turns." | model-free `default` vs **summarizer** | Live | **Safe — label as live + workload shape** |
 | "On a measured ~1M-token session (Opus), sent context dropped ~75% and input cost ~79%, with 0 confident-wrong answers." | model-free `default` | Live | **Safe — single best-case session** |
 | "Cost is a non-monotonic side effect: short sessions wash-to-loss, long ones win — about −55% cache-weighted input cost at 256 turns." | model-free `default` | Offline cost-model | **Safe — label as cost model, caveat** |
 | "The optional summarizer's accumulator saved ~63–65% cache-weighted cost on long reconstructed sessions." | **summarizer** (local) | Offline replay | **Use with care — offline + summarizer only** |
@@ -122,23 +123,35 @@ Dedup + failed-input-purge + conservative bloat_cap + conservative thinking_stri
 
 The summarizer is **off by default** and only engages once the raw body exceeds
 the 200 KB trigger *and* the old slice has ≥4 messages *and* state is initialised
-(req ≥ 2). On the live sessions tested it **rarely installed**, so the local and
-provider summarizer lanes measured **≈ model-free** — model-free had already
-removed the bulk before the summarizer ran.
+(req ≥ 2). **What it adds depends entirely on workload shape** — and the
+clearest way to see that is a matched pair of ~800 KB live sessions, one
+file/read-heavy and one pure conversation, run through the same isolated gateway
+on Haiku (`claude -p`, golden-harness posture; real ledger untouched).
 
-| Live session (size) | Engine / answer model | Sent reduction | Summarizer engaged? |
-|---|---|--:|---|
-| Sequential ~200 KB (websvc) | local & provider / Haiku | **34%** | **No** — body under 200 KB trigger → ran as model-free |
-| Large ~1.1 MB | local (qwen3.5:4b) / Haiku | **81–88%** | installs = 0 (model-free elided the big reads first) |
-| Large ~1.1 MB | provider / Haiku | **81–88%** | 1 install, ~7% coverage (tiny marginal) |
-| Large ~780 KB | provider / `gentle` | **72%** | summarizer inert (gentle profile dominates) |
+| Mode | file-heavy ~810 KB (largest req / median) | chat-heavy ~790 KB (largest / median) |
+|---|--:|--:|
+| `gentle` | 35% / 24% | 21% / 4% |
+| `default` (model-free) | **73%** / 41% | 15% / 11% |
+| summarizer (`glm-5.2`, slice 384 KB, accept 1.5) | 73% / **51%** | **78%** / 39% |
 
-> **Live conclusion:** on read/tool-heavy work the summarizer's *incremental*
-> reduction over model-free is small — model-free is doing the work. The
-> summarizer's distinct value is (a) **cost** on very long conversation-heavy
-> sessions, shown **offline** (accumulator −63 to −64.6%, see the replay section),
-> and (b) **fidelity** of the compressed slice, which depends on the summarizer
-> model (next table). 0 misleading in every summarizer cell.
+> **The summarizer's standout case is conversation-heavy work.** On read-heavy
+> work, model-free has already removed the bulk (re-readable file content), so
+> `default` leads and the summarizer **ties on size** — its edge there is a
+> higher *sustained median* (51% vs 41%) plus fidelity (the agent keeps the
+> knowledge instead of re-reading). On pure chat there is **nothing for
+> model-free to elide** (no tool output), so `default` caps at **15%** — but the
+> summarizer **folds the discussion turns themselves** and reaches **78%**, the
+> only mode that materially shrinks a long conversation. The summarizer always
+> runs the model-free passes too; it **adds** a summary on top, it does not
+> replace them. 0 misleading in every summarizer cell.
+
+These are **largest-request** sent reductions read straight off preserved gateway
+`in=/sent=` logs (summary replay visible as `stable_reprune` stubs on the wire).
+Source: `internal/site-identity/live-mode-reduction-FINDINGS.md` (+`.jsonl`);
+harness `internal/manual-test/quality-audit/harness/iso_mode_reduction.sh`
+(file-heavy) and `iso_chat_reduction.sh` (chat-heavy). The earlier "summarizer
+rarely installs / ≈ model-free" finding was specific to read-heavy fixtures under
+the trigger; the matched chat-heavy run above is what corrects it.
 
 ### D. Summarizer-model fidelity (a different axis — retention, not reduction)
 
@@ -188,6 +201,10 @@ runs above. A few reference points (full ranking in
   > that bloats and that trimwire cuts most.
 
 - **Real-traffic 17%:** `internal/manual-test/phase0-haiku.md` (S10).
+- **Matched per-mode × workload pair (file-heavy vs chat-heavy, §C):**
+  `internal/site-identity/live-mode-reduction-FINDINGS.md` (+`.jsonl`); harness
+  `internal/manual-test/quality-audit/harness/iso_mode_reduction.sh` and
+  `iso_chat_reduction.sh` (isolated gateway, real ledger sha verified unchanged).
 - **Short-session 0%:** `internal/manual-test/local-claude/20260624/`
   (`13-gateway-requests.txt`, `30-stats-iso.txt`).
 - **Summarizer-model fidelity (table D):** public `docs/MODEL-COMPATIBILITY.md`.
