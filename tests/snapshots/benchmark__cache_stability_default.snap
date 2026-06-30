@@ -17,6 +17,7 @@ expression: "Value::Object(report)"
   "repeated_grep": 23.902,
   "resumed_session": 87.441,
   "stale_input_heavy": 54.772,
+  "subagent_heavy": 76.188,
   "thinking_heavy": 49.828,
   "unique_bash_spam": 36.67
 }

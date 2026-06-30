@@ -24,7 +24,9 @@ use serde_json::Value;
 use crate::config::{BloatCapConfig, matches_any};
 use crate::error::Result;
 use crate::pairing::PairingIndex;
-use crate::strategies::{Stats, assistant_cutoff, block_mut, elision_marker, is_already_cleared};
+use crate::strategies::{
+    SUBAGENT_TOOLS, Stats, assistant_cutoff, block_mut, elision_marker, is_already_cleared,
+};
 
 /// Trim oversized old string tool_results, and elide oversized old array-content
 /// tool_results with a single marker (same "only if it shrinks" guard).
@@ -51,6 +53,12 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &BloatCapConfig) -> Res
     let stub_cutoff = (cfg.stub_age_turns > cfg.keep_recent_turns)
         .then(|| assistant_cutoff(messages, cfg.stub_age_turns))
         .flatten();
+    // #124: subagent (Task/Agent) results are exempt on their OWN, wider window — a
+    // findings/blocker list is consumed across many follow-up turns, so it stays
+    // protected longer than an ordinary result, then is head+tail-salvaged once it
+    // ages past this cutoff. Clamped to >=1 (a configured 0 would let the cutoff reach
+    // the most-recent completed turn). `None` ⇒ no turn is old enough → all exempt.
+    let subagent_cutoff = assistant_cutoff(messages, cfg.subagent_keep_recent_turns.max(1));
 
     // Read-only pass: collect edits — either a string trim or an array elision.
     // Each edit is (location, new_content_value).
@@ -96,13 +104,15 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &BloatCapConfig) -> Res
                 .and_then(Value::as_str)
                 .and_then(|id| idx.uses.get(id))
                 .and_then(|&(umi, uci)| messages[umi].get("content")?.as_array()?.get(uci));
-            // Exempt check via the paired tool_use's name — two tiers:
+            // Exempt check via the paired tool_use's name — three tiers:
             //  - `exempt_tools`: NEVER trimmed at any age (authoring/load-bearing:
-            //    Write/Edit/MultiEdit/Task — eliding their results corrupts sessions).
+            //    Write/Edit/MultiEdit — eliding their results corrupts sessions).
             //  - `exempt_recent_only_tools`: exempt ONLY while RECENT (within
             //    keep_recent_turns). `Read` lives here — recent reads stay protected
             //    (active use), but an OLD large Read result is trimmed (the "Read
             //    coverage gap" fix). An unresolvable name matches neither → eligible.
+            //  - SUBAGENT_TOOLS (Task/Agent): exempt within the WIDER subagent window
+            //    (`subagent_keep_recent_turns`), then head+tail-salvaged once old (#124).
             if let Some(name) = paired_use
                 .and_then(|u| u.get("name"))
                 .and_then(Value::as_str)
@@ -111,6 +121,15 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &BloatCapConfig) -> Res
                     continue;
                 }
                 if recent && matches_any(&cfg.exempt_recent_only_tools, name) {
+                    continue;
+                }
+                // #124: subagent (Task/Agent) RESULTS are exempt while within the WIDER
+                // `subagent_keep_recent_turns` window (a findings list is referred back
+                // to for many turns); once older, they fall through to the normal
+                // head+tail salvage (top findings + conclusion kept). The all-ages
+                // escape hatch is `exempt_tools` (handled just above). `None` cutoff ⇒
+                // history shorter than the window ⇒ every subagent result still exempt.
+                if SUBAGENT_TOOLS.contains(&name) && subagent_cutoff.is_none_or(|c| mi > c) {
                     continue;
                 }
             }
@@ -325,9 +344,12 @@ mod tests {
             keep_recent_turns: keep,
             exempt_tools: exempt.iter().map(|s| (*s).to_owned()).collect(),
             exempt_recent_only_tools: Vec::new(), // off unless a test opts in
-            catastrophic_bytes: 0,                // off unless a test opts in
-            stub_age_turns: 0,                    // off unless a test opts in
-            protected_file_patterns: Vec::new(),  // off unless a test opts in
+            // Default the subagent window to `keep` so the generic tests (which use
+            // non-subagent tools) are unaffected; subagent-specific tests set it.
+            subagent_keep_recent_turns: keep,
+            catastrophic_bytes: 0,               // off unless a test opts in
+            stub_age_turns: 0,                   // off unless a test opts in
+            protected_file_patterns: Vec::new(), // off unless a test opts in
         }
     }
 
@@ -476,6 +498,7 @@ mod tests {
             keep_recent_turns: 2,
             exempt_tools: vec![],
             exempt_recent_only_tools: vec![],
+            subagent_keep_recent_turns: 2,
             catastrophic_bytes: 0,
             stub_age_turns: stub_age,
             protected_file_patterns: Vec::new(),
@@ -641,22 +664,23 @@ mod tests {
     }
 
     #[test]
-    fn subagent_agent_and_task_exempt_by_default() {
-        // Drift fix: the PRODUCTION default exempt_tools must cover BOTH subagent tool
-        // names — `Task` AND the drifted `Agent` — so subagent results (findings/blocker
-        // lists) are not middle-trimmed; ordinary large `Bash` and unrelated tools still
-        // trim (no accidental broad exemption). Uses the real BloatCapConfig::default()
-        // exempt list; only thresholds are tweaked for test-sized payloads.
+    fn subagent_results_age_gated_by_default() {
+        // #124: the PRODUCTION default no longer exempts subagent results at EVERY age.
+        // Authoring results (Edit/Write/MultiEdit) stay all-ages exempt; subagent results
+        // (`Task`/`Agent`) are exempt only while within `subagent_keep_recent_turns` (8)
+        // and head+tail-salvaged once OLDER; ordinary tools (Bash/Glob/WebFetch) trim as
+        // before. Uses the real BloatCapConfig::default() (keep_recent_turns kept at its
+        // default 4 here; only thresholds shrink for test payloads, and the session is
+        // long enough that subagent results age PAST the 8-turn window).
         let base = BloatCapConfig {
             enabled: true,
             threshold_bytes: 50,
             head_bytes: 8,
             tail_bytes: 8,
-            keep_recent_turns: 4,
-            ..BloatCapConfig::default()
+            ..BloatCapConfig::default() // keep_recent 4, subagent window 8, real exempt list
         };
-        let renamed = |name: &str| {
-            let mut msgs = session(10, 100);
+        let renamed = |name: &str, turns: usize| {
+            let mut msgs = session(turns, 100);
             for m in msgs.iter_mut() {
                 if let Some(c) = m.get_mut("content").and_then(Value::as_array_mut) {
                     for b in c {
@@ -668,20 +692,82 @@ mod tests {
             }
             msgs
         };
-        for exempt in ["Agent", "Task", "Edit", "Write", "MultiEdit"] {
-            let mut m = renamed(exempt);
+        // Authoring results: never trimmed, even at 14 turns (all-ages §13A floor).
+        for exempt in ["Edit", "Write", "MultiEdit"] {
+            let mut m = renamed(exempt, 14);
             let s = apply(&mut m, &base).unwrap();
             assert_eq!(
                 s.stubbed, 0,
-                "{exempt} must be exempt from bloat_cap by default"
+                "{exempt} must stay all-ages exempt from bloat_cap by default"
+            );
+        }
+        // Subagent results: a 14-turn session ages several past the 8-turn window → those
+        // old ones are trimmed; the RECENT ones (within the window) stay intact.
+        for subagent in ["Agent", "Task"] {
+            let mut m = renamed(subagent, 14);
+            let s = apply(&mut m, &base).unwrap();
+            assert!(
+                s.stubbed > 0,
+                "{subagent} results past the subagent window must be trimmed (#124)"
+            );
+            // The most-recent subagent result (turn 13, well within the 8-turn window)
+            // is left fully intact.
+            assert_eq!(
+                m[41]["content"][0]["content"].as_str().unwrap().len(),
+                100,
+                "the most-recent {subagent} result stays intact (within subagent window)"
+            );
+            PairingIndex::build(&m).validate().unwrap();
+        }
+        // A SHORT subagent session (every result within the 8-turn window) → none trimmed.
+        for subagent in ["Agent", "Task"] {
+            let mut m = renamed(subagent, 5);
+            let s = apply(&mut m, &base).unwrap();
+            assert_eq!(
+                s.stubbed, 0,
+                "{subagent} results all within the window must be intact"
             );
         }
         for trimmed in ["Bash", "Glob", "WebFetch"] {
-            let mut m = renamed(trimmed);
+            let mut m = renamed(trimmed, 10);
             let s = apply(&mut m, &base).unwrap();
             assert!(
                 s.stubbed > 0,
                 "{trimmed} must still be trimmed (not exempt)"
+            );
+        }
+    }
+
+    #[test]
+    fn subagent_window_can_be_restored_to_all_ages_exemption() {
+        // The escape hatch: a user who re-adds Task/Agent to exempt_tools gets the legacy
+        // all-ages exemption back (gentle profile relies on this).
+        let base = BloatCapConfig {
+            enabled: true,
+            threshold_bytes: 50,
+            head_bytes: 8,
+            tail_bytes: 8,
+            exempt_tools: ["Edit", "Write", "MultiEdit", "Task", "Agent"]
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect(),
+            ..BloatCapConfig::default()
+        };
+        for subagent in ["Agent", "Task"] {
+            let mut msgs = session(14, 100);
+            for m in msgs.iter_mut() {
+                if let Some(c) = m.get_mut("content").and_then(Value::as_array_mut) {
+                    for b in c {
+                        if b.get("type").and_then(Value::as_str) == Some("tool_use") {
+                            b["name"] = json!(subagent);
+                        }
+                    }
+                }
+            }
+            let s = apply(&mut msgs, &base).unwrap();
+            assert_eq!(
+                s.stubbed, 0,
+                "{subagent} fully exempt when re-added to exempt_tools"
             );
         }
     }
@@ -885,10 +971,13 @@ mod tests {
         msgs
     }
 
-    /// The shipped-default age-gate shape: authoring tools NEVER trimmed,
-    /// `Read` exempt only while recent.
+    /// The shipped-default age-gate shape: AUTHORING tools (Edit/Write/MultiEdit)
+    /// NEVER trimmed, `Read` exempt only while recent. (Subagent Task/Agent results
+    /// are NOT all-ages exempt by default since #124 — they are age-gated on the wider
+    /// `subagent_keep_recent_turns` window; see `subagent_results_age_gated_by_default`.
+    /// These Read-coverage tests use only Read/Bash, so the subagent window is inert.)
     fn age_gate_cfg(threshold: usize, keep: usize) -> BloatCapConfig {
-        let mut c = cfg(threshold, keep, &["Edit", "Write", "MultiEdit", "Task"]);
+        let mut c = cfg(threshold, keep, &["Edit", "Write", "MultiEdit"]);
         c.exempt_recent_only_tools = vec!["Read".to_owned()];
         c
     }
@@ -945,9 +1034,11 @@ mod tests {
 
     #[test]
     fn authoring_tools_exempt_at_every_age() {
-        // Write/Edit/MultiEdit/Task results are load-bearing → NEVER trimmed, even
-        // when old and oversized (eliding them corrupts real sessions, §13A).
-        for tool in ["Write", "Edit", "MultiEdit", "Task"] {
+        // Write/Edit/MultiEdit results are load-bearing → NEVER trimmed, even when old
+        // and oversized (eliding them corrupts real sessions, §13A). (Task/Agent are
+        // NOT in this all-ages floor since #124 — they age out on the subagent window;
+        // see `subagent_results_age_gated_by_default`.)
+        for tool in ["Write", "Edit", "MultiEdit"] {
             let mut msgs = named_session(&[tool; 10], 100);
             let stats = apply(&mut msgs, &age_gate_cfg(50, 2)).unwrap();
             assert_eq!(stats.stubbed, 0, "{tool} results must never be trimmed");

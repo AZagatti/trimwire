@@ -261,6 +261,16 @@ pub(crate) fn elision_marker(stub: &str, content: &Value) -> Value {
 /// (`new_source`), the same corruption class as a file body.
 pub(crate) const AUTHORING_TOOLS: &[&str] = &["Write", "Edit", "MultiEdit", "NotebookEdit"];
 
+/// The subagent-launch tool names. `Task` is the original name; `Agent` is the
+/// drifted name across Claude Code versions — both refer to the same subagent
+/// mechanism, so both are always listed together. A subagent `tool_result` is a
+/// findings/blocker list the parent agent refers back to for many turns; it stays
+/// load-bearing far longer than an ordinary result, so `bloat_cap` age-gates it on
+/// a wide window (`subagent_keep_recent_turns`) rather than trimming it on the tight
+/// global one. (Distinct from [`AUTHORING_TOOLS`], which is a §13A *all-ages* floor —
+/// subagent results ARE trimmable once genuinely old.)
+pub(crate) const SUBAGENT_TOOLS: &[&str] = &["Task", "Agent"];
+
 #[cfg(test)]
 #[test]
 fn is_already_cleared_matches_exact_marker() {

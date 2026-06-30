@@ -249,8 +249,11 @@ pub struct BloatCapConfig {
     /// model is never deprived of a result it's actively using).
     pub keep_recent_turns: usize,
     /// Tool-name patterns never trimmed at ANY age (supports `*`). For the
-    /// file-AUTHORING tools (Write/Edit/MultiEdit) + Task, whose results are
-    /// genuinely load-bearing — eliding them corrupts real sessions (§13A).
+    /// file-AUTHORING tools (Write/Edit/MultiEdit), whose results are genuinely
+    /// load-bearing — eliding them corrupts real sessions (§13A). The
+    /// subagent tools (`Task`/`Agent`) are NOT here by default: they are age-gated on
+    /// the wider `subagent_keep_recent_turns` window instead (#124). Re-add `Task`/
+    /// `Agent` here to restore the legacy all-ages subagent-result exemption.
     pub exempt_tools: Vec<String>,
     /// Tool-name patterns exempt ONLY while RECENT (within `keep_recent_turns`);
     /// once OLD, their oversized results ARE trimmed to head+tail+signal. `Read`
@@ -263,6 +266,18 @@ pub struct BloatCapConfig {
     /// needs the old content. Empty = the legacy behaviour (recent-only exemption
     /// off). Supports `*`.
     pub exempt_recent_only_tools: Vec<String>,
+    /// Recent-window (in assistant turns) for SUBAGENT results (`Task`/`Agent`),
+    /// distinct from the global `keep_recent_turns` (#124). A subagent `tool_result`
+    /// is a findings/blocker list the parent agent refers back to for many turns, so
+    /// it stays exempt on this WIDER window; once it ages past it, the oversized
+    /// result is head+tail-salvaged (top findings + conclusion kept, the dense middle
+    /// trimmed) like any old result — NOT the §13A all-ages floor (that is
+    /// authoring content). Generous default (8) so a subagent's findings survive the
+    /// follow-up turns that consume them. Set < `keep_recent_turns` and trimwire warns
+    /// (it would trim subagent results SOONER than ordinary ones — backwards). To turn
+    /// the age-gate OFF entirely and restore the legacy all-ages exemption, add
+    /// `Task`/`Agent` back to `exempt_tools`. Min 1 (clamped, like the sibling windows).
+    pub subagent_keep_recent_turns: usize,
     /// POC (opt-in, default 0 = OFF): also cap a RECENT `tool_result` — one that
     /// `keep_recent_turns` would normally exempt — if it ALONE exceeds this many
     /// bytes. Justified only at a *catastrophic* threshold where the result can't
@@ -434,21 +449,25 @@ impl Default for BloatCapConfig {
             head_bytes: 2_048,
             tail_bytes: 2_048,
             keep_recent_turns: 4,
-            // File-AUTHORING + SUBAGENT results are load-bearing — never trim them at
-            // any age (eliding them corrupts real sessions, §13A). `Task` AND `Agent`
-            // are both subagent-launch tool names (the name drifted Task→Agent across
-            // Claude Code versions); list both so subagent findings (blocker lists,
-            // per-file analysis) aren't middle-trimmed. `Read` is NOT here: it's
-            // age-gated below (exempt while recent, trimmed once old) so large OLD file
-            // reads — the dominant untrimmed mass in read-heavy sessions — finally get
-            // capped (the "Read coverage gap" the live canaries exposed).
-            exempt_tools: ["Edit", "Write", "MultiEdit", "Task", "Agent"]
+            // File-AUTHORING results are load-bearing — never trim them at any age
+            // (eliding them corrupts real sessions, §13A). `Read` is NOT here: it's
+            // age-gated (exempt while recent, trimmed once old) so large OLD file reads
+            // — the dominant untrimmed mass in read-heavy sessions — finally get capped
+            // (the "Read coverage gap"). `Task`/`Agent` are NOT here either (#124):
+            // subagent RESULTS are age-gated on the WIDER `subagent_keep_recent_turns`
+            // window below — load-bearing for many turns, but trimmable (head+tail
+            // salvage) once genuinely old. Re-add them here for the all-ages exemption.
+            exempt_tools: ["Edit", "Write", "MultiEdit"]
                 .iter()
                 .map(|s| (*s).to_owned())
                 .collect(),
             // Read: exempt while RECENT (a just-read file may be in active use),
             // trimmed to head+tail once OLD (the model re-reads on demand).
             exempt_recent_only_tools: vec!["Read".to_owned()],
+            // Subagent (Task/Agent) results: exempt for a GENEROUS window (8 turns —
+            // findings/blocker lists are consumed across many follow-up turns), then
+            // head+tail-salvaged once old (#124). Wider than the global keep_recent.
+            subagent_keep_recent_turns: 8,
             catastrophic_bytes: 0, // POC: OFF by default (recent results untouched)
             stub_age_turns: 0,     // POC: OFF by default (very-old keep head+tail)
             protected_file_patterns: Vec::new(), // POC: OFF by default (no path protected)
@@ -877,6 +896,14 @@ pub fn profile_baseline(name: &str) -> Config {
             s.bloat_cap.enabled = true;
             s.bloat_cap.threshold_bytes = 32_768;
             s.bloat_cap.keep_recent_turns = 6;
+            // gentle = gentlest touch: keep subagent (Task/Agent) RESULTS fully exempt
+            // at every age (restore the legacy all-ages exemption that the default
+            // profile now drops in favour of the #124 age-gate). gentle never trims
+            // subagent findings — that aggressive lever is for `default` only.
+            s.bloat_cap.exempt_tools = ["Edit", "Write", "MultiEdit", "Task", "Agent"]
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect();
             // thinking_strip ON in gentle too (2026-06-05). Without it gentle saved ≈0%
             // on real sessions (real tool output rarely exceeds bloat_cap's 32KB, and
             // exact-dup/error calls are rare). thinking_strip only drops OLD reasoning —
@@ -1268,6 +1295,26 @@ impl Config {
             }
         }
 
+        // A backwards subagent window (subagent RESULTS aging out FASTER than ordinary
+        // results) is the inverse of the intent: a subagent's findings/blocker list is
+        // referred back to for MANY turns, so it should be protected LONGER than an
+        // ordinary result, not shorter. Warn (it would head+tail a findings list before
+        // a throwaway Bash dump).
+        {
+            let b = &cfg.strategies.bloat_cap;
+            if b.enabled && b.subagent_keep_recent_turns < b.keep_recent_turns {
+                eprintln!(
+                    "[trimwire] warning: bloat_cap.subagent_keep_recent_turns ({}) < \
+                     keep_recent_turns ({}) — subagent (Task/Agent) results will age out FASTER \
+                     than ordinary results, which is backwards (a subagent's findings are \
+                     consumed across many follow-up turns). Consider raising \
+                     subagent_keep_recent_turns, or add Task/Agent to bloat_cap.exempt_tools \
+                     for the all-ages exemption.",
+                    b.subagent_keep_recent_turns, b.keep_recent_turns
+                );
+            }
+        }
+
         Ok(cfg)
     }
 }
@@ -1517,10 +1564,8 @@ mod tests {
                 .contains(&"Read".to_owned()),
             "default must NOT exempt Read at every age (it is age-gated)"
         );
-        // `Agent` joins `Task`: both are subagent-launch tool names (the name drifted
-        // Task→Agent across CC versions) — subagent results must stay exempt so their
-        // findings aren't middle-trimmed (NONREAD-BLOAT-MANUAL-INSPECTION-2026-06-18).
-        for t in ["Edit", "Write", "MultiEdit", "Task", "Agent"] {
+        // Authoring results stay all-ages exempt (load-bearing §13A floor).
+        for t in ["Edit", "Write", "MultiEdit"] {
             assert!(
                 default
                     .strategies
@@ -1530,6 +1575,24 @@ mod tests {
                 "default must keep {t} exempt at every age (load-bearing)"
             );
         }
+        // #124: subagent results (Task/Agent) are NO LONGER all-ages exempt — they are
+        // age-gated on the wider `subagent_keep_recent_turns` window (default 8) so
+        // genuinely-old findings get head+tail-salvaged. Pin both: not in exempt_tools,
+        // and the window is the generous 8.
+        for t in ["Task", "Agent"] {
+            assert!(
+                !default
+                    .strategies
+                    .bloat_cap
+                    .exempt_tools
+                    .contains(&t.to_owned()),
+                "default must NOT keep {t} exempt at every age (#124: age-gated instead)"
+            );
+        }
+        assert_eq!(
+            default.strategies.bloat_cap.subagent_keep_recent_turns, 8,
+            "default must age-gate subagent results on the generous 8-turn window (#124)"
+        );
         assert_eq!(
             default.reprune.recheckpoint_result_bytes, 131_072,
             "default must enable the byte-based re-checkpoint at 128 KB"
@@ -1591,6 +1654,19 @@ mod tests {
             gentle.strategies.bloat_cap.keep_recent_turns, 6,
             "gentle bloat_cap keep_recent must be large (6)"
         );
+        // #124: gentle is the gentlest profile — it keeps subagent (Task/Agent) results
+        // FULLY exempt at every age (the legacy all-ages exemption), unlike `default`
+        // which age-gates them. gentle never trims subagent findings.
+        for t in ["Task", "Agent"] {
+            assert!(
+                gentle
+                    .strategies
+                    .bloat_cap
+                    .exempt_tools
+                    .contains(&t.to_owned()),
+                "gentle must keep {t} all-ages exempt in bloat_cap (gentlest touch)"
+            );
+        }
         // thinking_strip ON in gentle (2026-06-05) with a CONSERVATIVE window — it's the
         // only lever that gave gentle real savings on real sessions; drops only OLD
         // reasoning, cache-stable + API-safe. keep_recent=8 (vs default's 4).
