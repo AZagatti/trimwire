@@ -214,10 +214,22 @@ pub struct FailedInputPurgeConfig {
 pub struct StaleInputCapConfig {
     /// When false this strategy is a no-op (default).
     pub enabled: bool,
-    /// Only reduce successful-call inputs older than this many assistant turns.
+    /// Only reduce NON-authoring successful-call inputs older than this many
+    /// assistant turns (Bash stdin/heredocs, MCP args).
     pub keep_recent_turns: usize,
-    /// Tool-name patterns never reduced (supports `*`). Defaults to `["Task"]`
-    /// because Task inputs carry sub-agent prompts the model still needs.
+    /// Authoring-tool (Write/Edit/MultiEdit/NotebookEdit) inputs get their OWN,
+    /// wider window: their authored body is only reduced once it ages past this many
+    /// assistant turns, AND it is then replaced with a RECOVERABLE marker (which names
+    /// the file and says "read to restore") rather than the generic size marker —
+    /// because the content is on disk. Wider than `keep_recent_turns` because
+    /// edit-iterations (write, verify-read, patch-edit) span more turns than ordinary
+    /// inputs, and the cost of trimming content the model is still building on is a
+    /// loop/corruption (§13A), not just a re-read. Min 1 (clamped). A FAILED authored
+    /// call is never reduced here at any age (its content never hit disk — that floor
+    /// lives in `failed_input_purge`).
+    pub authoring_keep_recent_turns: usize,
+    /// Tool-name patterns never reduced (supports `*`). Defaults to the subagent
+    /// tools (`Task`/`Agent`), whose inputs carry sub-agent prompts.
     pub exempt_tools: Vec<String>,
 }
 
@@ -388,28 +400,19 @@ impl Default for StaleInputCapConfig {
         Self {
             enabled: false,
             keep_recent_turns: 4,
-            // Exempt the file-AUTHORING tools (Write/Edit/MultiEdit) and Task —
-            // mirrors bloat_cap/sliding_window ("load-bearing"). CRITICAL: eliding a
-            // Write/Edit `new_string` corrupts real sessions — the model rebuilds on
-            // content it can no longer see and reproduces the elision MARKER as the
-            // file body (observed live: a Go file written as "[trimwire: NB input
-            // elided]", breaking the build). Task carries sub-agent prompts. We only
-            // elide bulk from NON-authoring inputs (Bash stdin/heredocs, MCP args).
-            // NotebookEdit authors cell source (`new_source`) — same class. These four
-            // authoring tools are ALSO an unconditional hard floor (strategies::
-            // AUTHORING_TOOLS); listing them here keeps the visible config honest.
-            // `Task`+`Agent` = subagent tools (name drifted across CC versions); both listed.
-            exempt_tools: [
-                "Task",
-                "Agent",
-                "Write",
-                "Edit",
-                "MultiEdit",
-                "NotebookEdit",
-            ]
-            .iter()
-            .map(|s| (*s).to_owned())
-            .collect(),
+            // Authoring tools get a wider default window than ordinary inputs: their
+            // authored body stays verbatim while the agent is actively iterating on
+            // the file, and is only reduced (to a RECOVERABLE "read the file" marker)
+            // once genuinely old. 6 > the read window (4) because edit-iterations span
+            // more turns. Recent authored content is NEVER touched — that's what keeps
+            // §13A (model reproducing the marker as the file body) from recurring.
+            authoring_keep_recent_turns: 6,
+            // Only the SUBAGENT tools are blanket-exempt now: their inputs carry the
+            // sub-task prompt and aren't recoverable from disk. Authoring tools are no
+            // longer listed here — they are age-gated (see authoring_keep_recent_turns)
+            // with a recoverable marker, not permanently exempt. `Task`+`Agent` =
+            // subagent tools (name drifted across CC versions); both listed.
+            exempt_tools: ["Task", "Agent"].iter().map(|s| (*s).to_owned()).collect(),
         }
     }
 }
@@ -892,6 +895,10 @@ pub fn profile_baseline(name: &str) -> Config {
             // reprune-replayable). Tight window matches the aggressive profile.
             s.stale_input_cap.enabled = true;
             s.stale_input_cap.keep_recent_turns = 2;
+            // Authoring bodies get a wider window (6) and a recoverable "read the
+            // file" marker — old authored content is dead weight (it's on disk), but
+            // recent authored content must stay verbatim to avoid the §13A loop.
+            s.stale_input_cap.authoring_keep_recent_turns = 6;
             // Elide file Read *results* superseded by a later Write/Edit/re-Read of
             // the same path (cache-safe overwrite). Authored Write/Edit inputs are
             // never collapsed — eliding them corrupted real sessions (§13A).
@@ -1235,6 +1242,23 @@ impl Config {
             }
         }
 
+        // A backwards authoring window (authored bodies aging out FASTER than ordinary
+        // inputs) inverts the §13A intent: authored content should be protected LONGER,
+        // not shorter, since trimming content the model is still actively editing is the
+        // corruption/loop risk. The recoverable marker only partly mitigates it. Warn.
+        {
+            let s = &cfg.strategies.stale_input_cap;
+            if s.enabled && s.authoring_keep_recent_turns < s.keep_recent_turns {
+                eprintln!(
+                    "[trimwire] warning: stale_input_cap.authoring_keep_recent_turns ({}) < \
+                     keep_recent_turns ({}) — authored file content will age out FASTER than \
+                     ordinary inputs, which is backwards (authored bodies should be protected \
+                     longer). Consider raising authoring_keep_recent_turns.",
+                    s.authoring_keep_recent_turns, s.keep_recent_turns
+                );
+            }
+        }
+
         Ok(cfg)
     }
 }
@@ -1431,6 +1455,16 @@ mod tests {
         // Cache-safe extra levers: stale_input_cap + stale_reads ON in default.
         assert!(default.strategies.stale_input_cap.enabled);
         assert_eq!(default.strategies.stale_input_cap.keep_recent_turns, 2);
+        assert_eq!(
+            default
+                .strategies
+                .stale_input_cap
+                .authoring_keep_recent_turns,
+            6,
+            "default must keep authored bodies verbatim for 6 turns (§13A guard, wider \
+             than keep_recent_turns=2); dropping this to 2 would silently remove the \
+             recent-authored protection"
+        );
         assert!(default.strategies.stale_reads.enabled);
         // Phase 3C: demand-page threshold lowered 32KB→16KB for recoverability (route
         // old single-view 16-32KB Reads through demand-page, not silent bloat_cap trim).
@@ -1445,9 +1479,10 @@ mod tests {
             "default demand-page must keep recent reads protected (keep_recent=4)"
         );
         assert!(default.reprune.enabled);
-        // "Read coverage gap" fix: Read is AGE-GATED (exempt only while recent),
-        // authoring tools stay exempt at every age, and the byte-based re-checkpoint
-        // is on. These are the load-bearing invariants of the fix — pin them.
+        // "Read coverage gap" fix: Read is AGE-GATED (exempt only while recent) in
+        // bloat_cap, authoring tools stay exempt at every age IN BLOAT_CAP (they are
+        // age-gated with a recoverable marker in stale_input_cap — #122), and the
+        // byte-based re-checkpoint is on. Pin these load-bearing bloat_cap invariants.
         assert!(
             default
                 .strategies

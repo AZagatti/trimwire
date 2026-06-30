@@ -158,19 +158,19 @@ keep_recent_turns = 4   # struct default; the `default` profile sets this to 2
 # the shipped `default` value — verb-class globs matching browser automation
 # (`*browser_act*`, NOT a bare `*act*`, which would also match extract/interact/redact):
 denylist_tools = ["*screenshot*", "*navigate*", "*click*", "*browser_act*", "Grep"]
-exempt_tools   = ["Read", "Edit", "Write", "MultiEdit", "Task", "Agent"]  # never stubbed, even if denylisted
+exempt_tools   = ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Task", "Agent"]  # never stubbed, even if denylisted
 # stub = "[trimwire: elided, older than sliding window]"
 ```
 
 ### `[strategies.image_strip]` — on by default
 
-Replace base64 image payloads (e.g. screenshots) older than the K most-recent
-matching results with a marker.
+Replace base64 image payloads (e.g. screenshots, accessibility/DOM/heap snapshots)
+older than the K most-recent matching results with a marker.
 
 ```toml
 [strategies.image_strip]
 enabled = true
-applies_to_tools  = ["*screenshot*"]
+applies_to_tools  = ["*screenshot*", "*snapshot*"]   # screenshots + snapshot/heapsnapshot/DOM image blobs
 keep_recent_count = 3   # struct default; the `default` profile sets this to 1
 # stub = "[trimwire: image stripped]"
 ```
@@ -180,13 +180,22 @@ keep_recent_count = 3   # struct default; the `default` profile sets this to 1
 Caps the bulky *input* of an old **successful** tool call (the failed-input
 counterpart is `failed_input_purge`). Protects the most recent turns.
 
+**Authoring tools (Write/Edit/MultiEdit/NotebookEdit) are age-gated with a
+recoverable marker**, not permanently exempt. Their authored body is kept verbatim
+while recent — within the wider `authoring_keep_recent_turns` window (default 6 vs.
+2 for ordinary inputs) — so content the model is actively editing is never touched.
+Once it ages past that window it is replaced with `[trimwire: wrote <path> (<N>B) —
+read the file to restore]` instead of the generic size marker: the call succeeded,
+so the content is on disk and the model re-reads to recover it. A *failed* authored
+call's body is never touched here (it never hit disk — that floor stays in
+`failed_input_purge`).
+
 ```toml
 [strategies.stale_input_cap]
 enabled = true
-keep_recent_turns = 2            # turns protected from capping
-# shipped default — authoring/sub-agent tools are never capped (Write/Edit/MultiEdit/
-# NotebookEdit are ALSO a hard floor; Task and Agent are only protected via this list):
-exempt_tools = ["Task", "Agent", "Write", "Edit", "MultiEdit", "NotebookEdit"]  # tool names (globs) never capped
+keep_recent_turns = 2            # ordinary inputs (Bash stdin, MCP args)
+authoring_keep_recent_turns = 6  # authored bodies — wider; recoverable "read the file" marker once old
+exempt_tools = ["Task", "Agent"] # subagent prompts never reduced
 ```
 
 ### `[strategies.stale_reads]` — on in `default`, off in `gentle`

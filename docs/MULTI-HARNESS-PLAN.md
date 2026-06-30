@@ -96,7 +96,7 @@ This is **guaranteed for free**: `denormalize` runs only on *mutated* bodies; th
 
 ```rust
 pub struct ToolConventions {
-    pub authoring_tools: Vec<String>,   // never elide their input (file bodies)
+    pub authoring_tools: Vec<String>,   // age-gate their input with a recoverable "read the file" marker (bodies recoverable from disk)
     pub path_tools: Vec<String>,        // carry structured file-path inputs
     pub path_field: Option<String>,     // e.g. "file_path" for Claude Code
 }
