@@ -62,7 +62,7 @@ losing them.
 | Mode | largest request | sustained median |
 |---|--:|--:|
 | default (model-free) | 15% | 11% |
-| gentle | 22% | 4% |
+| gentle | 21% | 4% |
 | summarizer (GLM-5.2) | **78%** | 39% |
 
 Here there's almost nothing for the model-free passes to elide (no tool output),
@@ -80,6 +80,18 @@ numbers will vary with session shape — verify with `trimwire stats`.
 
 ## Byte-level methodology (offline replay)
 
+The live numbers above tell you what happens on a real session; the offline
+replay tells you *exactly* what the strategies do to the bytes, deterministically.
+We build synthetic-but-realistic `/v1/messages` bodies — known session shapes
+(tool-heavy, chat-heavy, mixed) at known sizes — and run them through the **real**
+strategy code, the same module the gateway calls in production. Because the input
+is fixed, the output is byte-exact and reproducible: the same body in always
+yields the same body out, so the reported reduction is a measured fact, not an
+estimate. This is also where the safety invariants are checked — orphan-free
+(never splitting a tool-call↔result pair), `system` and `tools[]` untouched on the
+default path — across the full corpus set plus a 3,000-body fuzz. The figures and
+the harness live in
+[benchmark/results/RESULTS.md](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md).
 
 ## Why "headroom, not dollars"
 

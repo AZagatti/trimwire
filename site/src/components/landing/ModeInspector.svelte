@@ -191,8 +191,8 @@
   .foot-metric .grow { flex: 1 1 auto; }
   .workswitch { display: inline-flex; gap: 0.12rem; padding: 0.16rem; border: 1px solid var(--border-2); border-radius: 999px; background: var(--inset); align-self: center; }
   .workswitch button { font-family: var(--mono); font-size: 0.68rem; color: var(--ink-3); background: transparent; border: 0; border-radius: 999px; padding: 0.3rem 0.6rem; min-height: 30px; cursor: pointer; transition: color 0.15s, background 0.15s; }
-  .workswitch button.on { color: var(--ink-1); background: var(--border-2); }
-  @media (hover: hover) { .workswitch button:not(.on):hover { color: var(--ink-1); } }
+  .workswitch button.on { color: var(--ink); background: var(--border-2); }
+  @media (hover: hover) { .workswitch button:not(.on):hover { color: var(--ink); } }
   .foot-note { grid-column: 2; margin: 0; font-size: 0.8rem; color: var(--ink-3); line-height: 1.45; }
   .foot-note code { font-family: var(--mono); font-size: 0.85em; color: var(--accent-hi); background: var(--inset); padding: 0.02em 0.32em; border-radius: 4px; }
   .foot-link { grid-column: 1 / -1; margin: 0.2rem 0 0; font-family: var(--mono); font-size: 0.74rem; }
