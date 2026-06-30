@@ -212,10 +212,10 @@ promotion note below the table).
 
 | Tool | Default policy | Exempt-from |
 |---|---|---|
-| `Read`, `Edit`, `Write`, `MultiEdit`, `Task` | Never *stubbed* by SlidingWindow; but `CrossTurnDedup` supersedes older identical repeats (keeps the latest) | SlidingWindow, ImageStrip |
+| `Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Task`, `Agent` | Never *stubbed* by SlidingWindow; but `CrossTurnDedup` supersedes older identical repeats (keeps the latest) | SlidingWindow, ImageStrip |
 | `Bash` (repeated identical) | Dedup (keep latest); errored inputs purged | `CrossTurnDedup`/`FailedInputPurge` configurable |
 | `Grep` / `Glob` (repeated identical) | Dedup (keep latest) | `CrossTurnDedup` configurable |
-| MCP image-returning tools (`*screenshot*`) | Strip after K recent | All except `ImageStrip` |
+| MCP image-returning tools (`*screenshot*`, `*snapshot*`) | Strip after K recent | All except `ImageStrip` |
 | All other MCP tools | `SlidingWindow` denylist candidates (off by default) | Configurable |
 
 Explicit non-goals: tokenisation-aware trimming, LLM-driven summarisation,
@@ -511,12 +511,12 @@ denylist_tools = [
     "mcp__playwright__*",
     # user adds known-elidable tool patterns here
 ]
-exempt_tools = ["Read", "Edit", "Write", "MultiEdit", "Task"]
+exempt_tools = ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Task", "Agent"]
 stub = "[trimwire: elided, older than sliding window]"
 
 [strategies.image_strip]
 enabled = true
-applies_to_tools = ["mcp__playwright__browser_take_screenshot", "*screenshot*"]
+applies_to_tools = ["*screenshot*", "*snapshot*"]
 keep_recent_count = 3
 stub = "[trimwire: image stripped]"
 ```
