@@ -498,7 +498,9 @@
   .modesw button:disabled.m-summ.on { background: color-mix(in srgb, var(--c-summ) 45%, #243130); color: #0c1211; }
   @media (hover: hover) { .modesw button:not(.on):not(:disabled):hover { color: var(--ink); } }
 
-  .daemon { height: clamp(15rem, 42vh, 22rem); overflow-y: auto; padding: 0.6rem 0.7rem; font-size: var(--t-fs-sub); line-height: 1.65; color: var(--ink-2); overflow-anchor: none; scrollbar-width: thin; scrollbar-color: #243130 transparent; }
+  /* flex:1 so the daemon fills its pane down to match the Claude pane (which is
+     taller by its input + statusline rows) — no dead black space under the log. */
+  .daemon { flex: 1 1 auto; min-height: clamp(14rem, 40vh, 20rem); overflow-y: auto; padding: 0.6rem 0.7rem; font-size: var(--t-fs-sub); line-height: 1.65; color: var(--ink-2); overflow-anchor: none; scrollbar-width: thin; scrollbar-color: #243130 transparent; }
   .daemon::-webkit-scrollbar { width: 5px; } .daemon::-webkit-scrollbar-thumb { background: #243130; border-radius: 999px; }
   .lg { margin-bottom: 0.14rem; border-radius: 5px; padding: 0.06rem 0.3rem; margin-inline: -0.3rem; transition: background 0.2s ease; }
   .lg.linkable { cursor: pointer; } .lg.linkable:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); box-shadow: inset 2px 0 0 var(--accent); }
@@ -513,15 +515,15 @@
   @keyframes dh { 0%,100% { transform: translateX(0); } 50% { transform: translateX(3px); } }
 
   @media (max-width: 52rem) {
-    /* Only the PANES pan — the winbar (with the Trimwire on/off toggle + replay)
-       stays fixed to the window edge instead of scrolling off into the middle of
-       the scene. The window itself keeps clipping + rounded corners. */
-    .termwin { min-width: 0; }
-    .panes { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-    .panes::-webkit-scrollbar { display: none; }
-    /* wider daemon so it's actually readable, and a bit taller */
-    .pane-cc { flex: 0 0 86vw; scroll-snap-align: start; } .pane-tw { flex: 0 0 82vw; scroll-snap-align: end; }
-    .cc-scroll, .daemon { height: clamp(14rem, 52vh, 20rem); }
+    /* The WHOLE window pans as one wide canvas (Superset-style): the winbar (which
+       stretches to the full scene width, so its Trimwire on/off toggle sits at the
+       scene's right edge), the tabs, and both panes all scroll together. */
+    .termwin { min-width: 0; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .termwin::-webkit-scrollbar { display: none; }
+    .panes { display: flex; }
+    /* bigger panes so the terminals are comfortably readable */
+    .pane-cc { flex: 0 0 90vw; scroll-snap-align: start; } .pane-tw { flex: 0 0 86vw; scroll-snap-align: end; }
+    .cc-scroll { height: clamp(15rem, 56vh, 22rem); }
     .drag-hint { display: inline-flex; }
   }
   @media (prefers-reduced-motion: reduce) { .cursor, .msg, .dh-ar { animation: none; transition: none; } }
