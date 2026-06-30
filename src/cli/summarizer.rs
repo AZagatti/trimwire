@@ -380,16 +380,20 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
         break name;
     };
 
-    // Optional key FILE — the daemon-safe alternative to a shell export.
-    // systemd/launchd services do NOT inherit ~/.zshrc exports, so an env var
-    // alone leaves a background gateway unauthenticated (issue #111). A key file
-    // is read at runtime regardless of how the service was launched.
+    // Key FILE — RECOMMENDED for the default install. `trimwire install` sets up
+    // an always-up systemd/launchd service, which does NOT inherit your shell's
+    // ~/.zshrc exports — so the env var above is invisible to it (issue #111). A
+    // key file is read at runtime and works either way; the env var still covers
+    // foreground `trimwire run`.
     println!();
-    println!("  (Optional) Key FILE path. If you run trimwire as a background service");
-    println!("  (systemd/launchd), shell exports in ~/.zshrc are NOT visible to the daemon —");
-    println!("  point trimwire at a file holding the key instead (read at runtime; chmod 600).");
+    println!("  Key FILE — recommended. trimwire usually runs as a background service");
+    println!("  (that's what `trimwire install` sets up), and a service can't see the env");
+    println!("  var you exported in ~/.zshrc. Point it at a file holding the key instead —");
+    println!("  read at runtime, works both as a service and in `trimwire run`. chmod 600 it.");
     let api_key_file = {
-        let raw = prompt("  Key file path (blank to skip) [e.g. ~/.zai_key]: ")?;
+        let raw = prompt(
+            "  Key file path (recommended; Enter to skip if you only use `trimwire run`) [e.g. ~/.zai_key]: ",
+        )?;
         let trimmed = raw.trim().to_owned();
         if trimmed.is_empty() {
             None
@@ -414,15 +418,16 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
         .unwrap_or(true);
     if env_unset && api_key_file.is_none() {
         println!();
-        println!("  Warning: ${api_key_env} is not currently set in this shell.");
-        println!("  trimwire will skip this provider (and fall back to the next engine)");
-        println!("  until you export it before starting the gateway.");
+        println!("  Warning: no key source is set — ${api_key_env} is unset and you skipped");
+        println!("  the key file, so trimwire will skip this provider and fall back.");
         println!();
-        println!("  To set it now (copy-paste):");
-        println!("    export {api_key_env}=\"<your-api-key>\"");
+        println!("  Recommended (works as a service AND in `trimwire run`):");
+        println!("    printf '%s' \"<your-api-key>\" > ~/.{id}_key && chmod 600 ~/.{id}_key");
+        println!("    then re-run `trimwire summarizer setup` and give the key file path.");
         println!();
-        println!("  To persist across shells, add that line to your ~/.zshrc or ~/.bashrc.");
-        println!("  Or, for a background service, re-run setup and give a key FILE path.");
+        println!("  Alternative (foreground `trimwire run` only — a background service");
+        println!("  won't see it): export {api_key_env}=\"<your-api-key>\"");
+        println!("  (add that to ~/.zshrc or ~/.bashrc to persist it).");
     }
 
     if !prompt_yn("  Add this provider?", true)? {
@@ -1008,10 +1013,23 @@ pub fn summarizer_setup() -> Result<()> {
             .unwrap_or(false);
         if !env_set && !file_set {
             println!();
-            println!("  Action required: set your API key before starting the gateway:");
-            println!("    export {}=\"<your-api-key>\"", p.api_key_env);
-            println!("  Add that export to ~/.zshrc or ~/.bashrc to persist it.");
-            println!("  (For a background service, set api_key_file in trimwire.toml instead.)");
+            println!(
+                "  Action required: give provider \"{}\" a key before starting.",
+                p.id
+            );
+            println!("  Recommended (works as a service, which is the default install):");
+            println!(
+                "    printf '%s' \"<your-api-key>\" > ~/.{}_key && chmod 600 ~/.{}_key",
+                p.id, p.id
+            );
+            println!(
+                "    then set  api_key_file = \"~/.{}_key\"  on this provider in trimwire.toml.",
+                p.id
+            );
+            println!(
+                "  Or, for foreground `trimwire run` only: export {}=\"<your-api-key>\"",
+                p.api_key_env
+            );
             println!("  Then run `trimwire on` to start.");
         }
     }
@@ -1135,15 +1153,15 @@ pub fn summarizer_status() -> Result<()> {
                         Ok(_) => println!("      key: set"),
                         Err(reason) => {
                             println!("      key: NOT SET ({reason})");
+                            println!(
+                                "      → recommended: set api_key_file in trimwire.toml (works as a service — the default install)."
+                            );
                             if !p.api_key_env.is_empty() {
                                 println!(
-                                    "      → export {}=\"<your-api-key>\" before starting the gateway,",
+                                    "      → or, for foreground `trimwire run`: export {}=\"<your-api-key>\".",
                                     p.api_key_env
                                 );
                             }
-                            println!(
-                                "      → or set api_key_file in trimwire.toml (works for a background service)."
-                            );
                         }
                     }
                 }

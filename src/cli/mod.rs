@@ -458,16 +458,20 @@ pub fn doctor(strict: bool) -> Result<()> {
                                 render::warn(),
                                 provider.id,
                             );
+                            // Recommend the key file first: the always-up service that
+                            // `trimwire install` sets up can't see shell exports.
+                            println!(
+                                "  → recommended: set  api_key_file = \"~/.{}_key\"  on this provider \
+                                 in trimwire.toml (works as a service — the default install; `chmod 600` it).",
+                                provider.id
+                            );
                             if !provider.api_key_env.is_empty() {
-                                println!("  → export {}=\"<your-api-key>\"", provider.api_key_env);
                                 println!(
-                                    "  → to persist across shells, add that export to your ~/.zshrc or ~/.bashrc."
+                                    "  → or, for foreground `trimwire run` only: export {}=\"<your-api-key>\" \
+                                     (add to ~/.zshrc/~/.bashrc to persist).",
+                                    provider.api_key_env
                                 );
                             }
-                            println!(
-                                "  → for a background service (systemd/launchd), set \
-                                 api_key_file in trimwire.toml (shell exports aren't visible to daemons)."
-                            );
                             println!("  → then run `trimwire on` to start the gateway.");
                         }
                     }
@@ -716,18 +720,20 @@ retain_days = 365
 # style       = "anthropic"                 # "anthropic" | "openai" (OpenAI-compatible)
 # base_url    = "https://api.anthropic.com" # REQUIRED: the API root URL (e.g. OpenAI: https://api.openai.com)
 # model       = ""                          # e.g. "claude-haiku-4-5" or "gpt-4o-mini"
-# api_key_env = "ANTHROPIC_API_KEY"         # name of the env var that holds your key
-#                                           # (security: trimwire stores ONLY the name,
-#                                           # never the key itself — keys must not live
-#                                           # in a committed config file)
-#                                           # set it before starting the gateway:
-#                                           #   export ANTHROPIC_API_KEY="sk-ant-..."
-#                                           # to persist, add that export to ~/.zshrc or ~/.bashrc
-# # api_key_file is the daemon-safe ALTERNATIVE to api_key_env: a systemd/launchd
-# # service does NOT inherit ~/.zshrc exports, so a background gateway can't see an
-# # exported env var. Point trimwire at a key file instead (read at runtime; a
-# # leading ~/ expands to $HOME). Stores the PATH, never the key — `chmod 600` it.
+# # Key source — pick ONE (trimwire stores the NAME/PATH, never the key itself):
+# #
+# # RECOMMENDED — api_key_file. `trimwire install` runs an always-up systemd/launchd
+# # service, which does NOT inherit your ~/.zshrc exports, so an env var is invisible
+# # to it. A key file is read at runtime and works as a service AND in `trimwire run`.
+# # A leading ~/ expands to $HOME. Create it, then `chmod 600`:
+# #   printf '%s' "sk-ant-..." > ~/.config/trimwire/anthropic.key && chmod 600 ~/.config/trimwire/anthropic.key
 # api_key_file = "~/.config/trimwire/anthropic.key"
+# #
+# # OR api_key_env — the NAME of an env var holding the key. Works for foreground
+# # `trimwire run`; a background service won't see it unless you import it into the
+# # service environment. Set it before starting: export ANTHROPIC_API_KEY="sk-ant-..."
+# # (add to ~/.zshrc or ~/.bashrc to persist).
+# api_key_env = "ANTHROPIC_API_KEY"
 "#;
 
 /// Write the starter config to `path` if it does not already exist. Returns
