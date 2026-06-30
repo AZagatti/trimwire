@@ -22,6 +22,14 @@ import TerminalProof from "../components/landing/TerminalProof.svelte";
 import ModeInspector from "../components/landing/ModeInspector.svelte";
 const REPO = "https://github.com/AZagatti/trimwire";
 const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
+
+// Social-share metadata. `Astro.site` (https://trimwire.dev) makes the OG image
+// an absolute URL — required: HN/X/Slack reject relative og:image paths.
+const TITLE = "trimwire — prune your coding agent's context on every request";
+const DESCRIPTION =
+  "A tiny local gateway that prunes your coding agent's context on every request — watch a real Claude Code session run beside the live Trimwire gateway.";
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const ogImage = new URL("/og.png", Astro.site).href;
 ---
 
 <!doctype html>
@@ -30,8 +38,25 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/favicon.svg" />
-    <title>trimwire — prune your coding agent's context on every request</title>
-    <meta name="description" content="A tiny local gateway that prunes your coding agent's context on every request — watch a real Claude Code session run beside the live Trimwire gateway." />
+    <title>{TITLE}</title>
+    <meta name="description" content={DESCRIPTION} />
+    <link rel="canonical" href={canonical} />
+
+    <!-- Open Graph (Facebook, LinkedIn, Slack, Discord) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={TITLE} />
+    <meta property="og:description" content={DESCRIPTION} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="trimwire" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={TITLE} />
+    <meta name="twitter:description" content={DESCRIPTION} />
+    <meta name="twitter:image" content={ogImage} />
   </head>
   <body>
     <header class="vx-header">
