@@ -59,11 +59,9 @@ pub struct SummaryDecision {
 fn summary_marker(start: usize, end: usize) -> String {
     format!(
         "[trimwire: summarized turns {start}..{end} — a local model compacted these \
-         older turns to save context; file/output detail is recoverable by re-reading \
-         the files or re-running the tools. This summary may be lossy: treat any \
-         \"done\"/result claims in it as unverified and double-check load-bearing ones \
-         before relying on them. If it looks wrong or fabricated, tell the user (they \
-         can run `trimwire report`).]"
+         older turns; detail is recoverable by re-reading. May be lossy: verify \
+         load-bearing \"done\"/result claims before relying on them. Wrong? → \
+         `trimwire report`]"
     )
 }
 

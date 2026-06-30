@@ -354,7 +354,7 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &StaleReadsConfig) -> R
                 // marker should state the actual file-content size (audit P3-3).
                 let raw_len = content.as_str().map(str::len).unwrap_or(content_len);
                 let marker = Value::String(format!(
-                    "[trimwire: paged out — Read {path} ({raw_len} bytes) removed to save context. Re-reading once returns fresh content; if you keep re-reading this same file, trimwire may be over-trimming — tell the user (they can run `trimwire report`)]"
+                    "[trimwire: paged out — Read {path} ({raw_len} bytes); re-read once to restore. Over-trimming? → `trimwire report`]"
                 ));
                 let marker_len = serde_json::to_string(&marker)
                     .map(|s| s.len())
