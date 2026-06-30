@@ -115,6 +115,33 @@ and can't be `local` or `model-free` (reserved).
 provider whose path **isn't** the standard one, set **`full_url`** (the exact POST URL);
 `base_url` is then ignored and `style` still selects the auth header + payload shape.
 
+### Where the key comes from: `api_key_env` or `api_key_file`
+
+trimwire never stores the key itself — only **where to find it**. Two sources, checked
+in order:
+
+1. **`api_key_env`** — the NAME of an environment variable (e.g. `ANTHROPIC_API_KEY`).
+   Read from the gateway process's environment.
+2. **`api_key_file`** — a path to a file whose contents are the key (whitespace
+   trimmed). A leading `~/` expands to `$HOME`. Used when `api_key_env` is unset, or
+   as a fallback when the named env var is absent.
+
+```toml
+[[summarizer.providers]]
+id          = "zai"
+style       = "anthropic"
+base_url    = "https://api.z.ai/api/anthropic"
+model       = "glm-5.2"
+api_key_file = "~/.zai_key"        # read at runtime; alternative to api_key_env
+```
+
+**Running trimwire as a service?** A systemd/launchd background service does **not**
+inherit the exports in your `~/.zshrc`/`~/.bashrc`, so an `api_key_env` that works in
+your shell is invisible to the daemon (the summarizer then logs `env var … is not set`
+and falls back to model-free pruning). Use **`api_key_file`** in that case — it's read
+at runtime regardless of how the service was launched. `chmod 600` the file so only you
+can read it (`trimwire doctor` warns if it's group/world-readable).
+
 ### Provider recipes
 
 ```toml

@@ -20,6 +20,10 @@ pub struct ProviderEntry {
     pub base_url: String,
     pub model: String,
     pub api_key_env: String,
+    /// Optional path to a file holding the key — the daemon-safe alternative to
+    /// `api_key_env` (a systemd/launchd service can't see shell exports). `None`
+    /// when the user only configured an env var.
+    pub api_key_file: Option<String>,
 }
 
 /// Answers collected from the unified model-picker wizard.
@@ -102,6 +106,9 @@ pub fn render_summarizer_config_block(answers: &SetupAnswers) -> String {
         out.push_str(&format!("base_url    = \"{}\"\n", p.base_url));
         out.push_str(&format!("model       = \"{}\"\n", p.model));
         out.push_str(&format!("api_key_env = \"{}\"\n", p.api_key_env));
+        if let Some(f) = p.api_key_file.as_deref().filter(|f| !f.is_empty()) {
+            out.push_str(&format!("api_key_file = \"{}\"\n", f));
+        }
     }
 
     out
@@ -373,16 +380,39 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
         break name;
     };
 
+    // Optional key FILE — the daemon-safe alternative to a shell export.
+    // systemd/launchd services do NOT inherit ~/.zshrc exports, so an env var
+    // alone leaves a background gateway unauthenticated (issue #111). A key file
+    // is read at runtime regardless of how the service was launched.
+    println!();
+    println!("  (Optional) Key FILE path. If you run trimwire as a background service");
+    println!("  (systemd/launchd), shell exports in ~/.zshrc are NOT visible to the daemon —");
+    println!("  point trimwire at a file holding the key instead (read at runtime; chmod 600).");
+    let api_key_file = {
+        let raw = prompt("  Key file path (blank to skip) [e.g. ~/.zai_key]: ")?;
+        let trimmed = raw.trim().to_owned();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    };
+
     // Privacy notice
     println!();
     println!("  Privacy: trimwire will send the prunable conversation slice to {base_url}");
-    println!("  to be summarized, authenticated with the key in ${api_key_env}.");
+    let key_source = match api_key_file.as_deref() {
+        Some(f) => format!("the key in ${api_key_env} (or the file {f})"),
+        None => format!("the key in ${api_key_env}"),
+    };
+    println!("  to be summarized, authenticated with {key_source}.");
 
-    // Warn if env var is currently unset — with a copy-paste snippet.
-    if std::env::var(&api_key_env)
+    // Warn only if NEITHER source can currently produce a key. A configured key
+    // file makes the provider daemon-safe, so a set-but-unexported env var is fine.
+    let env_unset = std::env::var(&api_key_env)
         .map(|v| v.trim().is_empty())
-        .unwrap_or(true)
-    {
+        .unwrap_or(true);
+    if env_unset && api_key_file.is_none() {
         println!();
         println!("  Warning: ${api_key_env} is not currently set in this shell.");
         println!("  trimwire will skip this provider (and fall back to the next engine)");
@@ -392,6 +422,7 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
         println!("    export {api_key_env}=\"<your-api-key>\"");
         println!();
         println!("  To persist across shells, add that line to your ~/.zshrc or ~/.bashrc.");
+        println!("  Or, for a background service, re-run setup and give a key FILE path.");
     }
 
     if !prompt_yn("  Add this provider?", true)? {
@@ -406,6 +437,7 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
         base_url,
         model,
         api_key_env,
+        api_key_file,
     })
 }
 
@@ -704,6 +736,7 @@ pub fn summarizer_setup() -> Result<()> {
                     base_url: p.base_url,
                     model: p.model,
                     api_key_env: p.api_key_env,
+                    api_key_file: p.api_key_file,
                 })
                 .collect()
         })
@@ -962,16 +995,23 @@ pub fn summarizer_setup() -> Result<()> {
     if answers.engine == "local" || answers.fallback.iter().any(|f| f == "local") {
         println!("    trimwire summarizer benchmark   — score the model on the quality corpus");
     }
-    // Remind about API key env vars for any provider in the chain.
+    // Remind about API key env vars for any provider in the chain. A configured
+    // key file counts as "set" — it works in a daemon even without a shell export.
     for p in &answers.providers {
-        let key_set = std::env::var(&p.api_key_env)
+        let env_set = std::env::var(&p.api_key_env)
             .map(|v| !v.trim().is_empty())
             .unwrap_or(false);
-        if !key_set {
+        let file_set = p
+            .api_key_file
+            .as_deref()
+            .map(|f| !f.trim().is_empty())
+            .unwrap_or(false);
+        if !env_set && !file_set {
             println!();
             println!("  Action required: set your API key before starting the gateway:");
             println!("    export {}=\"<your-api-key>\"", p.api_key_env);
             println!("  Add that export to ~/.zshrc or ~/.bashrc to persist it.");
+            println!("  (For a background service, set api_key_file in trimwire.toml instead.)");
             println!("  Then run `trimwire on` to start.");
         }
     }
@@ -1082,24 +1122,28 @@ pub fn summarizer_status() -> Result<()> {
                 println!();
                 println!("  Configured providers:");
                 for p in &s.providers {
+                    let key_file = match p.api_key_file.as_deref() {
+                        Some(f) if !f.is_empty() => format!("  api_key_file={f}"),
+                        _ => String::new(),
+                    };
                     println!(
-                        "    id={:?}  style={}  model={}  base_url={}  api_key_env={}",
+                        "    id={:?}  style={}  model={}  base_url={}  api_key_env={}{key_file}",
                         p.id, p.style, p.model, p.base_url, p.api_key_env
                     );
-                    if p.api_key_env.is_empty() {
-                        println!("      key: (api_key_env not set)");
-                    } else {
-                        match std::env::var(&p.api_key_env) {
-                            Ok(v) if !v.trim().is_empty() => {
-                                println!("      key: set");
-                            }
-                            _ => {
-                                println!("      key: NOT SET");
+                    // Report the key the same way the runtime resolves it (env then file).
+                    match trimwire::summarizer::api::resolve_provider_key(p) {
+                        Ok(_) => println!("      key: set"),
+                        Err(reason) => {
+                            println!("      key: NOT SET ({reason})");
+                            if !p.api_key_env.is_empty() {
                                 println!(
-                                    "      → export {}=\"<your-api-key>\" before starting the gateway.",
+                                    "      → export {}=\"<your-api-key>\" before starting the gateway,",
                                     p.api_key_env
                                 );
                             }
+                            println!(
+                                "      → or set api_key_file in trimwire.toml (works for a background service)."
+                            );
                         }
                     }
                 }
@@ -1236,12 +1280,10 @@ pub fn summarizer_probe(
                 println!("  Re-run with --yes to make the call(s).");
                 return Ok(());
             }
-            if std::env::var(&p.api_key_env)
-                .map(|v| v.trim().is_empty())
-                .unwrap_or(true)
-            {
+            if let Err(reason) = trimwire::summarizer::api::resolve_provider_key(p) {
                 anyhow::bail!(
-                    "${} is not set — export your API key before probing provider \"{}\".",
+                    "{reason} — set your API key (export {} or api_key_file) before \
+                     probing provider \"{}\".",
                     p.api_key_env,
                     p.id
                 );
@@ -1452,6 +1494,7 @@ mod tests {
                 base_url: "https://api.anthropic.com".to_owned(),
                 model: "claude-haiku-4-20250514".to_owned(),
                 api_key_env: "ANTHROPIC_API_KEY".to_owned(),
+                api_key_file: None,
             }],
         };
         let block = render_summarizer_config_block(&answers);
@@ -1475,6 +1518,45 @@ mod tests {
     }
 
     #[test]
+    fn api_key_file_is_emitted_when_set_but_omitted_when_none() {
+        let with_file = SetupAnswers {
+            engine: "zai".to_owned(),
+            fallback: Vec::new(),
+            local_endpoint: None,
+            local_model: None,
+            providers: vec![ProviderEntry {
+                id: "zai".to_owned(),
+                style: "anthropic".to_owned(),
+                base_url: "https://api.z.ai/api/anthropic".to_owned(),
+                model: "glm-5.2".to_owned(),
+                api_key_env: "ZAI_API_KEY".to_owned(),
+                api_key_file: Some("~/.zai_key".to_owned()),
+            }],
+        };
+        let block = render_summarizer_config_block(&with_file);
+        assert!(
+            block.contains("api_key_file = \"~/.zai_key\""),
+            "api_key_file must be emitted when set; got:\n{block}"
+        );
+        // It stores only the PATH — never a key value.
+        assert!(!block.contains("sk-"));
+
+        // When None, the line must be absent entirely (not an empty string).
+        let without = SetupAnswers {
+            providers: vec![ProviderEntry {
+                api_key_file: None,
+                ..with_file.providers[0].clone()
+            }],
+            ..with_file
+        };
+        let block2 = render_summarizer_config_block(&without);
+        assert!(
+            !block2.contains("api_key_file"),
+            "api_key_file line must be omitted when None; got:\n{block2}"
+        );
+    }
+
+    #[test]
     fn api_answers_never_store_a_key_value() {
         let answers = SetupAnswers {
             engine: "openrouter".to_owned(),
@@ -1487,6 +1569,7 @@ mod tests {
                 base_url: "https://api.openai.com".to_owned(),
                 model: "gpt-4o-mini".to_owned(),
                 api_key_env: "OPENAI_API_KEY".to_owned(),
+                api_key_file: None,
             }],
         };
         let block = render_summarizer_config_block(&answers);
@@ -1517,6 +1600,7 @@ mod tests {
                 base_url: "https://my.example.com".to_owned(),
                 model: "my-model".to_owned(),
                 api_key_env: "MY_API_KEY".to_owned(),
+                api_key_file: None,
             }],
         };
         let block = render_summarizer_config_block(&answers);
@@ -1551,6 +1635,7 @@ mod tests {
                     base_url: "https://api.anthropic.com".to_owned(),
                     model: "claude-haiku-4-20250514".to_owned(),
                     api_key_env: "ANTHROPIC_API_KEY".to_owned(),
+                    api_key_file: None,
                 },
                 ProviderEntry {
                     id: "openrouter".to_owned(),
@@ -1558,6 +1643,7 @@ mod tests {
                     base_url: "https://openrouter.ai/api".to_owned(),
                     model: "meta-llama/llama-3.1-8b-instruct:free".to_owned(),
                     api_key_env: "OPENROUTER_API_KEY".to_owned(),
+                    api_key_file: None,
                 },
             ],
         };
@@ -1589,6 +1675,7 @@ mod tests {
                 base_url: "https://api.openai.com".to_owned(),
                 model: "gpt-4o".to_owned(),
                 api_key_env: "OPENAI_API_KEY".to_owned(),
+                api_key_file: None,
             }],
         };
         let block = render_summarizer_config_block(&answers);
@@ -1763,6 +1850,7 @@ profile = \"default\"\n\
                 base_url: "https://api.anthropic.com".to_owned(),
                 model: "claude-haiku-4-20250514".to_owned(),
                 api_key_env: "ANTHROPIC_API_KEY".to_owned(),
+                api_key_file: None,
             }],
         };
         let block = render_summarizer_config_block(&answers);
@@ -1802,6 +1890,7 @@ profile = \"default\"\n\
                     base_url: "https://api.anthropic.com".to_owned(),
                     model: "claude-haiku-4-20250514".to_owned(),
                     api_key_env: "ANTHROPIC_API_KEY".to_owned(),
+                    api_key_file: None,
                 },
                 ProviderEntry {
                     id: "openrouter".to_owned(),
@@ -1809,6 +1898,7 @@ profile = \"default\"\n\
                     base_url: "https://openrouter.ai/api".to_owned(),
                     model: "meta-llama/llama-3.1-8b-instruct:free".to_owned(),
                     api_key_env: "OPENROUTER_API_KEY".to_owned(),
+                    api_key_file: None,
                 },
             ],
         };

@@ -411,30 +411,65 @@ pub fn doctor(strict: bool) -> Result<()> {
                     } else {
                         provider.api_key_env.clone()
                     };
+                    let key_file = match provider.api_key_file.as_deref() {
+                        Some(f) if !f.is_empty() => format!(", api_key_file={f}"),
+                        _ => String::new(),
+                    };
                     println!(
                         "{} summarizer provider '{}': style={}, base_url={base_url}, \
-                         model={model}, api_key_env={key_env}",
+                         model={model}, api_key_env={key_env}{key_file}",
                         render::ok(),
                         provider.id,
                         provider.style,
                     );
-                    // Warn if the key env var is configured but currently unset in the environment.
-                    if !provider.api_key_env.is_empty()
-                        && std::env::var(&provider.api_key_env)
-                            .unwrap_or_default()
-                            .is_empty()
-                    {
-                        println!(
-                            "{} ${} is not set in the current environment — \
-                             the API summarizer will fail at runtime.",
-                            render::warn(),
-                            provider.api_key_env,
-                        );
-                        println!("  → export {}=\"<your-api-key>\"", provider.api_key_env,);
-                        println!(
-                            "  → to persist across shells, add that export to your ~/.zshrc or ~/.bashrc."
-                        );
-                        println!("  → then run `trimwire on` to start the gateway.");
+                    // Resolve the key the SAME way the runtime does (env first, then
+                    // api_key_file). A configured key file makes the provider work in a
+                    // daemon even when the shell env var is unset, so only warn when
+                    // neither source actually yields a key.
+                    match trimwire::summarizer::api::resolve_provider_key(provider) {
+                        Ok(_) => {
+                            // Permission hygiene: a key file readable by other users is a
+                            // leak. Warn (don't block) if it isn't owner-only.
+                            #[cfg(unix)]
+                            if let Some(f) =
+                                provider.api_key_file.as_deref().filter(|f| !f.is_empty())
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                let path = trimwire::ledger::resolve_path(f);
+                                if let Ok(meta) = std::fs::metadata(&path) {
+                                    let mode = meta.permissions().mode() & 0o777;
+                                    if mode & 0o077 != 0 {
+                                        println!(
+                                            "{} api_key_file {} is mode {:o} — readable by others; \
+                                             run `chmod 600 {}`",
+                                            render::warn(),
+                                            path.display(),
+                                            mode,
+                                            path.display(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Err(reason) => {
+                            println!(
+                                "{} provider '{}' key unavailable: {reason} — \
+                                 the API summarizer will fail at runtime.",
+                                render::warn(),
+                                provider.id,
+                            );
+                            if !provider.api_key_env.is_empty() {
+                                println!("  → export {}=\"<your-api-key>\"", provider.api_key_env);
+                                println!(
+                                    "  → to persist across shells, add that export to your ~/.zshrc or ~/.bashrc."
+                                );
+                            }
+                            println!(
+                                "  → for a background service (systemd/launchd), set \
+                                 api_key_file in trimwire.toml (shell exports aren't visible to daemons)."
+                            );
+                            println!("  → then run `trimwire on` to start the gateway.");
+                        }
                     }
                     // Privacy reminder: the prunable slice leaves the machine.
                     println!(
@@ -688,6 +723,11 @@ retain_days = 365
 #                                           # set it before starting the gateway:
 #                                           #   export ANTHROPIC_API_KEY="sk-ant-..."
 #                                           # to persist, add that export to ~/.zshrc or ~/.bashrc
+# # api_key_file is the daemon-safe ALTERNATIVE to api_key_env: a systemd/launchd
+# # service does NOT inherit ~/.zshrc exports, so a background gateway can't see an
+# # exported env var. Point trimwire at a key file instead (read at runtime; a
+# # leading ~/ expands to $HOME). Stores the PATH, never the key — `chmod 600` it.
+# api_key_file = "~/.config/trimwire/anthropic.key"
 "#;
 
 /// Write the starter config to `path` if it does not already exist. Returns

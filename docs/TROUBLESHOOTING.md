@@ -73,6 +73,34 @@ the gateway's actual savings.
    summarizer is never load-bearing. If it fails silently, `TRIMWIRE_LOG=info trimwire run`
    will show the reason in the gateway's stderr.
 
+### Summarizer logs `env var … is not set` (running as a systemd/launchd service)
+
+A background service does **not** source your `~/.zshrc`/`~/.bashrc`, so any API key
+you `export`ed there is invisible to the daemon — even though it works in your
+interactive shell. You'll see logs like:
+
+```
+WARN trimwire::summarizer: API provider failed; trying next in cascade
+  provider="glm52" error=summarizer backend unreachable: env var ZAI_API_KEY is not set
+```
+
+Fix: point the provider at a key **file** instead of (or in addition to) an env var.
+In `~/.config/trimwire.toml`, under the provider block:
+
+```toml
+[[summarizer.providers]]
+id           = "glm52"
+style        = "anthropic"
+base_url     = "https://api.z.ai/api/anthropic"
+model        = "glm-5.2"
+api_key_file = "~/.zai_key"     # read at runtime; works for a daemon. chmod 600 it.
+```
+
+Then `chmod 600 ~/.zai_key` and restart the gateway (`trimwire off && trimwire on`).
+`trimwire doctor` and `trimwire summarizer status` resolve the key the same way the
+runtime does, so they'll confirm `key: set` once the file is in place (and warn if the
+file is group/world-readable).
+
 ## FAQ
 
 **Does it work with my Pro/Max subscription, or only API keys?**

@@ -192,6 +192,8 @@ style       = "anthropic"            # or "openai" (OpenAI-compatible)
 base_url    = "https://api.anthropic.com"
 model       = "claude-haiku-4-5"
 api_key_env = "ANTHROPIC_API_KEY"    # env var name; key never stored in the config
+# api_key_file = "~/.anthropic_key"  # OR a key file — use this when trimwire runs as a
+#                                    # systemd/launchd service (a daemon can't see shell exports)
 ```
 
 Best for long, reasoning-dense sessions; it only fires once a request exceeds

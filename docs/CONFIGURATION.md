@@ -341,6 +341,9 @@ keep_alive_secs = 0           # 0 = unload the model from RAM after each summari
 #                             # When set, base_url is ignored; style still applies.
 # model       = "claude-haiku-4-5"
 # api_key_env = "MYAPI_KEY"   # env var holding the key (never inline the key)
+# api_key_file = "~/.myapi_key"  # OR a file holding the key (read at runtime; ~/ → $HOME).
+#                             # Use this when trimwire runs as a systemd/launchd service —
+#                             # a daemon can't see your shell's exported env vars. chmod 600.
 ```
 
 See [SUMMARIZER.md](SUMMARIZER.md) "Provider recipes" for copy-paste configs
