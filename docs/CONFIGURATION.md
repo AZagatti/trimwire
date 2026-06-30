@@ -121,6 +121,14 @@ MCP output) it salvages the bulky text blocks in place (same head/tail trim),
 keeping structure, small blocks, and images; a pure non-text/image array over
 threshold is replaced by a single size marker.
 
+**Subagent (`Task`/`Agent`) results are age-gated on a wider window** (not exempt
+at every age). A subagent's findings/blocker list is consumed across many follow-up
+turns, so it stays exempt while within `subagent_keep_recent_turns` (default 8, vs
+the tight global `keep_recent_turns`), then head+tail-salvaged like any old result —
+top findings + conclusion kept, the dense middle trimmed. Add `Task`/`Agent` back to
+`exempt_tools` to restore the legacy all-ages exemption (this is what the `gentle`
+profile does). Authoring results (Write/Edit/MultiEdit) stay all-ages exempt.
+
 ```toml
 [strategies.bloat_cap]
 enabled = true
@@ -128,7 +136,8 @@ threshold_bytes   = 16384   # struct default; the `default` profile sets this to
 head_bytes        = 2048    # bytes kept from the start
 tail_bytes        = 2048    # bytes kept from the end
 keep_recent_turns = 4       # struct default; the `default` profile sets this to 2
-exempt_tools      = ["Edit", "Write", "MultiEdit", "Task", "Agent"]  # never trimmed at ANY age (authoring + subagent; Task and Agent are both subagent-launch names)
+exempt_tools      = ["Edit", "Write", "MultiEdit"]  # never trimmed at ANY age (authoring — eliding them corrupts sessions)
+subagent_keep_recent_turns = 8        # Task/Agent results exempt within this WIDER window, then head+tail-salvaged once old
 exempt_recent_only_tools = ["Read"]   # exempt only while RECENT; an OLD large Read IS trimmed (the "Read coverage gap" fix)
 # --- opt-in levers (all default 0 / empty = OFF; zero behaviour change unless set) ---
 catastrophic_bytes = 0          # if >0, also caps a RECENT result this large (it can't

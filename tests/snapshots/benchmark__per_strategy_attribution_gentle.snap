@@ -101,6 +101,11 @@ expression: attribution_report(&tuned_config())
     "in_bytes": 14275,
     "reduction_pct": 0.0
   },
+  "subagent_heavy": {
+    "attribution": [],
+    "in_bytes": 125525,
+    "reduction_pct": 0.0
+  },
   "thinking_heavy": {
     "attribution": [
       {

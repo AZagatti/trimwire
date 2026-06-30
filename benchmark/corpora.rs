@@ -673,10 +673,49 @@ fn thinking_heavy() -> Corpus {
 
 /// All corpora, ordered low-savings → high-savings so the report can't be read
 /// as "everything wins".
+/// A multi-agent orchestration session: many `Task`/`Agent` subagent calls, each
+/// returning a DENSE ~10 KB findings/blocker list. Before #124 these results were
+/// exempt from bloat_cap at EVERY age, so a long multi-agent session carried the full
+/// untrimmed mass forever. Now they are age-gated on `subagent_keep_recent_turns` (8):
+/// the recent findings stay verbatim (the parent agent is still consuming them), while
+/// findings older than the window are head+tail-salvaged (top findings + conclusion
+/// kept). 12 subagent turns → the oldest ~3-4 age past the window and get trimmed.
+fn subagent_heavy() -> Corpus {
+    let mut m = vec![user_text("orchestrate a multi-agent audit of the codebase")];
+    for i in 0..12 {
+        let id = format!("t_sub_{i}");
+        // Alternate the two subagent-launch names (Task is the original, Agent the
+        // drifted name) so the corpus exercises both.
+        let name = if i % 2 == 0 { "Task" } else { "Agent" };
+        m.push(assistant_call(
+            "Delegating the next slice to a subagent.",
+            &id,
+            name,
+            json!({"description": format!("audit slice {i}"),
+                   "prompt": format!("Review module {i} and report findings.")}),
+        ));
+        // A dense findings list: well over bloat_cap's 4 KB default threshold, with a
+        // realistic head (summary), bulky middle (per-file findings), and tail
+        // (conclusion) — the shape head+tail salvage is designed to preserve.
+        m.push(user_result(
+            &id,
+            json!(lines(10_000, &format!("finding{i}"))),
+            false,
+        ));
+    }
+    Corpus {
+        name: "subagent_heavy",
+        profile: "12 subagent (Task/Agent) results, each ~10 KB of dense findings",
+        note: "#124: old subagent findings (past the 8-turn window) get head+tail-salvaged",
+        body: envelope(m),
+    }
+}
+
 pub fn corpora() -> Vec<Corpus> {
     vec![
         pure_chat_floor(),
         exempt_heavy(),
+        subagent_heavy(),
         read_heavy(),
         unique_bash_spam(),
         at_the_boundary(),

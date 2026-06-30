@@ -121,7 +121,7 @@ image-heavy corpora.
 
 ## Corpora
 
-15 deterministic synthetic profiles, ordered low-savings → high so the report
+16 deterministic synthetic profiles, ordered low-savings → high so the report
 can't be read as "everything wins". They span genuine floors to big wins:
 
 `pure_chat_floor` (no tools, 0%) · `exempt_heavy` (unique protected reads, 0%) ·
