@@ -31,9 +31,10 @@ or override at runtime with the `AI_REVIEW_PANEL` / `AI_REVIEW_AGGREGATOR` env
 vars (JSON). Each member is `{name, provider, model}`; providers and their base
 URLs / key env vars live in `PROVIDERS`.
 
-> The default OpenRouter models are placeholders pending the review dogfood in
-> `internal/ai-review-bench/` — that harness ranks candidate models on *review*
-> quality (not summarizer fidelity, which is a different skill).
+Defaults (confirmed by the N=3 review dogfood in `internal/ai-review-bench/`,
+which ranks models on *review* quality — not summarizer fidelity, a different
+skill): **panel** = GLM-5.2 (free z.ai anchor) + Gemini-3.5-Flash + DeepSeek-V4-Flash
+(3 lineages); **aggregator** = Gemini-3.5-Flash (most reliable + top quality). ~$0.005/PR.
 
 ## Prompts
 

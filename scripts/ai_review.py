@@ -31,20 +31,23 @@ from pathlib import Path
 
 # --- Panel configuration -----------------------------------------------------
 # Each entry: name (display), provider (key in PROVIDERS), model (provider id).
-# The two OpenRouter slots are the top performers from the review dogfood
-# (internal/ai-review-bench/RESULTS.md): Gemini-3.5-Flash (best recall+quality,
-# low FP) and DeepSeek-V4-Flash (near-best, ~8x cheaper, different lineage). With
-# the GLM-5.2 anchor that's 3 distinct model families (Google / DeepSeek / GLM).
-# Swap freely — this is the only edit point.
+# Picks confirmed by the review dogfood at N=3 (internal/ai-review-bench/RESULTS.md):
+# Gemini-3.5-Flash (perfect recall, lowest FP, top quality) and DeepSeek-V4-Flash
+# (cheapest reliable, different lineage). GLM-5.2 anchor = free via the z.ai sub,
+# 100% recall (its harness "errors" were z.ai rate-limits under concurrency — a
+# single call per PR in prod won't trip them). 3 distinct families (Google /
+# DeepSeek / GLM). Swap freely — this is the only edit point.
 PANEL = json.loads(os.environ.get("AI_REVIEW_PANEL") or json.dumps([
     {"name": "GLM-5.2",           "provider": "zai",        "model": "glm-5.2"},
     {"name": "Gemini-3.5-Flash",  "provider": "openrouter", "model": "google/gemini-3.5-flash"},
     {"name": "DeepSeek-V4-Flash", "provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
 ]))
 
-# The aggregator synthesizes the panel's reviews into the final comment.
+# The aggregator synthesizes the panel's reviews into the final comment, so it's
+# the single point of failure — use the most reliable model. Gemini-3.5-Flash had
+# 0% errors + top quality in the dogfood, vs GLM-5.2's z.ai rate-limit risk.
 AGGREGATOR = json.loads(os.environ.get("AI_REVIEW_AGGREGATOR") or json.dumps(
-    {"name": "GLM-5.2", "provider": "zai", "model": "glm-5.2"}
+    {"name": "Gemini-3.5-Flash", "provider": "openrouter", "model": "google/gemini-3.5-flash"}
 ))
 
 PROVIDERS = {
