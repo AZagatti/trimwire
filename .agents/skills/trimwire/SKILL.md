@@ -69,9 +69,10 @@ is the cause, then explain it and offer to report it:
   disk / re-runnable — **re-read the file or re-run the tool to recover the detail.** If the same
   source keeps getting trimmed, or content clearly still needed was removed, that may be
   over-trimming — tell the user and run `trimwire report`.
-- **Silent removals (no marker):** old `thinking` blocks are dropped once aged (expected, not a
-  bug — don't report); and with a configured `sliding_window` denylist, an old tool's `input` can
-  appear as `{}` (trimwire blanked it, not a real empty call).
+- **Aged `thinking` blocks are dropped with no marker** (expected, not a bug — don't report).
+  With a configured `sliding_window` denylist, an old tool's `input` is blanked — a large one
+  becomes a `{"_trimwire": "[trimwire: input elided …]"}` breadcrumb, a small one falls back to a
+  bare `{}` (either way it's trimwire, not a tool genuinely called with no arguments).
 - **A `[trimwire: summarized turns …]` block** is the opt-in local-model summarizer; its accept
   gate is size-only, so it can be **lossy or wrong** — verify any "done"/result claims by
   re-reading/re-running before relying on them, and offer `trimwire report` if it looks fabricated.

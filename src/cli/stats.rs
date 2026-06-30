@@ -450,6 +450,16 @@ fn print_session_report(report: Option<SessionReport>, requested: &str, json: bo
          \x20   Claude Code may report one model under two names (e.g. `claude-opus-4-8` and\n\
          \x20   `claude-opus-4-8[1m]` after the 1M auto-bump) — sum both rows for the full picture."
     );
+    // Per-session post-prune HTTP error signal (mirrors the all-time warning at
+    // the top of the default report). Surfaced only when non-zero.
+    if report.post_prune_errors > 0 {
+        println!(
+            "  {} {} request(s) returned HTTP \u{2265}400 after pruning — trimwire may \
+             have caused a rejection; run `trimwire report` if a session broke.",
+            render::warn(),
+            report.post_prune_errors,
+        );
+    }
     Ok(())
 }
 

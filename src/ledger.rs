@@ -302,11 +302,24 @@ impl Ledger {
         if per_model.is_empty() {
             return Ok(None);
         }
+        // Post-prune HTTP errors for this session. Column-tolerant: a READ_ONLY
+        // connection can predate the `response_status` migration → treat as zero.
+        let post_prune_errors: u64 = if column_exists(&conn, "requests", "response_status")? {
+            conn.query_row(
+                "SELECT COUNT(*) FROM requests
+                 WHERE session_id = ?1 AND response_status >= 400 AND strategies != ''",
+                [&sid],
+                |row| row.get::<_, i64>(0),
+            )? as u64
+        } else {
+            0
+        };
         Ok(Some(SessionReport {
             session_id: sid,
             started_at,
             ended_at,
             per_model,
+            post_prune_errors,
         }))
     }
 
@@ -488,6 +501,11 @@ pub struct SessionReport {
     pub ended_at: i64,
     /// One entry per distinct `model` seen in the session, sorted by model.
     pub per_model: Vec<SessionModelStat>,
+    /// Requests in this session where `response_status >= 400` AND `strategies`
+    /// is non-empty (trimwire pruned the body before the upstream rejected it).
+    /// The per-session analogue of the all-time `Report::post_prune_errors`.
+    /// 0 when the `response_status` column is absent (older ledger).
+    pub post_prune_errors: u64,
 }
 
 /// SHA-256 (hex) of the request **prefix**: the top-level JSON object with the
@@ -1653,13 +1671,62 @@ mod tests {
         assert_eq!(opus.total_input_tokens(), 5760);
         assert!((opus.cache_hit_pct() - 46.875).abs() < 1e-9);
 
+        // post_prune_errors: no 400+pruned rows in this test → 0 for all sessions.
+        assert_eq!(rep.post_prune_errors, 0, "no 4xx rows → 0 per-session errors");
+
         // None → "last" resolves to s2 by insert order (MAX(id)), not MAX(ts).
         let last = Ledger::session_report(p, None).unwrap().unwrap();
         assert_eq!(last.session_id, "s2");
         assert_eq!(last.per_model.len(), 1);
+        assert_eq!(last.post_prune_errors, 0);
 
         // Unknown session → None (not an error).
         assert!(Ledger::session_report(p, Some("nope")).unwrap().is_none());
+    }
+
+    /// `SessionReport.post_prune_errors` counts only rows for the given session
+    /// where response_status >= 400 AND strategies is non-empty; other sessions
+    /// and non-qualifying rows must not be counted.
+    #[test]
+    fn session_report_post_prune_errors_per_session() {
+        let (conn, dir) = temp_ledger();
+        let p = dir.path().join("ledger.db");
+        let p = p.to_str().unwrap();
+
+        // Session "sa": one pruned-400 row (should count) + one non-pruned-400 row (shouldn't).
+        let mut r1 = rec(1000, "sliding_window", "a", "a");
+        r1.session_id = Some("sa".to_owned());
+        r1.response_status = 400;
+        let mut r2 = rec(2000, "", "b", "b");
+        r2.session_id = Some("sa".to_owned());
+        r2.response_status = 400;
+
+        // Session "sb": pruned-400 row (should count for sb, NOT for sa).
+        let mut r3 = rec(3000, "bloat_cap", "c", "c");
+        r3.session_id = Some("sb".to_owned());
+        r3.response_status = 400;
+
+        // Session "sc": pruned row with 200 (default=0) → no error for sc.
+        let mut r4 = rec(4000, "bloat_cap", "d", "d");
+        r4.session_id = Some("sc".to_owned());
+
+        insert(&conn, &r1).unwrap();
+        insert(&conn, &r2).unwrap();
+        insert(&conn, &r3).unwrap();
+        insert(&conn, &r4).unwrap();
+        drop(conn);
+
+        let rep_a = Ledger::session_report(p, Some("sa")).unwrap().unwrap();
+        assert_eq!(
+            rep_a.post_prune_errors, 1,
+            "sa: only r1 (pruned+400); r2 has no strategies"
+        );
+
+        let rep_b = Ledger::session_report(p, Some("sb")).unwrap().unwrap();
+        assert_eq!(rep_b.post_prune_errors, 1, "sb: r3 qualifies");
+
+        let rep_c = Ledger::session_report(p, Some("sc")).unwrap().unwrap();
+        assert_eq!(rep_c.post_prune_errors, 0, "sc: pruned but status 0 (ok)");
     }
 
     #[test]

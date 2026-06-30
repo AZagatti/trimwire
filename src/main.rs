@@ -372,6 +372,16 @@ enum Cmd {
         /// Useful for scripts or piping into a browser opener.
         #[arg(long)]
         url_only: bool,
+        /// Auto-detect anomalies in the most recent session (or the session given
+        /// by --session / stop-hook stdin JSON) and file a GitHub issue if one is
+        /// found. Silent when nothing to do; never returns an error. Designed to
+        /// be run from a global Stop hook.
+        #[arg(long)]
+        auto: bool,
+        /// Session id to inspect (for --auto). Defaults to the stop-hook's
+        /// session_id from stdin, then the most-recent ledger session.
+        #[arg(long)]
+        session: Option<String>,
     },
 
     // ---- SUMMARIZER (display_order 30) -------------------------------------
@@ -585,7 +595,7 @@ fn main() -> Result<()> {
             yes,
         ),
         Cmd::Dashboard { out } => cli::dashboard(out),
-        Cmd::Report { url_only } => cli::report(url_only),
+        Cmd::Report { url_only, auto, session } => cli::report(url_only, auto, session),
 
         // SUMMARIZER
         Cmd::Summarizer { action } => match action {
