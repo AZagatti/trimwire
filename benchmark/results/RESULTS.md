@@ -157,7 +157,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `unique_bash_spam` | 100.0% | 36.7% | 100.0% |
 | `at_the_boundary` | 100.0% | 39.7% | 100.0% |
 | `repeated_grep` | 100.0% | 23.9% | 55.8% |
-| `coding` | 100.0% | 75.0% | 89.8% |
+| `coding` | 100.0% | 74.4% | 89.8% |
 | `mixed_realistic` | 100.0% | 46.2% | 68.5% |
 | `mcp_non_playwright` | 100.0% | 60.8% | 100.0% |
 | `long_running` | 100.0% | 84.0% | 100.0% |
@@ -198,7 +198,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `unique_bash_spam` | $0.2771 | +73.4% | +0.0% |
 | `at_the_boundary` | $0.1544 | +71.4% | +0.0% |
 | `repeated_grep` | $0.0547 | -4.4% | -17.6% |
-| `coding` | $0.0913 | -1.5% | +15.8% |
+| `coding` | $0.0913 | -0.4% | +15.8% |
 | `mixed_realistic` | $0.5510 | -23.7% | +82.4% |
 | `mcp_non_playwright` | $0.1627 | +34.5% | +0.0% |
 | `long_running` | $0.2378 | -20.0% | +0.0% |
@@ -250,7 +250,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `unique_bash_spam` | $0.4805 → $0.3182 ↓ | 36.7% → **82.7%** |
 | `at_the_boundary` | $0.2646 → $0.1837 ↓ | 39.7% → **83.4%** |
 | `repeated_grep` | $0.0523 → $0.0500 ↓ | 23.9% → **82.6%** |
-| `coding` | $0.0900 → $0.0742 ↓ | 75.0% → **87.3%** |
+| `coding` | $0.0909 → $0.0758 ↓ | 74.4% → **87.3%** |
 | `mixed_realistic` | $0.4205 → $0.3737 ↓ | 46.2% → **81.9%** |
 | `mcp_non_playwright` | $0.2188 → $0.1705 ↓ | 60.8% → **88.9%** |
 | `long_running` | $0.1904 → $0.2325 ↑ | 84.0% → **85.2%** |

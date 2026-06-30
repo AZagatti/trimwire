@@ -509,8 +509,11 @@ pub struct StaleReadsConfig {
     /// self-heals by re-reading; CC returns fresh content). 0 = OFF (only the
     /// safe superseded-elision runs). Addressable (Read) content only.
     pub page_min_bytes: usize,
-    /// Keep the most-recent N assistant turns' Reads un-paged (paging only — the
-    /// superseded-elision is age-independent). Min 1.
+    /// Keep the most-recent N assistant turns' Reads untouched. Gates BOTH
+    /// behaviors: a superseded Read is elided only once it ages past this window
+    /// (issue #113 — a read the model re-reads/edits a turn or two later is still
+    /// in the active working set; eliding it would force a needless re-read), and
+    /// demand-paging only pages reads older than this. Min 1.
     pub keep_recent_turns: usize,
     /// POC (opt-in, default empty = OFF): glob patterns for FILE PATHS this strategy
     /// never touches — neither superseded-elision nor demand-paging will elide/page a

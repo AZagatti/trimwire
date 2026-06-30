@@ -15,8 +15,20 @@
 //! is never elided. Bash and all other tools are deliberately excluded (v1):
 //! no command-string parsing, zero false positives.
 //!
+//! **Recency gate (issue #113):** a superseded Read is elided ONLY once its
+//! result has aged past `keep_recent_turns` assistant turns. Supersession alone
+//! is not sufficient — a Read the model re-reads (or edits) one or two turns
+//! later is still in the active working set; eliding it immediately forces the
+//! model to re-issue the same Read (re-billing the bytes, looping, slowing the
+//! session). Both behaviors below now share the one recency window, so trimwire
+//! only ever acts "some rounds later," never on the read the model is using right
+//! now. (Earlier versions elided supersession at age 0 — the read-side recurrence
+//! of the §13A write-path corruption class.)
+//!
 //! **Two behaviors (all content OVERWRITES — never add/remove blocks):**
-//!   1. Elide superseded Read **results** (above).
+//!   1. Elide superseded Read **results** (above) — but only those OLDER than
+//!      `keep_recent_turns` assistant turns (the recency gate; recent reads stay
+//!      verbatim so the active working set is never elided).
 //!   2. DEMAND-PAGE the last (current-view) Read of a path when `page_min_bytes`>0
 //!      and it's old (> `keep_recent_turns`) + larger than that threshold → a
 //!      recoverable marker naming the path ("re-read to restore"); the model
@@ -156,11 +168,21 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &StaleReadsConfig) -> R
         }
     }
 
+    // Recency cutoff shared by BOTH behaviors (issue #113): the index of the
+    // oldest message still inside the keep-recent window. A Read at assistant
+    // message index `mi` is "old enough to touch" iff `mi <= cutoff`. `None`
+    // (history shorter than the window) means every read is recent → nothing is
+    // elided or paged, exactly the "act some rounds later" intent: trimwire never
+    // touches the read the model is actively using this turn. Clamp the window to
+    // ≥1 so a configured 0 can't reach the in-progress assistant turn.
+    let cutoff = assistant_cutoff(messages, cfg.keep_recent_turns.max(1));
+
     // --- Read-only pass 2: collect stale Read result locations ---
     //
     // For each path, the last entry in path_ops[path] is the most-recent
-    // operation → never elided. All earlier entries that are Read calls are
-    // candidates for elision (their results are stale).
+    // operation → never elided. All earlier entries that are Read calls and have
+    // aged past the recency cutoff are candidates for elision (their results are
+    // both stale AND no longer in the active working set).
     //
     // We collect (result_location, current_content_value) for each stale Read
     // so we can apply the shrink-guard and idempotency check in one place.
@@ -174,15 +196,24 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &StaleReadsConfig) -> R
         };
         // All entries except the last (the current state) may be stale.
         let stale_candidates = &ops[..ops.len() - 1];
-        for (_mi, id, name) in stale_candidates {
+        for (mi, id, name) in stale_candidates {
             // Only superseded READ *results* are elided. Superseded Write/Edit/
             // MultiEdit *inputs* are deliberately NOT collapsed: authored content
             // is the model's only faithful copy of what it wrote and is
             // load-bearing for re-authoring — eliding it corrupts sessions (§13A).
-            if name == "Read" {
-                if let Some(&res_loc) = idx.results.get(id.as_str()) {
-                    to_elide.push(res_loc);
-                }
+            if name != "Read" {
+                continue;
+            }
+            // Recency gate (issue #113): keep a superseded read verbatim until it
+            // ages out of the keep-recent window. A read re-read/edited a turn or
+            // two later is still live; eliding it now would force a re-read. `None`
+            // cutoff (history shorter than the window) ⇒ every read is recent.
+            let aged_out = cutoff.is_some_and(|c| *mi <= c);
+            if !aged_out {
+                continue;
+            }
+            if let Some(&res_loc) = idx.results.get(id.as_str()) {
+                to_elide.push(res_loc);
             }
         }
     }
@@ -255,7 +286,9 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &StaleReadsConfig) -> R
     // self-heals — the marker names the path so it can re-read (CC returns FRESH
     // content). Addressable Read content only; never inputs, never errors.
     if cfg.page_min_bytes > 0 {
-        if let Some(cutoff) = assistant_cutoff(messages, cfg.keep_recent_turns.max(1)) {
+        // Reuse the recency cutoff computed once above (same keep-recent window
+        // now gates both supersession-elision and demand-paging).
+        if let Some(cutoff) = cutoff {
             // Deterministic order: collect (location, path) then sort by location.
             let mut to_page: Vec<((usize, usize), String)> = Vec::new();
             for (path, ops) in &path_ops {
@@ -345,14 +378,30 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn cfg(exempt: &[&str]) -> StaleReadsConfig {
+    /// Tight-window supersession config: `keep_recent_turns = 1` so the SHORT
+    /// fixtures (2–3 assistant turns) below age their oldest read past the recency
+    /// gate. This is INTENTIONALLY tighter than the shipped `default` profile
+    /// (which uses 4) — a 2-turn fixture would be a no-op at keep=4 (cutoff=None).
+    /// Use `cfg_keep(n)` when the window value itself is under test.
+    fn cfg_tight(exempt: &[&str]) -> StaleReadsConfig {
         StaleReadsConfig {
             enabled: true,
             exempt_tools: exempt.iter().map(|s| (*s).to_owned()).collect(),
             stub: "[trimwire: stale read — file changed or re-read later]".to_owned(),
             page_min_bytes: 0,
-            keep_recent_turns: 4,
+            // keep_recent_turns = 1 so the SHORT supersession fixtures below (2–3
+            // assistant turns) still age their oldest read past the recency gate
+            // (issue #113) — the mechanism under test is supersession, not the
+            // window. Tests that exercise the recency window itself use `cfg_keep`.
+            keep_recent_turns: 1,
             protected_file_patterns: Vec::new(),
+        }
+    }
+    /// Supersession config with an explicit keep-recent window (issue #113 gate).
+    fn cfg_keep(keep: usize) -> StaleReadsConfig {
+        StaleReadsConfig {
+            keep_recent_turns: keep,
+            ..cfg_tight(&[])
         }
     }
     /// Config with demand-paging on (page reads older than keep_recent + larger
@@ -412,7 +461,7 @@ mod tests {
             ),
             tool_result_msg("w0", "wrote 3 bytes"),
         ];
-        let stats = apply(&mut msgs, &cfg(&[])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         assert_eq!(stats.stubbed, 1, "the stale Read result should be elided");
         // Read result is now a stub.
         let read_content = msgs[1]["content"][0]["content"].as_str().unwrap();
@@ -425,6 +474,82 @@ mod tests {
             msgs[3]["content"][0]["content"],
             json!("wrote 3 bytes"),
             "Write result must be preserved verbatim"
+        );
+        PairingIndex::build(&msgs).validate().unwrap();
+    }
+
+    /// Issue #113: a RECENT superseded Read is NOT elided. Read P, then re-read P
+    /// the very next turn (the model is actively working the file) — with both
+    /// reads inside the keep-recent window, the earlier read stays verbatim so the
+    /// model never has to re-issue the Read. This is the read-side recurrence of
+    /// the §13A write-path fix; before the recency gate, supersession elided at
+    /// age 0 and forced the re-read the issue reports.
+    #[test]
+    fn recent_superseded_read_is_protected() {
+        let v1 = big("active file v1 — still in the working set");
+        let v2 = big("active file v2 — re-read one turn later");
+        let mut msgs = vec![
+            tool_use_msg("r0", "Read", json!({"path": "/active.rs"})),
+            tool_result_msg("r0", &v1),
+            tool_use_msg("r1", "Read", json!({"path": "/active.rs"})),
+            tool_result_msg("r1", &v2),
+        ];
+        // keep_recent_turns = 4, only 2 assistant turns → both reads are recent →
+        // the earlier superseded read must be kept verbatim.
+        let stats = apply(&mut msgs, &cfg_keep(4)).unwrap();
+        assert_eq!(
+            stats.stubbed, 0,
+            "a superseded read still in the keep-recent window must NOT be elided (issue #113)"
+        );
+        assert_eq!(
+            msgs[1]["content"][0]["content"],
+            json!(v1),
+            "the recent superseded read's content must survive intact"
+        );
+        PairingIndex::build(&msgs).validate().unwrap();
+    }
+
+    /// Issue #113 (other half): once the superseded Read ages PAST the keep-recent
+    /// window it IS elided — the recency gate only delays elision, it doesn't
+    /// disable it. The agent has long since moved on, so the stale snapshot is
+    /// genuinely dead weight.
+    #[test]
+    fn superseded_read_elided_once_aged_past_window() {
+        let v1 = big("file v1 — will age out");
+        let v2 = big("file v2 — the fresh view");
+        let mut msgs = vec![
+            tool_use_msg("r0", "Read", json!({"path": "/f.rs"})),
+            tool_result_msg("r0", &v1),
+            tool_use_msg("r1", "Read", json!({"path": "/f.rs"})),
+            tool_result_msg("r1", &v2),
+        ];
+        // Push the two reads out of the keep-recent window with unrelated turns.
+        for i in 0..6 {
+            let id = format!("p{i}");
+            msgs.push(tool_use_msg(
+                &id,
+                "Bash",
+                json!({"command": format!("echo {i}")}),
+            ));
+            msgs.push(tool_result_msg(&id, "ok"));
+        }
+        let stats = apply(&mut msgs, &cfg_keep(4)).unwrap();
+        assert_eq!(
+            stats.stubbed, 1,
+            "the superseded read, now aged past the window, should be elided"
+        );
+        assert!(
+            msgs[1]["content"][0]["content"]
+                .as_str()
+                .unwrap()
+                .starts_with("[trimwire: stale read"),
+            "aged-out superseded read carries the stale marker"
+        );
+        // r1 is the last op on the path → always kept.
+        assert_eq!(
+            msgs[3]["content"][0]["content"],
+            json!(v2),
+            "the current-view read must be kept verbatim"
         );
         PairingIndex::build(&msgs).validate().unwrap();
     }
@@ -447,10 +572,10 @@ mod tests {
         };
         // Sanity: unprotected → the superseded read IS elided.
         let mut unprot = build();
-        assert_eq!(apply(&mut unprot, &cfg(&[])).unwrap().stubbed, 1);
+        assert_eq!(apply(&mut unprot, &cfg_tight(&[])).unwrap().stubbed, 1);
         // Protected → NOT elided.
         let mut prot = build();
-        let mut c = cfg(&[]);
+        let mut c = cfg_tight(&[]);
         c.protected_file_patterns = vec!["*AGENTS.md".to_owned()];
         assert_eq!(
             apply(&mut prot, &c).unwrap().stubbed,
@@ -527,7 +652,7 @@ mod tests {
             ),
             tool_result_msg("w1", "edited"),
         ];
-        let stats = apply(&mut msgs, &cfg(&[])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         // No Read results here, and authored inputs are never collapsed → no-op.
         assert_eq!(
             stats.stubbed, 0,
@@ -679,7 +804,7 @@ mod tests {
             tool_use_msg("r1", "Read", json!({"path": "/src/lib.rs"})),
             tool_result_msg("r1", &content_v2),
         ];
-        let stats = apply(&mut msgs, &cfg(&[])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         assert_eq!(stats.stubbed, 1, "earlier Read should be elided");
         let read0_content = msgs[1]["content"][0]["content"].as_str().unwrap();
         assert!(
@@ -703,7 +828,7 @@ mod tests {
             tool_use_msg("r0", "Read", json!({"path": "/solo.txt"})),
             tool_result_msg("r0", &content),
         ];
-        let stats = apply(&mut msgs, &cfg(&[])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         assert_eq!(stats.stubbed, 0, "sole Read must never be elided");
         assert_eq!(
             msgs[1]["content"][0]["content"],
@@ -726,7 +851,7 @@ mod tests {
             tool_use_msg("r2", "Read", json!({"path": "/f.rs"})),
             tool_result_msg("r2", &v3),
         ];
-        let stats = apply(&mut msgs, &cfg(&[])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         // First two Reads are stale; the last is kept.
         assert_eq!(
             stats.stubbed, 2,
@@ -764,7 +889,7 @@ mod tests {
             tool_use_msg("r1", "Read", json!({"path": "/missing.txt"})),
             tool_result_msg("r1", &big("now it exists")),
         ];
-        let stats = apply(&mut msgs, &cfg(&[])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         // The error result is skipped; the later Read is kept (it is the last op).
         assert_eq!(stats.stubbed, 0, "is_error result must be skipped");
         assert_eq!(
@@ -789,7 +914,7 @@ mod tests {
             tool_result_msg("r1", &big("newer content")),
         ];
         // With Read exempt: no operations are tracked → nothing is stale.
-        let stats = apply(&mut msgs, &cfg(&["Read"])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&["Read"])).unwrap();
         assert_eq!(
             stats.stubbed, 0,
             "when Read is exempt it is not tracked; nothing is elided"
@@ -812,7 +937,7 @@ mod tests {
             ),
             tool_result_msg("w0", "wrote"),
         ];
-        let stats = apply(&mut msgs, &cfg(&[])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         assert_eq!(
             stats.stubbed, 0,
             "tiny Read result must not be stubbed (would grow body)"
@@ -836,11 +961,11 @@ mod tests {
             ),
             tool_result_msg("w0", "wrote"),
         ];
-        let first = apply(&mut msgs, &cfg(&[])).unwrap();
+        let first = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         assert!(first.stubbed > 0, "first run must elide something");
         let after_first = serde_json::to_vec(&msgs).unwrap();
 
-        let second = apply(&mut msgs, &cfg(&[])).unwrap();
+        let second = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         assert_eq!(second.stubbed, 0, "second run must be a no-op");
         let after_second = serde_json::to_vec(&msgs).unwrap();
         assert_eq!(after_first, after_second, "byte-identical after second run");
@@ -865,8 +990,8 @@ mod tests {
         };
         let mut a = mk();
         let mut b = mk();
-        apply(&mut a, &cfg(&[])).unwrap();
-        apply(&mut b, &cfg(&[])).unwrap();
+        apply(&mut a, &cfg_tight(&[])).unwrap();
+        apply(&mut b, &cfg_tight(&[])).unwrap();
         assert_eq!(
             serde_json::to_vec(&a).unwrap(),
             serde_json::to_vec(&b).unwrap(),
@@ -884,7 +1009,7 @@ mod tests {
             tool_result_msg("r1", &big("contents updated")),
         ];
         PairingIndex::build(&msgs).validate().unwrap();
-        apply(&mut msgs, &cfg(&[])).unwrap();
+        apply(&mut msgs, &cfg_tight(&[])).unwrap();
         PairingIndex::build(&msgs)
             .validate()
             .expect("no orphans after stale_reads");
@@ -908,7 +1033,7 @@ mod tests {
             tool_use_msg("r1", "Read", json!({"path": "/f.rs"})),
             tool_result_msg("r1", &fresh_content),
         ];
-        apply(&mut msgs, &cfg(&[])).unwrap();
+        apply(&mut msgs, &cfg_tight(&[])).unwrap();
         // Latest Read (r1) must still contain the needle.
         let kept = msgs[3]["content"][0]["content"].as_str().unwrap();
         assert!(
@@ -944,7 +1069,7 @@ mod tests {
             ),
             tool_result_msg("w0", "wrote 42 bytes"),
         ];
-        apply(&mut msgs, &cfg(&[])).unwrap();
+        apply(&mut msgs, &cfg_tight(&[])).unwrap();
         // The stale Read result no longer contains the needle (elided).
         let elided = msgs[1]["content"][0]["content"].as_str().unwrap();
         assert!(
@@ -976,7 +1101,7 @@ mod tests {
             tool_use_msg("ra1", "Read", json!({"path": "/a.rs"})),
             tool_result_msg("ra1", &a_v2),
         ];
-        let stats = apply(&mut msgs, &cfg(&[])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         // Only the first Read of /a.rs is stale.
         assert_eq!(stats.stubbed, 1, "only the stale Read of /a.rs is elided");
         assert!(
@@ -1015,7 +1140,7 @@ mod tests {
             ),
             tool_result_msg("e0", "edit applied"),
         ];
-        let stats = apply(&mut msgs, &cfg(&[])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         assert_eq!(stats.stubbed, 1, "Read superseded by Edit must be elided");
         assert!(
             msgs[1]["content"][0]["content"]
@@ -1039,7 +1164,7 @@ mod tests {
             ),
             tool_result_msg("me0", "multiedit applied"),
         ];
-        let stats = apply(&mut msgs, &cfg(&[])).unwrap();
+        let stats = apply(&mut msgs, &cfg_tight(&[])).unwrap();
         assert_eq!(
             stats.stubbed, 1,
             "Read superseded by MultiEdit must be elided"

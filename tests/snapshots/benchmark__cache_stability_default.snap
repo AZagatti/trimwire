@@ -6,7 +6,7 @@ expression: "Value::Object(report)"
 {
   "at_the_boundary": 39.685,
   "browser_heavy": 1.181,
-  "coding": 74.982,
+  "coding": 74.39,
   "exempt_heavy": 100.0,
   "giant_paste": 83.339,
   "long_running": 83.959,
