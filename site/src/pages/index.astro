@@ -44,7 +44,7 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
       <section class={`${sec} pt-[clamp(1.4rem,4vmin,2.6rem)] pb-[clamp(1.4rem,4vmin,2.4rem)]`}>
         <a class="release-pill" href={REPO + "/releases"} target="_blank" rel="noopener noreferrer">signed, verifiable releases <span aria-hidden="true">→</span></a>
         <h1 class="m-0 mt-[0.9rem] font-mono font-[640] tracking-[-0.03em] leading-[1.05] text-balance text-[clamp(1.8rem,4.8vw,2.9rem)]">Stop re-sending <span class="text-accenthi">stale context</span> every turn.</h1>
-        <p class="mt-[0.7rem] mb-0 text-ink2 max-w-[60ch] text-[clamp(0.96rem,1.4vw,1.08rem)]">Long agent sessions pile up old tool output and repeated reads. Trimwire is a tiny local gateway that removes what no longer helps before the next request — and your session transcript stays intact.</p>
+        <p class="mt-[0.7rem] mb-0 text-ink2 max-w-[58ch] leading-[1.55] text-[clamp(0.88rem,0.9vw,0.98rem)]">Long agent sessions pile up old tool output and repeated reads. Trimwire is a tiny local gateway that removes what no longer helps before the next request — and your session transcript stays intact.</p>
       </section>
 
       <section class="mx-auto px-[clamp(0.75rem,3vw,2.5rem)]">
@@ -55,10 +55,40 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
       <section class={`${sec} mt-[clamp(2.2rem,6vmin,4rem)] pt-[clamp(1.8rem,5vmin,3rem)] border-t border-border`}>
         <ModeInspector client:visible />
       </section>
+
+      <!-- ── Closing: get started (steps + install) ───────────────────────── -->
+      <section class={`${sec} mt-[clamp(2.2rem,6vmin,4rem)] pt-[clamp(1.8rem,5vmin,3rem)] border-t border-border`}>
+        <div class="close">
+          <div class="close-copy">
+            <p class="close-eyebrow">get started</p>
+            <h2 class="close-h">Point your agent at it. That's the install.</h2>
+            <ol class="steps">
+              <li><span class="sn">1</span><span>Install the gateway — one binary, no daemon to babysit.</span></li>
+              <li><span class="sn">2</span><span>It wires <code>ANTHROPIC_BASE_URL</code> for you, then runs as a local service.</span></li>
+              <li><span class="sn">3</span><span>Every request is pruned locally before it leaves — your transcript never changes.</span></li>
+            </ol>
+          </div>
+          <div class="close-cmd">
+            <div class="cmd-card">
+              <span class="cmd-lbl">install · crates.io</span>
+              <code class="cmd"><span class="cmd-ps">$</span> cargo install trimwire</code>
+              <code class="cmd"><span class="cmd-ps">$</span> trimwire install</code>
+              <span class="cmd-or">or one line (downloads the signed binary):</span>
+              <code class="cmd cmd-sm"><span class="cmd-ps">$</span> curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh</code>
+            </div>
+            <div class="cta-row">
+              <a class="cta cta-primary" href="/guides/overview/">Read the docs <span aria-hidden="true">→</span></a>
+              <a class="cta cta-ghost" href={REPO} target="_blank" rel="noopener noreferrer">GitHub</a>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
 
-    <footer class="vx-footer !mt-[clamp(2.2rem,6vmin,3.6rem)]">
-      <span>MIT OR Apache-2.0</span> · <a href="/performance/">results</a> · <a href={REPO} target="_blank" rel="noopener noreferrer">GitHub</a>
+    <footer class="vx-footer">
+      <a class="vx-brand sm" href="/"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="5" fill="#2aa39c"/><rect x="5.5" y="7" width="13" height="2" rx="1" fill="#fff"/><rect x="11" y="7" width="2" height="11" rx="1" fill="#fff"/></svg><span>trimwire</span></a>
+      <span class="ft-links"><a href="/guides/overview/">docs</a> · <a href="/performance/">results</a> · <a href={REPO} target="_blank" rel="noopener noreferrer">GitHub</a></span>
+      <span class="ft-lic">MIT OR Apache-2.0</span>
     </footer>
 
     <style>
@@ -74,7 +104,37 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
         .term-wide { width: 100%; max-width: 100%; }
       }
 
+      /* ── Closing get-started block ─────────────────────────────────────── */
+      .close { display: grid; grid-template-columns: 1.05fr 1fr; gap: clamp(1.5rem, 4vw, 3rem); align-items: start; }
+      .close-eyebrow { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 0.5rem; }
+      .close-h { margin: 0 0 1.1rem; font-size: clamp(1.3rem, 3vw, 1.9rem); font-weight: 660; letter-spacing: -0.02em; line-height: 1.12; max-width: 18ch; }
+      .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
+      .steps li { display: flex; align-items: flex-start; gap: 0.7rem; font-size: 0.92rem; color: var(--ink-2); line-height: 1.5; }
+      .steps .sn { flex-shrink: 0; width: 1.5rem; height: 1.5rem; display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.78rem; color: var(--accent-hi); background: var(--accent-soft); border: 1px solid var(--border-2); border-radius: 999px; }
+      .steps code { font-family: var(--mono); font-size: 0.85em; color: var(--accent-hi); background: var(--inset); padding: 0.02em 0.32em; border-radius: 4px; }
+
+      .cmd-card { background: #0b0e0e; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.45rem; }
+      .cmd-lbl { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 0.2rem; }
+      .cmd { font-family: var(--mono); font-size: 0.84rem; color: var(--ink); white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+      .cmd::-webkit-scrollbar { display: none; }
+      .cmd-ps { color: var(--accent); margin-right: 0.5rem; user-select: none; }
+      .cmd-sm { font-size: 0.74rem; color: var(--ink-2); }
+      .cmd-or { font-size: 0.74rem; color: var(--ink-3); margin-top: 0.35rem; }
+      .cta-row { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; }
+      .cta { display: inline-flex; align-items: center; gap: 0.4rem; font-family: var(--mono); font-size: 0.82rem; padding: 0.55rem 1.1rem; border-radius: 8px; text-decoration: none; transition: border-color 0.15s, background 0.15s, color 0.15s; }
+      .cta-primary { background: var(--accent); color: #04100f; border: 1px solid var(--accent); font-weight: 600; }
+      .cta-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+      .cta-ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--border-2); }
+      .cta-ghost:hover { border-color: var(--accent); color: var(--ink); }
+      @media (max-width: 46rem) { .close { grid-template-columns: 1fr; gap: 1.6rem; } }
+
+      /* ── Tightened footer ──────────────────────────────────────────────── */
+      .vx-footer { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; margin-top: clamp(2.6rem, 7vmin, 4.5rem); }
+      .vx-brand.sm { font-size: 0.86rem; gap: 0.4rem; }
+      .vx-footer .ft-links { font-family: var(--mono); font-size: 0.78rem; }
+      .vx-footer .ft-lic { margin-left: auto; font-family: var(--mono); font-size: 0.72rem; color: var(--ink-3); }
       .vx-footer a { color: var(--ink-2); } .vx-footer a:hover { color: var(--accent-hi); }
+      @media (max-width: 32rem) { .vx-footer .ft-lic { margin-left: 0; width: 100%; } }
     </style>
   </body>
 </html>

@@ -23,44 +23,44 @@
     { plain: "Solved-step reasoning", verb: "removed", detail: "Reasoning notes from steps the agent already finished.", tech: "thinking_strip", on: ["default", "gentle", "summ"], hue: "prune" },
   ];
   // Real LIVE long-session size reductions (largest-request, preserved gateway
-  // in=/sent= logs; NOT offline replay). Two matched ~800 KB workloads measured —
-  // file-heavy (tool reads dominate) and chat-heavy (pure discussion, no reads).
-  // The reduction depends on the workload, so we let the visitor pick:
-  //   file-heavy → model-free already removes the bulk (re-readable file content),
-  //                so default leads (73%) and summarizer ties on size.
-  //   chat-heavy → nothing for model-free to elide (no tool output), so default
-  //                caps at 15% while the summarizer FOLDS THE DISCUSSION ITSELF
-  //                → 78%, the only mode that materially shrinks a long chat.
-  // Summarizer always runs the model-free passes too; it ADDS a summary on top, so
-  // the agent keeps the knowledge from old turns instead of losing it.
+  // in=/sent= logs; NOT offline replay). Two matched ~800 KB workloads were
+  // measured per mode — file-heavy (tool reads dominate) and conversation-heavy
+  // (pure discussion). The reduction depends on session shape, so each mode shows
+  // a RANGE (low ≈ conversation-heavy, high ≈ file-heavy) instead of one figure:
+  //   default — runs every model-free pass; high on file-heavy (re-readable bulk
+  //             is stubbed), low on pure chat (little tool output to elide).
+  //   gentle  — a strict SUBSET of default's passes, so it can never trim MORE
+  //             than default. Same conversation-heavy floor, a lighter ceiling.
+  //   summ    — runs every model-free pass AND folds older turns into a summary,
+  //             so it stays high even on conversation-heavy sessions (78%) where
+  //             model-free alone can't help. Strategies + summary, not either/or.
+  // NB: gentle ⊆ default, so default's floor is pinned to gentle's, never below it
+  // (a single live chat-heavy run read 15% for default — within run-to-run noise
+  // on pure chat; default cannot trim less than the subset it contains).
   const METRIC = {
-    file: {
-      default: { num: 73, sub: "file-heavy · model-free" },
-      gentle: { num: 35, sub: "lighter touch" },
-      summ: { num: 73, sub: "file-heavy · keeps the knowledge" },
-    },
-    chat: {
-      default: { num: 15, sub: "chat-heavy · little to trim" },
-      gentle: { num: 21, sub: "lighter touch" },
-      summ: { num: 78, sub: "chat-heavy · folds old turns" },
-    },
+    default: { lo: 21, hi: 73, sub: "scales with the session — more tool output, more trimmed" },
+    gentle:  { lo: 21, hi: 35, sub: "a lighter, more cautious subset of the same passes" },
+    summ:    { lo: 73, hi: 78, sub: "model-free passes + a summary — high even on pure chat" },
   };
   const LEDE = {
     default: "Trimwire keeps your recent work and edits intact, then removes repeated or heavy tool output before the request is sent.",
-    gentle: "A lighter setting — only the safest, most certain trims run. Less reduction, more caution.",
-    summ: "Runs every model-free pass, then folds older turns into a short summary — the agent keeps their knowledge instead of losing it. The big win on long, conversation-heavy sessions.",
+    gentle: "A lighter setting — only the safest, most certain trims run, a strict subset of default. Less reduction, more caution.",
+    summ: "Runs every model-free pass, then ALSO folds older turns into a short summary — strategies plus a summary, so the agent keeps its knowledge. The big win on long, conversation-heavy sessions.",
   };
 
   let mode = $state("default");
-  let work = $state("file");
   let openIdx = $state(-1);
   const reduced = $derived(prefersReducedMotion.current);
-  const pctT = new Tween(73, { duration: 500, easing: cubicOut });
-  const pctN = $derived(Math.round(pctT.current));
-  const metric = $derived(METRIC[work][mode]);
-  function refresh() { pctT.set(METRIC[work][mode].num, { duration: reduced ? 0 : 500 }); }
+  const loT = new Tween(21, { duration: 500, easing: cubicOut });
+  const hiT = new Tween(73, { duration: 500, easing: cubicOut });
+  const loN = $derived(Math.round(loT.current));
+  const hiN = $derived(Math.round(hiT.current));
+  const metric = $derived(METRIC[mode]);
+  function refresh() {
+    loT.set(METRIC[mode].lo, { duration: reduced ? 0 : 500 });
+    hiT.set(METRIC[mode].hi, { duration: reduced ? 0 : 500 });
+  }
   function setMode(m) { mode = m; openIdx = -1; refresh(); }
-  function setWork(w) { work = w; refresh(); }
   const active = (r) => r.on.includes(mode);
 </script>
 
@@ -118,13 +118,8 @@
 
   <div class="ins-foot">
     <div class="foot-metric">
-      <span class="fm-num" class:summ={mode === "summ"}>≈{pctN}%</span>
+      <span class="fm-num" class:summ={mode === "summ"}>≈{loN}–{hiN}%</span>
       <span class="fm-lbl">smaller request <span class="dim">· {metric.sub}</span></span>
-      <span class="grow"></span>
-      <div class="workswitch" role="tablist" aria-label="session type">
-        <button type="button" role="tab" class:on={work === "file"} aria-selected={work === "file"} onclick={() => setWork("file")}>file-heavy</button>
-        <button type="button" role="tab" class:on={work === "chat"} aria-selected={work === "chat"} onclick={() => setWork("chat")}>chat-heavy</button>
-      </div>
     </div>
     <p class="foot-note">
       {#if mode === "summ"}
@@ -184,15 +179,12 @@
   .mem-body { } .mem-sum { margin: 0 0.5rem 0.6rem 1.6rem; padding: 0.5rem 0.6rem; border-left: 2px solid color-mix(in srgb, var(--c-summ) 50%, transparent); background: color-mix(in srgb, var(--c-summ) 7%, transparent); color: var(--ink); font-size: 0.84rem; line-height: 1.5; }
 
   .ins-foot { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 1.1rem; align-items: center; padding: 0.9rem 1.2rem 1.1rem; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 2%, var(--card)); }
-  .foot-metric { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
+  /* min-height keeps the metric row a fixed height so switching modes (whose sub
+     labels differ in length and may wrap to 2 lines) never shifts the layout. */
+  .foot-metric { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; min-height: 2.4rem; }
   .fm-num { font-family: var(--mono); font-size: 1.5rem; font-weight: 700; color: var(--accent-hi); font-variant-numeric: tabular-nums; transition: color 0.3s ease; }
   .fm-num.summ { color: var(--c-summ); }
   .fm-lbl { font-size: 0.8rem; color: var(--ink-2); } .fm-lbl .dim { color: var(--ink-3); }
-  .foot-metric .grow { flex: 1 1 auto; }
-  .workswitch { display: inline-flex; gap: 0.12rem; padding: 0.16rem; border: 1px solid var(--border-2); border-radius: 999px; background: var(--inset); align-self: center; }
-  .workswitch button { font-family: var(--mono); font-size: 0.68rem; color: var(--ink-3); background: transparent; border: 0; border-radius: 999px; padding: 0.3rem 0.6rem; min-height: 30px; cursor: pointer; transition: color 0.15s, background 0.15s; }
-  .workswitch button.on { color: var(--ink); background: var(--border-2); }
-  @media (hover: hover) { .workswitch button:not(.on):hover { color: var(--ink); } }
   .foot-note { grid-column: 2; margin: 0; font-size: 0.8rem; color: var(--ink-3); line-height: 1.45; }
   .foot-note code { font-family: var(--mono); font-size: 0.85em; color: var(--accent-hi); background: var(--inset); padding: 0.02em 0.32em; border-radius: 4px; }
   .foot-link { grid-column: 1 / -1; margin: 0.2rem 0 0; font-family: var(--mono); font-size: 0.74rem; }

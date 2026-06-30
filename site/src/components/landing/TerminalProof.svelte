@@ -55,7 +55,7 @@
     { k: "tool", call: "Bash(npm i better-sqlite3)", res: "added 1 package · 612 lines", g: "bloat", old: 1, ctx: 41 },
     { k: "tool", call: "Edit(app/storage.ts)", res: "+48 −12", keep: 1, ctx: 46 },
     { k: "tool", call: "Bash(npm test)", res: "FAIL · 2 failing · “no such table: todos”", g: "dedup", old: 1, ctx: 54 },
-    { k: "asst", text: "Migration's missing — I'll add the schema.", ctx: 58 },
+    { k: "asst", text: "Migration's missing — I'll add the schema.", ctx: 58, prune: "begin" },
     { k: "tool", call: "Write(app/migrations/001_init.sql)", res: "created · 14 lines", keep: 1, ctx: 63 },
     { k: "tool", call: "Edit(app/db.ts)", res: "+9 −0", keep: 1, ctx: 68 },
     { k: "tool", call: "Bash(npm test)", res: "40 passing · 3.0s", keep: 1, ctx: 73 }, // turn-1 peak
@@ -109,6 +109,7 @@
   // context-usage settling points (%). The bar oscillates: each turn climbs, each
   // prune nudges it back. CTX_DONE = where it rests after the whole session.
   const CTX_DONE = { default: 50, gentle: 60 }; // live read-heavy default band
+  const CTX_T1 = { default: 46, gentle: 56 };   // bar rests here right after turn-1 prune
   const CTX_SUMM = 41;           // after summarizer folds older spans
   const CTX_OFF = 78;            // gateway off → no prune → pressure stays high
 
@@ -235,15 +236,22 @@
       phase = "done"; await runSummarizer(my); return;
     }
     await wait(650); await gate(); if (my !== gen) return;
+    let turn1P = null;
     for (let i = 0; i < EV.length; i++) {
       const e = EV[i];
       if (e.k === "user") { await wait(600); await gate(); if (my !== gen) return; for (let c = 0; c <= e.text.length; c++) { typed = e.text.slice(0, c); await wait(40); if (my !== gen) return; } await wait(320); typed = ""; }
       shownN = i + 1;
       if (e.ctx != null) ctx.set(gateway ? e.ctx : Math.max(e.ctx, CTX_OFF * (i / EV.length)), { duration: 700 });
       await follow(convoEl, stickC);
-      // daemon shapes the turn's request right as the agent closes the turn —
-      // turn 1 = the full showcase, later turns = a compact one-liner
-      if (e.prune === "show") { await shapeTurn1(my, true); if (my !== gen) return; }
+      // daemon shapes the turn's request IN PARALLEL with the transcript: the
+      // turn-1 showcase STARTS a few rows early ("begin") and runs concurrently
+      // while the agent keeps streaming, then the context-bar drop is synced to the
+      // moment the prune completes ("show"). Later turns are a compact one-liner.
+      if (e.prune === "begin") { turn1P = shapeTurn1(my, true); }
+      else if (e.prune === "show") {
+        await (turn1P ?? shapeTurn1(my, true)); turn1P = null; if (my !== gen) return;
+        if (gateway) ctx.set(CTX_T1[mode] ?? 46, { duration: reduced ? 0 : 700 }); // bar drops WITH the prune
+      }
       else if (e.prune) { await shapeTurn(my, e.prune); if (my !== gen) return; }
       await wait(e.k === "tool" ? 480 : 300); await gate(); if (my !== gen) return;
     }
@@ -263,7 +271,15 @@
     });
   }
   function setMode(m) { if (m === mode || !gateway) return; mode = m; if (phase === "running" && !shaped) return; reshape(); }
-  function toggleGateway() { gateway = !gateway; if (phase === "running" && !shaped) { run(); } else { reshape(); } }
+  function toggleGateway() {
+    gateway = !gateway;
+    if (phase === "running" && !shaped) { run(); return; }
+    // sync the context bar to the gateway state IMMEDIATELY (off → pressure climbs
+    // back up, on → pruned band) instead of waiting for the daemon re-shape, then
+    // re-shape the log to match.
+    ctx.set(gateway ? (CTX_DONE[mode] ?? 50) : CTX_OFF, { duration: reduced ? 0 : 600 });
+    reshape();
+  }
   function pausePlay() {
     if (phase === "running" && !paused) paused = true;
     else if (paused) { paused = false; const r = resumeFn; resumeFn = null; if (r) r(); }
@@ -364,7 +380,7 @@
             <div
               class="lg lg-{l.kind}"
               class:linkable={(l.kind === "op" && l.op.g) || (l.kind === "turnop" && l.tp.g) || l.kind === "summ"}
-              onmouseenter={() => { if (l.kind === "op" && l.op.g) { hoverG = new Set([l.op.g]); reveal(`[data-g="${l.op.g}"]`); } else if (l.kind === "turnop" && l.tp.g) { hoverG = new Set([l.tp.g]); reveal(`[data-g="${l.tp.g}"]`); } }}
+              onmouseenter={() => { if (l.kind === "op" && l.op.g) { hoverG = new Set([l.op.g]); reveal(`[data-g="${l.op.g}"]`); } else if (l.kind === "turnop" && l.tp.g) { hoverG = new Set([l.tp.g]); reveal(`[data-g="${l.tp.g}"]`); } else if (l.kind === "summ") { hoverG = new Set(["reads", "window", "bloat", "dedup"]); reveal('[data-g="reads"]'); } }}
               onmouseleave={() => { if (!poking) { hoverG = null; if (phase === "done") live(); } }}
               onclick={() => { if (l.kind === "op" && l.op.g) pokeGroups([l.op.g]); else if (l.kind === "turnop" && l.tp.g) pokeGroups([l.tp.g]); else if (l.kind === "summ") pokeGroups(["reads", "window", "bloat", "dedup"]); }}
               transition:fade={{ duration: reduced ? 0 : 150 }}
