@@ -195,12 +195,21 @@ Elides an old `Read` whose file was later superseded (re-read / Write / Edit on
 the same path), and demand-pages the *last* read of a path once it exceeds
 `page_min_bytes`. Never breaks a tool pair.
 
+**Recency gate (`keep_recent_turns`):** a superseded `Read` is elided only once it
+ages past the keep-recent window — never on the turn the model is using it. A read
+the model re-reads or edits one or two turns later is still in the active working
+set; eliding it immediately would force the model to re-issue the same `Read`
+(re-billing the bytes and slowing the session). The same window gates both
+superseded-elision and demand-paging, so trimwire only ever acts "some rounds
+later."
+
 **Hot-path guard:** a path the model has `Read` **more than once** in the session
 is never demand-paged. Paging the current view of a file the model keeps needing
 would just force another re-read (paged out again next turn) — a read-spiral. So
 demand-paging only pages genuinely one-shot large reads; the *current* view of a
-file you keep re-reading is left verbatim (only demand-paging is suppressed —
-superseded *earlier* reads of that path are still elided as usual).
+file you keep re-reading is left verbatim. (This suppresses demand-paging only —
+an *earlier*, superseded read of that same path is still elided once it ages past
+`keep_recent_turns`.)
 
 ```toml
 [strategies.stale_reads]

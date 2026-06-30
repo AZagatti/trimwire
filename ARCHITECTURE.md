@@ -176,7 +176,7 @@ objects) over a closed set, chained in `strategies::run`. Each strategy:
 - `failed_input_purge.rs` — clear `tool_use.input` of old errored calls (keep the error result).
 - `stale_input_cap.rs` — cap the bulky input of an old *successful* tool call.
 - `cross_turn_dedup.rs` — keep only the latest of identical repeated tool calls; stub earlier identical `tool_result`s.
-- `stale_reads.rs` — elide a `Read` later superseded (re-read / Write / Edit on the same path); demand-page the last large read.
+- `stale_reads.rs` — elide a `Read` later superseded (re-read / Write / Edit on the same path) once it ages past `keep_recent_turns`; demand-page the last large read.
 - `simhash_dedup.rs` — **opt-in (off in both profiles)**: stub *near*-duplicate `tool_result`s that exact-match dedup misses.
 - `bloat_cap.rs` — trim a single oversized old `tool_result` to head+tail+marker; for array-content results, salvage the bulky text blocks in place (total-erase only pure non-text/image arrays).
 - `sliding_window.rs` — stub old tool_use/tool_result pairs whose tool is on the denylist (browser tools by default).

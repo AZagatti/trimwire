@@ -813,7 +813,7 @@ mod tests {
         // turn 0: Read a.txt with a big result (later superseded → StaleReads stubs it).
         messages.push(json!({"role": "user", "content": [{"type": "text", "text": "read it"}]}));
         messages.push(json!({"role": "assistant", "content": [
-            {"type": "tool_use", "id": "r0", "name": "Read", "input": {"file_path": "a.txt"}}
+            {"type": "tool_use", "id": "r0", "name": "Read", "input": {"path": "a.txt"}}
         ]}));
         messages.push(json!({"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": "r0", "content": big.clone()}
@@ -836,7 +836,7 @@ mod tests {
         }
         // last turn: Read a.txt AGAIN → supersedes the turn-0 Read.
         messages.push(json!({"role": "assistant", "content": [
-            {"type": "tool_use", "id": "r9", "name": "Read", "input": {"file_path": "a.txt"}}
+            {"type": "tool_use", "id": "r9", "name": "Read", "input": {"path": "a.txt"}}
         ]}));
         messages.push(json!({"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": "r9", "content": "fresh view"}
