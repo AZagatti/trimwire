@@ -1363,6 +1363,7 @@ mod tests {
             full_url: None,
             model: "fast-model".to_owned(),
             api_key_env: "MY_API_KEY".to_owned(),
+            api_key_file: None,
             timeout_secs: 30,
         };
         // Without yes=true the gate must prevent API calls.
@@ -1383,6 +1384,7 @@ mod tests {
             full_url: None,
             model: "fast-model".to_owned(),
             api_key_env: "MY_API_KEY".to_owned(),
+            api_key_file: None,
             timeout_secs: 30,
         };
         // With yes=true the warning prints but execution proceeds.
@@ -1421,6 +1423,7 @@ mod tests {
             full_url: None,
             model: "test-model".to_owned(),
             api_key_env: "BENCH_TEST_API_KEY".to_owned(),
+            api_key_file: None,
             timeout_secs: 5,
         };
         let big_slice = "### user\n".to_owned() + &"[tool_result] noise ".repeat(60);
@@ -1476,6 +1479,7 @@ mod tests {
             full_url: None,
             model: "test-model".to_owned(),
             api_key_env: "BENCH_MAX_CALLS_KEY".to_owned(),
+            api_key_file: None,
             timeout_secs: 5,
         };
         let big = "### user\n[tool_result] ".to_owned() + &"x".repeat(400);
@@ -1535,6 +1539,7 @@ mod tests {
             full_url: None,
             model: "test-model".to_owned(),
             api_key_env: "BENCH_ERROR_KEY".to_owned(),
+            api_key_file: None,
             timeout_secs: 5,
         };
         let corpus = vec![CorpusSlice {

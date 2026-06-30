@@ -52,6 +52,7 @@ async fn run() -> i32 {
             .unwrap_or_else(|_| "GLM-4.5-Air".to_owned()),
         api_key_env: std::env::var("TRIMWIRE_API_HARM_KEY_ENV")
             .unwrap_or_else(|_| "ZAI_API_KEY".to_owned()),
+        api_key_file: None,
         timeout_secs: 300,
     };
     if std::env::var(&provider.api_key_env)

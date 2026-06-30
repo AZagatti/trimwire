@@ -924,12 +924,13 @@ fn summarizer_setup_api_provider_writes_provider_block_without_key() {
         .spawn()
         .expect("spawn summarizer setup");
     // a=add provider; id; style=anthropic; base_url=default(empty); model;
-    // key ENV-VAR NAME; y=add; 1=pick as primary; n=no fallback; y=write.
+    // key FILE (blank=skip, prompted first); key ENV-VAR NAME; y=add;
+    // 1=pick as primary; n=no fallback; y=write.
     child
         .stdin
         .take()
         .unwrap()
-        .write_all(b"a\ntestprov\nanthropic\n\ntest-model\nTESTPROV_KEY\ny\n1\nn\ny\n")
+        .write_all(b"a\ntestprov\nanthropic\n\ntest-model\n\nTESTPROV_KEY\ny\n1\nn\ny\n")
         .unwrap();
     let out = child.wait_with_output().expect("wait");
     let all = format!(
@@ -1658,7 +1659,8 @@ fn summarizer_setup_api_primary_with_local_fallback() {
         .expect("spawn summarizer setup");
     // Items at the primary picker: 1) qwen3.5:4b (fake local). We:
     //   a            → add an API provider
-    //   testprov / anthropic / "" / test-model / TESTPROV_KEY / y  → provider fields
+    //   testprov / anthropic / "" / test-model / "" / TESTPROV_KEY / y  → provider fields
+    //                  (the "" before TESTPROV_KEY skips the key-FILE prompt, asked first)
     //   2            → pick the provider (now item 2) as PRIMARY
     //   y            → add a fallback
     //   1            → pick the local model as the fallback
@@ -1669,7 +1671,7 @@ fn summarizer_setup_api_primary_with_local_fallback() {
         .stdin
         .take()
         .unwrap()
-        .write_all(b"a\ntestprov\nanthropic\n\ntest-model\nTESTPROV_KEY\ny\n2\ny\n1\n\n\nn\ny\n")
+        .write_all(b"a\ntestprov\nanthropic\n\ntest-model\n\nTESTPROV_KEY\ny\n2\ny\n1\n\n\nn\ny\n")
         .unwrap();
     let out = child.wait_with_output().expect("wait");
     let all = format!(

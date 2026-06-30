@@ -595,6 +595,10 @@ impl Default for SimHashDedupConfig {
 /// api_key_env = "ANTHROPIC_API_KEY"
 /// timeout_secs = 30
 /// ```
+///
+/// The key may come from either `api_key_env` (an env-var name) or `api_key_file`
+/// (a path read at runtime). The file fallback exists for daemonized installs
+/// (systemd/launchd) where the service does not inherit interactive-shell exports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SummarizerProviderConfig {
@@ -616,6 +620,12 @@ pub struct SummarizerProviderConfig {
     pub model: String,
     /// Name of the environment variable that holds the API key (never the key itself).
     pub api_key_env: String,
+    /// Path to a file whose contents are the API key (whitespace-trimmed). A leading
+    /// `~/` expands to `$HOME`. trimwire stores the PATH, never the key. Used when
+    /// `api_key_env` is unset, OR as a fallback when the named env var is absent —
+    /// so a background service (systemd/launchd) with no inherited shell env can
+    /// still authenticate. `chmod 600` the file.
+    pub api_key_file: Option<String>,
     /// Hard timeout for the API call in seconds.
     pub timeout_secs: u64,
 }
@@ -629,6 +639,7 @@ impl Default for SummarizerProviderConfig {
             full_url: None,
             model: String::new(),
             api_key_env: String::new(),
+            api_key_file: None,
             timeout_secs: 180,
         }
     }

@@ -32,10 +32,15 @@
 //!
 //! ## Security
 //!
-//! The API key is read from the environment variable *named by* `api.api_key_env`.
-//! trimwire **never** reads or forwards the Claude Code subscription / OAuth token.
-//! If `api_key_env` is empty or the named env var is unset/empty the function
-//! returns a `CompactorError::Unreachable` so the cascade skips this engine.
+//! The API key is resolved by [`resolve_provider_key`]: first from the environment
+//! variable *named by* `api.api_key_env`, then — if that is unset/empty — from the
+//! file at `api.api_key_file` (a path; a leading `~/` expands to `$HOME`). The file
+//! fallback lets a daemonized install (systemd/launchd), which does not inherit
+//! interactive-shell exports, still authenticate. trimwire stores only the env-var
+//! NAME and/or the file PATH — never the key itself — and **never** reads or forwards
+//! the Claude Code subscription / OAuth token. If neither source yields a non-empty
+//! key the function returns a `CompactorError::Unreachable` so the cascade skips this
+//! engine.
 
 use std::time::Duration;
 
@@ -58,11 +63,63 @@ const API_MAX_TOKENS: u64 = 4_096;
 /// Exceeding it aborts the read (treated as "skip compaction", like any I/O error).
 const API_MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
+/// Resolve a provider's API key from its configured sources, in precedence order:
+///
+/// 1. The environment variable named by `api_key_env` (if set and non-empty).
+/// 2. The file at `api_key_file` (a path; a leading `~/` expands to `$HOME`),
+///    whitespace-trimmed. This is the daemon-safe fallback: a systemd/launchd
+///    service does not inherit interactive-shell exports, so the env var is often
+///    absent there even when it's set in the user's `~/.zshrc`.
+///
+/// Returns the key on success, or a human-readable reason string on failure (named
+/// after BOTH sources so the message is actionable). Pure except for the env read
+/// and file read; never makes a network call.
+pub fn resolve_provider_key(api: &SummarizerProviderConfig) -> Result<String, String> {
+    // 1. Env var (the named source). Keep existing precedence: env wins. Record
+    //    WHY it failed (unset vs set-but-empty) so the step-3 message is accurate.
+    let mut env_detail: Option<String> = None;
+    if !api.api_key_env.is_empty() {
+        match std::env::var(&api.api_key_env) {
+            Ok(k) if !k.trim().is_empty() => return Ok(k.trim().to_owned()),
+            Ok(_) => env_detail = Some(format!("env var {} is set but empty", api.api_key_env)),
+            Err(_) => env_detail = Some(format!("env var {} is not set", api.api_key_env)),
+        }
+    }
+
+    // 2. Key file (the daemon-safe fallback).
+    if let Some(path) = api
+        .api_key_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    {
+        let resolved = crate::ledger::resolve_path(path);
+        match std::fs::read_to_string(&resolved) {
+            Ok(body) if !body.trim().is_empty() => return Ok(body.trim().to_owned()),
+            Ok(_) => {
+                return Err(format!("api_key_file {} is empty", resolved.display()));
+            }
+            Err(e) => {
+                return Err(format!(
+                    "api_key_file {} is unreadable: {e}",
+                    resolved.display()
+                ));
+            }
+        }
+    }
+
+    // 3. Neither source yielded a key — describe exactly what's missing.
+    Err(match env_detail {
+        Some(detail) => format!("{detail} (and no api_key_file fallback)"),
+        None => "summarizer provider has neither api_key_env nor api_key_file set".to_owned(),
+    })
+}
+
 /// Call the cloud API backend once (non-streaming) and return the summary text.
 ///
 /// Takes a [`SummarizerProviderConfig`] — the `id` field is not used by the HTTP
-/// logic; only `style`, `base_url`, `model`, `api_key_env`, and `timeout_secs`
-/// matter here.
+/// logic; only `style`, `base_url`, `model`, `api_key_env`/`api_key_file`, and
+/// `timeout_secs` matter here.
 ///
 /// Returns `Err(CompactorError)` for any failure; the cascade treats every error
 /// as "skip this engine, try the next".  On `Ok` the caller checks
@@ -73,29 +130,9 @@ pub async fn call_api(
     api: &SummarizerProviderConfig,
     prompt: String,
 ) -> Result<String, CompactorError> {
-    // Resolve the API key from the user's own env var — never from a hard-coded
-    // value and never from CC's subscription/OAuth token.
-    let api_key = if api.api_key_env.is_empty() {
-        return Err(CompactorError::Unreachable(
-            "summarizer provider api_key_env is not set".to_owned(),
-        ));
-    } else {
-        match std::env::var(&api.api_key_env) {
-            Ok(k) if !k.trim().is_empty() => k,
-            Ok(_) => {
-                return Err(CompactorError::Unreachable(format!(
-                    "env var {} is set but empty",
-                    api.api_key_env
-                )));
-            }
-            Err(_) => {
-                return Err(CompactorError::Unreachable(format!(
-                    "env var {} is not set",
-                    api.api_key_env
-                )));
-            }
-        }
-    };
+    // Resolve the API key from the user's own env var or key file — never from a
+    // hard-coded value and never from CC's subscription/OAuth token.
+    let api_key = resolve_provider_key(api).map_err(CompactorError::Unreachable)?;
 
     // Fail fast on the empty defaults (a provider configured without filling these
     // in): a clearer skip-to-fallback than an opaque relative-URI build error, and
@@ -377,6 +414,7 @@ mod tests {
             full_url: None,
             model: "claude-haiku-4-20250514".to_owned(),
             api_key_env: unique_key_env("TEST_ANTHROPIC_API_KEY"),
+            api_key_file: None,
             timeout_secs: 5,
         }
     }
@@ -389,6 +427,7 @@ mod tests {
             full_url: None,
             model: "gpt-4o-mini".to_owned(),
             api_key_env: unique_key_env("TEST_OPENAI_API_KEY"),
+            api_key_file: None,
             timeout_secs: 5,
         }
     }
@@ -752,6 +791,7 @@ mod tests {
                 full_url: None,
                 model: "claude-haiku-4-20250514".to_owned(),
                 api_key_env: "TEST_PROVIDER_ID_KEY".to_owned(),
+                api_key_file: None,
                 timeout_secs: 5,
             },
             "sk-test",
@@ -794,6 +834,134 @@ mod tests {
             matches!(err, CompactorError::Unreachable(_)),
             "empty env var value must error: {err:?}"
         );
+    }
+
+    // ── resolve_provider_key: env / file precedence (issue #111) ──────────────
+
+    #[test]
+    fn resolve_key_reads_from_file_when_env_absent() {
+        // The daemon case: no api_key_env at all, key lives in a file on disk.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("zai.key");
+        std::fs::write(&path, "sk-file-key\n").unwrap();
+        let cfg = SummarizerProviderConfig {
+            api_key_env: String::new(),
+            api_key_file: Some(path.to_string_lossy().into_owned()),
+            ..anthropic_cfg("http://127.0.0.1:1".to_owned())
+        };
+        assert_eq!(resolve_provider_key(&cfg).unwrap(), "sk-file-key");
+    }
+
+    #[test]
+    fn resolve_key_file_is_fallback_when_named_env_var_unset() {
+        // api_key_env is named but not exported (the systemd-service scenario);
+        // the file fills the gap. Unique name so the remove can't race a sibling test.
+        let var = unique_key_env("TW_TEST_UNSET_BUT_FILE");
+        unsafe { std::env::remove_var(&var) };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("k");
+        std::fs::write(&path, "from-file").unwrap();
+        let cfg = SummarizerProviderConfig {
+            api_key_env: var.to_owned(),
+            api_key_file: Some(path.to_string_lossy().into_owned()),
+            ..anthropic_cfg("http://127.0.0.1:1".to_owned())
+        };
+        assert_eq!(resolve_provider_key(&cfg).unwrap(), "from-file");
+    }
+
+    #[test]
+    fn resolve_key_env_wins_over_file() {
+        // When both are present and the env var IS set, env precedence is preserved.
+        let var = unique_key_env("TW_TEST_ENV_WINS");
+        unsafe { std::env::set_var(&var, "from-env") };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("k");
+        std::fs::write(&path, "from-file").unwrap();
+        let cfg = SummarizerProviderConfig {
+            api_key_env: var.clone(),
+            api_key_file: Some(path.to_string_lossy().into_owned()),
+            ..anthropic_cfg("http://127.0.0.1:1".to_owned())
+        };
+        let got = resolve_provider_key(&cfg);
+        unsafe { std::env::remove_var(&var) };
+        assert_eq!(got.unwrap(), "from-env");
+    }
+
+    #[test]
+    fn resolve_key_tilde_path_expands_to_home() {
+        // A leading ~/ must expand to $HOME (reuses ledger::resolve_path). Verify
+        // via the error path so we don't have to MUTATE the global $HOME — mutating
+        // it would race every other test that reads HOME in this multi-threaded run.
+        let Ok(home) = std::env::var("HOME") else {
+            return; // No HOME in this environment — nothing to prove.
+        };
+        let cfg = SummarizerProviderConfig {
+            api_key_env: String::new(),
+            api_key_file: Some("~/.__tw_definitely_missing_key__".to_owned()),
+            ..anthropic_cfg("http://127.0.0.1:1".to_owned())
+        };
+        let err = resolve_provider_key(&cfg).unwrap_err();
+        // The reported path must be the EXPANDED one ($HOME/...), proving ~/ was
+        // resolved — and must not contain a literal leading tilde.
+        assert!(
+            err.contains(&home) && !err.contains("~/"),
+            "tilde must expand to $HOME ({home}); got error: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_key_set_but_empty_env_reports_empty_not_unset() {
+        // A set-but-empty env var (no file) must say "set but empty", not "not set".
+        let var = unique_key_env("TW_TEST_SET_EMPTY");
+        unsafe { std::env::set_var(&var, "  ") };
+        let cfg = SummarizerProviderConfig {
+            api_key_env: var.clone(),
+            api_key_file: None,
+            ..anthropic_cfg("http://127.0.0.1:1".to_owned())
+        };
+        let err = resolve_provider_key(&cfg).unwrap_err();
+        unsafe { std::env::remove_var(&var) };
+        assert!(
+            err.contains("set but empty"),
+            "set-but-empty env must be reported accurately; got: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_key_empty_file_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.key");
+        std::fs::write(&path, "   \n").unwrap();
+        let cfg = SummarizerProviderConfig {
+            api_key_env: String::new(),
+            api_key_file: Some(path.to_string_lossy().into_owned()),
+            ..anthropic_cfg("http://127.0.0.1:1".to_owned())
+        };
+        assert!(resolve_provider_key(&cfg).unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn resolve_key_missing_file_errors() {
+        let cfg = SummarizerProviderConfig {
+            api_key_env: String::new(),
+            api_key_file: Some("/no/such/trimwire/key/file".to_owned()),
+            ..anthropic_cfg("http://127.0.0.1:1".to_owned())
+        };
+        assert!(
+            resolve_provider_key(&cfg)
+                .unwrap_err()
+                .contains("unreadable")
+        );
+    }
+
+    #[test]
+    fn resolve_key_neither_source_errors() {
+        let cfg = SummarizerProviderConfig {
+            api_key_env: String::new(),
+            api_key_file: None,
+            ..anthropic_cfg("http://127.0.0.1:1".to_owned())
+        };
+        assert!(resolve_provider_key(&cfg).is_err());
     }
 
     // ── base_url trailing-slash handling ──────────────────────────────────────

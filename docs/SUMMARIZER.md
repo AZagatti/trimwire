@@ -115,7 +115,47 @@ and can't be `local` or `model-free` (reserved).
 provider whose path **isn't** the standard one, set **`full_url`** (the exact POST URL);
 `base_url` is then ignored and `style` still selects the auth header + payload shape.
 
+### Giving the summarizer its key — use a key file
+
+trimwire never stores the key itself, only **where to find it**. There are two sources,
+but for most people the choice is made for you:
+
+> **`trimwire install` runs trimwire as an always-up background service** (systemd user
+> service on Linux, launchd agent on macOS). A service does **not** inherit the exports
+> in your `~/.zshrc`/`~/.bashrc` — so an `export ANTHROPIC_API_KEY=…` that works in your
+> shell is **invisible** to the gateway, and the summarizer logs `env var … is not set`
+> and falls back to model-free pruning. **Use a key file.**
+
+**Recommended — `api_key_file`.** A path to a file whose contents are the key (whitespace
+trimmed; a leading `~/` expands to `$HOME`). Read at runtime, so it works **both** as a
+service and in foreground `trimwire run`:
+
+```toml
+[[summarizer.providers]]
+id           = "zai"
+style        = "anthropic"
+base_url     = "https://api.z.ai/api/anthropic"
+model        = "glm-5.2"
+api_key_file = "~/.zai_key"        # read at runtime — the daemon-safe way
+```
+
+Create it and lock it down (`trimwire doctor` warns if it's group/world-readable):
+
+```sh
+printf '%s' "your-api-key" > ~/.zai_key && chmod 600 ~/.zai_key
+```
+
+**Alternative — `api_key_env`.** The NAME of an environment variable (e.g.
+`ANTHROPIC_API_KEY`) read from the gateway's process environment. Fine for foreground
+`trimwire run`, but a background service won't see it unless you import it into the
+service environment yourself. When both are set, the env var wins; otherwise trimwire
+falls back to the file.
+
 ### Provider recipes
+
+These show each provider's `style`/`base_url`/`full_url` shape with `api_key_env` for
+brevity — for a service install, swap in `api_key_file` (see above); it's the same key,
+just read from a file the daemon can reach.
 
 ```toml
 # OpenAI

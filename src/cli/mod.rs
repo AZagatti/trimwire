@@ -411,30 +411,93 @@ pub fn doctor(strict: bool) -> Result<()> {
                     } else {
                         provider.api_key_env.clone()
                     };
+                    let key_file = match provider.api_key_file.as_deref() {
+                        Some(f) if !f.is_empty() => format!(", api_key_file={f}"),
+                        _ => String::new(),
+                    };
                     println!(
                         "{} summarizer provider '{}': style={}, base_url={base_url}, \
-                         model={model}, api_key_env={key_env}",
+                         model={model}, api_key_env={key_env}{key_file}",
                         render::ok(),
                         provider.id,
                         provider.style,
                     );
-                    // Warn if the key env var is configured but currently unset in the environment.
-                    if !provider.api_key_env.is_empty()
-                        && std::env::var(&provider.api_key_env)
-                            .unwrap_or_default()
-                            .is_empty()
-                    {
-                        println!(
-                            "{} ${} is not set in the current environment — \
-                             the API summarizer will fail at runtime.",
-                            render::warn(),
-                            provider.api_key_env,
-                        );
-                        println!("  → export {}=\"<your-api-key>\"", provider.api_key_env,);
-                        println!(
-                            "  → to persist across shells, add that export to your ~/.zshrc or ~/.bashrc."
-                        );
-                        println!("  → then run `trimwire on` to start the gateway.");
+                    // Resolve the key the SAME way the runtime does (env first, then
+                    // api_key_file). A configured key file makes the provider work in a
+                    // daemon even when the shell env var is unset, so only warn when
+                    // neither source actually yields a key.
+                    match trimwire::summarizer::api::resolve_provider_key(provider) {
+                        Ok(_) => {
+                            let has_file = provider
+                                .api_key_file
+                                .as_deref()
+                                .is_some_and(|f| !f.trim().is_empty());
+                            // CRITICAL CAVEAT: doctor runs in YOUR shell, so it sees a
+                            // key you exported — but the always-up service that
+                            // `trimwire install` registers does NOT inherit shell
+                            // exports. If the only source is an env var (no file) and a
+                            // managed service is installed, the summarizer will silently
+                            // fail there even though doctor looks green. Surface it.
+                            if !has_file && service::managed_service_installed() {
+                                println!(
+                                    "{} provider '{}' key resolves from your shell env (${}), but the \
+                                     installed background service can't see shell exports — the \
+                                     summarizer will silently fall back to model-free there. \
+                                     Set api_key_file = \"~/.{}_key\" to fix it (works as a service).",
+                                    render::warn(),
+                                    provider.id,
+                                    provider.api_key_env,
+                                    provider.id,
+                                );
+                            }
+                            // Permission hygiene: a key file readable by other users is a
+                            // leak. Warn (don't block) if it isn't owner-only.
+                            #[cfg(unix)]
+                            if let Some(f) =
+                                provider.api_key_file.as_deref().filter(|f| !f.is_empty())
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                let path = trimwire::ledger::resolve_path(f);
+                                if let Ok(meta) = std::fs::metadata(&path) {
+                                    let mode = meta.permissions().mode() & 0o777;
+                                    if mode & 0o077 != 0 {
+                                        println!(
+                                            "{} api_key_file {} is mode {:o} — readable by others; \
+                                             run `chmod 600 {}`",
+                                            render::warn(),
+                                            path.display(),
+                                            mode,
+                                            path.display(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Err(reason) => {
+                            println!(
+                                "{} provider '{}' key unavailable: {reason} — \
+                                 the API summarizer will fail at runtime.",
+                                render::warn(),
+                                provider.id,
+                            );
+                            // Recommend the key file first: the always-up service that
+                            // `trimwire install` sets up can't see shell exports.
+                            println!(
+                                "  → recommended: set `api_key_file = \"~/.{}_key\"` on this provider \
+                                 in trimwire.toml (works as a service — the default install; `chmod 600` it).",
+                                provider.id
+                            );
+                            if !provider.api_key_env.is_empty() {
+                                println!(
+                                    "  → or, for foreground `trimwire run` only: export {}=\"<your-api-key>\" \
+                                     (add to ~/.zshrc/~/.bashrc to persist).",
+                                    provider.api_key_env
+                                );
+                            }
+                            println!(
+                                "  → then `trimwire off && trimwire on` to restart the gateway with the new key."
+                            );
+                        }
                     }
                     // Privacy reminder: the prunable slice leaves the machine.
                     println!(
@@ -681,13 +744,20 @@ retain_days = 365
 # style       = "anthropic"                 # "anthropic" | "openai" (OpenAI-compatible)
 # base_url    = "https://api.anthropic.com" # REQUIRED: the API root URL (e.g. OpenAI: https://api.openai.com)
 # model       = ""                          # e.g. "claude-haiku-4-5" or "gpt-4o-mini"
-# api_key_env = "ANTHROPIC_API_KEY"         # name of the env var that holds your key
-#                                           # (security: trimwire stores ONLY the name,
-#                                           # never the key itself — keys must not live
-#                                           # in a committed config file)
-#                                           # set it before starting the gateway:
-#                                           #   export ANTHROPIC_API_KEY="sk-ant-..."
-#                                           # to persist, add that export to ~/.zshrc or ~/.bashrc
+# # Key source — pick ONE (trimwire stores the NAME/PATH, never the key itself):
+# #
+# # RECOMMENDED — api_key_file. `trimwire install` runs an always-up systemd/launchd
+# # service, which does NOT inherit your ~/.zshrc exports, so an env var is invisible
+# # to it. A key file is read at runtime and works as a service AND in `trimwire run`.
+# # A leading ~/ expands to $HOME. Create it, then `chmod 600`:
+# #   printf '%s' "sk-ant-..." > ~/.config/trimwire/anthropic.key && chmod 600 ~/.config/trimwire/anthropic.key
+# api_key_file = "~/.config/trimwire/anthropic.key"
+# #
+# # OR api_key_env — the NAME of an env var holding the key. Works for foreground
+# # `trimwire run`; a background service won't see it unless you import it into the
+# # service environment. Set it before starting: export ANTHROPIC_API_KEY="sk-ant-..."
+# # (add to ~/.zshrc or ~/.bashrc to persist).
+# api_key_env = "ANTHROPIC_API_KEY"
 "#;
 
 /// Write the starter config to `path` if it does not already exist. Returns

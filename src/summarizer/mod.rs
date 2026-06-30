@@ -2483,6 +2483,7 @@ mod tests {
                 full_url: None,
                 model: "claude-haiku-4-20250514".to_owned(),
                 api_key_env: api_key_env.to_owned(),
+                api_key_file: None,
                 timeout_secs: 5,
             }],
             ..Default::default()
@@ -2762,6 +2763,7 @@ mod tests {
             full_url: None,
             model: "claude-haiku-4-20250514".to_owned(),
             api_key_env: api_key_env.to_owned(),
+            api_key_file: None,
             timeout_secs: 5,
         }
     }
@@ -2777,6 +2779,7 @@ mod tests {
             full_url: None,
             model: "gpt-4o-mini".to_owned(),
             api_key_env: api_key_env.to_owned(),
+            api_key_file: None,
             timeout_secs: 5,
         }
     }
@@ -2792,6 +2795,7 @@ mod tests {
             full_url: None,
             model: "claude-haiku-4-20250514".to_owned(),
             api_key_env: api_key_env.to_owned(),
+            api_key_file: None,
             timeout_secs: 5,
         }
     }
@@ -3138,6 +3142,7 @@ mod tests {
             full_url: None,
             model: "claude-haiku-4-20250514".to_owned(),
             api_key_env: key_a.to_owned(),
+            api_key_file: None,
             timeout_secs: 5,
         };
         let prov_b = crate::config::SummarizerProviderConfig {
@@ -3147,6 +3152,7 @@ mod tests {
             full_url: None,
             model: "gpt-4o-mini".to_owned(),
             api_key_env: key_b.to_owned(),
+            api_key_file: None,
             timeout_secs: 5,
         };
 

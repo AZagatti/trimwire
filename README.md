@@ -187,11 +187,14 @@ model = "qwen3.5:4b"
 engine = "anthropic"                 # a provider id below (or "local" / "model-free")
 
 [[summarizer.providers]]
-id          = "anthropic"
-style       = "anthropic"            # or "openai" (OpenAI-compatible)
-base_url    = "https://api.anthropic.com"
-model       = "claude-haiku-4-5"
-api_key_env = "ANTHROPIC_API_KEY"    # env var name; key never stored in the config
+id           = "anthropic"
+style        = "anthropic"            # or "openai" (OpenAI-compatible)
+base_url     = "https://api.anthropic.com"
+model        = "claude-haiku-4-5"
+api_key_file = "~/.anthropic_key"     # recommended: read at runtime, works as a service.
+#                                     #   printf '%s' "sk-ant-..." > ~/.anthropic_key && chmod 600 ~/.anthropic_key
+# api_key_env = "ANTHROPIC_API_KEY"   # OR an env-var name — but the always-up service
+#                                     # `trimwire install` sets up can't see your shell exports
 ```
 
 Best for long, reasoning-dense sessions; it only fires once a request exceeds

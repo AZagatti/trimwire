@@ -340,7 +340,12 @@ keep_alive_secs = 0           # 0 = unload the model from RAM after each summari
 #                             # non-standard paths (Z.ai /paas/v4, Azure deployments).
 #                             # When set, base_url is ignored; style still applies.
 # model       = "claude-haiku-4-5"
-# api_key_env = "MYAPI_KEY"   # env var holding the key (never inline the key)
+# # Key source (pick one; trimwire stores the NAME/PATH, never the key):
+# api_key_file = "~/.myapi_key"  # RECOMMENDED: read at runtime, so it works with the
+#                             # always-up service `trimwire install` sets up (a daemon
+#                             # can't see your shell's exported env vars). ~/ → $HOME; chmod 600.
+# api_key_env = "MYAPI_KEY"   # OR an env-var name — fine for foreground `trimwire run`,
+#                             # invisible to a background service.
 ```
 
 See [SUMMARIZER.md](SUMMARIZER.md) "Provider recipes" for copy-paste configs
