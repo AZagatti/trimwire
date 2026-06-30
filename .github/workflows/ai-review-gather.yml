@@ -1,0 +1,56 @@
+# Stage 1 of the AI code review. Runs in the PR's (untrusted) context with NO
+# secrets and a read-only token — safe even for fork PRs. It only captures the
+# diff + PR metadata as an artifact; the privileged stage (ai-review-post.yml)
+# does the LLM calls and posts the comment. See .github/ai-review/README.md.
+#
+# TODO(before merge): pin actions by SHA + version comment to match repo policy
+# (actionlint runs in CI; see other workflows for the pinned style).
+name: AI Review - Gather
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gather:
+    # Skip bots and opt-out PRs.
+    if: >-
+      !endsWith(github.event.pull_request.user.login, '[bot]') &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-ai-review')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Capture PR diff + metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p artifacts
+          gh api "repos/$REPO/pulls/$PR/files" --paginate \
+            > artifacts/pr-files.json
+          jq -n \
+            --arg number "$PR" \
+            --arg title  "${{ github.event.pull_request.title }}" \
+            --arg author "${{ github.event.pull_request.user.login }}" \
+            --arg base   "${{ github.event.pull_request.base.sha }}" \
+            --arg head   "${{ github.event.pull_request.head.sha }}" \
+            --arg repo   "$REPO" \
+            --rawfile body <(gh pr view "$PR" --json body -q .body) \
+            '{number: ($number|tonumber), title: $title, author: $author,
+              base_sha: $base, head_sha: $head, repo: $repo, body: $body}' \
+            > artifacts/pr-meta.json
+
+      - name: Upload review input
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-review-input
+          path: artifacts/
+          retention-days: 1

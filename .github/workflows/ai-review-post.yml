@@ -1,0 +1,69 @@
+# Stage 2 of the AI code review. Triggered by the gather workflow finishing.
+# Runs in the BASE repo context (trusted code from the default branch), so it can
+# read secrets and post comments. It NEVER checks out or executes PR head code —
+# the only PR-derived input is the text diff inside the downloaded artifact, which
+# is treated as untrusted data. This is the safe alternative to pull_request_target.
+#
+# TODO(before merge): pin actions by SHA + version comment to match repo policy.
+name: AI Review - Post
+
+on:
+  workflow_run:
+    workflows: ["AI Review - Gather"]
+    types: [completed]
+
+permissions:
+  contents: read       # checkout the trusted base repo (script + prompts)
+  actions: read        # download the gather artifact
+  pull-requests: write # post/update the review comment
+
+jobs:
+  post:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout base repo (trusted)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Download gather artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-review-input
+          path: artifacts
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Run multi-model review
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ARTIFACTS_DIR: artifacts
+        run: python3 scripts/ai_review.py
+
+      - name: Post sticky comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- ai-code-review -->';
+            const meta = JSON.parse(fs.readFileSync('artifacts/pr-meta.json', 'utf8'));
+            const prNumber = Number(meta.number);
+            const body = fs.readFileSync('review.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number: prNumber }
+            );
+            const existing = comments.find(c => c.body && c.body.includes(MARKER));
+            if (existing) {
+              await github.rest.issues.updateComment(
+                { owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment(
+                { owner, repo, issue_number: prNumber, body });
+            }
