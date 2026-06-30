@@ -68,7 +68,15 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &SlidingWindowConfig) -
                 let Some(name) = block.get("name").and_then(Value::as_str) else {
                     continue;
                 };
-                if !matches_any(&cfg.denylist_tools, name) || matches_any(&cfg.exempt_tools, name) {
+                // AUTHORING_TOOLS is an unconditional hard floor (§13A): a
+                // misconfigured denylist must never wipe Write/Edit/MultiEdit/
+                // NotebookEdit inputs to `{}` — the model would rebuild on a body
+                // it can no longer see. This mirrors the floor in stale_input_cap /
+                // failed_input_purge and is not removable by config.
+                if !matches_any(&cfg.denylist_tools, name)
+                    || matches_any(&cfg.exempt_tools, name)
+                    || super::AUTHORING_TOOLS.contains(&name)
+                {
                     continue;
                 }
                 if let Some(id) = block.get("id").and_then(Value::as_str) {
@@ -83,6 +91,13 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &SlidingWindowConfig) -
     // Stub both halves of each pair atomically. Order is irrelevant — each
     // pair lives in distinct content blocks — so the output is deterministic.
     let empty = json!({});
+    // Recognizable breadcrumb so the model can tell an old denylisted input was
+    // blanked BY trimwire (not a tool genuinely called with no arguments). Stays
+    // shrink-only: fall back to `{}` when the marker wouldn't be strictly smaller
+    // than the current input, so the body never grows. Idempotent on either shape.
+    let elided_input =
+        json!({ "_trimwire": "[trimwire: input elided — older than the sliding window]" });
+    let json_len = |v: &Value| serde_json::to_string(v).map_or(usize::MAX, |s| s.len());
     let mut stubbed = 0usize;
     for id in &ids_to_stub {
         let (use_loc, res_loc) = idx.pair(id);
@@ -92,8 +107,15 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &SlidingWindowConfig) -
         let mut changed = false;
         if let Some(loc) = use_loc {
             if let Some(block) = block_mut(messages, loc) {
-                if block.get("input") != Some(&empty) {
-                    block["input"] = empty.clone();
+                let cur = block.get("input");
+                let already_stubbed = cur == Some(&empty) || cur == Some(&elided_input);
+                let cur_len = cur.map_or(0, json_len);
+                if !already_stubbed {
+                    block["input"] = if json_len(&elided_input) < cur_len {
+                        elided_input.clone()
+                    } else {
+                        empty.clone()
+                    };
                     changed = true;
                 }
             }
@@ -200,6 +222,81 @@ mod tests {
         assert_eq!(stats.stubbed, 0);
         assert_eq!(stats.elided_bytes(), 0);
         assert_eq!(serde_json::to_vec(&msgs).unwrap(), before);
+    }
+
+    /// AUTHORING_TOOLS are an unconditional hard floor: even with `Write` in the
+    /// denylist, its authored input + result must survive — otherwise the model
+    /// rebuilds on a body it can no longer see (§13A class of corruption).
+    #[test]
+    fn authoring_tool_in_denylist_is_never_stubbed() {
+        let body = format!("// authored\n{}", "x".repeat(2000));
+        let mut msgs = vec![
+            json!({"role":"assistant","content":[
+                {"type":"tool_use","id":"w0","name":"Write",
+                 "input":{"file_path":"/src/a.rs","content": body}}
+            ]}),
+            json!({"role":"user","content":[
+                {"type":"tool_result","tool_use_id":"w0","content":"wrote"}
+            ]}),
+        ];
+        // Eight recent Bash turns age the Write past keep_recent_turns = 4.
+        for i in 0..8 {
+            let uid = format!("b{i}");
+            msgs.push(json!({"role":"assistant","content":[
+                {"type":"tool_use","id":uid,"name":"Bash","input":{"command":format!("echo {i}")}}
+            ]}));
+            msgs.push(json!({"role":"user","content":[
+                {"type":"tool_result","tool_use_id":uid,"content":i.to_string()}
+            ]}));
+        }
+        // Deny BOTH Write and Bash — the floor must still protect Write.
+        apply(&mut msgs, &cfg(&["Write", "Bash"], 4)).unwrap();
+        assert_eq!(
+            msgs[0]["content"][0]["input"]["content"],
+            json!(body),
+            "authored Write input must survive even when Write is denylisted"
+        );
+        assert_eq!(msgs[1]["content"][0]["content"], json!("wrote"));
+        PairingIndex::build(&msgs).validate().unwrap();
+    }
+
+    /// A large old denylisted input is replaced with a RECOGNIZABLE trimwire
+    /// breadcrumb (not a silent `{}`); a small input stays `{}` (shrink-safe,
+    /// covered by `recent_turns_untouched_old_turns_stubbed`).
+    #[test]
+    fn large_old_input_gets_recognizable_breadcrumb() {
+        let big_cmd = format!("echo {}", "a".repeat(200));
+        let mut msgs = vec![
+            json!({"role":"assistant","content":[
+                {"type":"tool_use","id":"b0","name":"Bash","input":{"command": big_cmd}}
+            ]}),
+            json!({"role":"user","content":[
+                {"type":"tool_result","tool_use_id":"b0","content":"ok"}
+            ]}),
+        ];
+        for i in 0..8 {
+            let uid = format!("r{i}");
+            msgs.push(json!({"role":"assistant","content":[
+                {"type":"tool_use","id":uid,"name":"Bash","input":{"command":format!("echo {i}")}}
+            ]}));
+            msgs.push(json!({"role":"user","content":[
+                {"type":"tool_result","tool_use_id":uid,"content":i.to_string()}
+            ]}));
+        }
+        apply(&mut msgs, &cfg(&["Bash"], 4)).unwrap();
+        let blanked = &msgs[0]["content"][0]["input"];
+        assert_ne!(*blanked, json!({}), "large input should carry a breadcrumb, not a silent {{}}");
+        assert!(
+            serde_json::to_string(blanked)
+                .unwrap()
+                .contains("[trimwire: input elided"),
+            "breadcrumb must be recognizable as trimwire; got {blanked}"
+        );
+        PairingIndex::build(&msgs).validate().unwrap();
+        // Idempotent: a second pass leaves the breadcrumb untouched.
+        let before = serde_json::to_vec(&msgs).unwrap();
+        apply(&mut msgs, &cfg(&["Bash"], 4)).unwrap();
+        assert_eq!(serde_json::to_vec(&msgs).unwrap(), before, "breadcrumb is idempotent");
     }
 
     /// A denylisted tool that is also exempt is skipped.
