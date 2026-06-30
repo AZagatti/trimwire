@@ -46,7 +46,8 @@ skill): **panel** = GLM-5.2 (free z.ai anchor) + Gemini-3.5-Flash + DeepSeek-V4-
 
 1. Add repo secrets: `ZAI_API_KEY`, `OPENROUTER_API_KEY`.
 2. Confirm the z.ai base URL for your plan in `PROVIDERS` (`ZAI_BASE_URL`).
-3. Pin the workflow actions by SHA (repo policy — `actionlint` runs in CI).
+
+Workflow actions are SHA-pinned (repo policy — `actionlint` runs in CI).
 
 ## Cost & noise controls
 

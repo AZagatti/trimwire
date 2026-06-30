@@ -3,8 +3,6 @@
 # read secrets and post comments. It NEVER checks out or executes PR head code —
 # the only PR-derived input is the text diff inside the downloaded artifact, which
 # is treated as untrusted data. This is the safe alternative to pull_request_target.
-#
-# TODO(before merge): pin actions by SHA + version comment to match repo policy.
 name: AI Review - Post
 
 on:
@@ -26,12 +24,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout base repo (trusted)
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 1
 
       - name: Download gather artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: ai-review-input
           path: artifacts
@@ -46,7 +44,7 @@ jobs:
         run: python3 scripts/ai_review.py
 
       - name: Post sticky comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const fs = require('fs');

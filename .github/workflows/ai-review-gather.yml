@@ -2,9 +2,6 @@
 # secrets and a read-only token — safe even for fork PRs. It only captures the
 # diff + PR metadata as an artifact; the privileged stage (ai-review-post.yml)
 # does the LLM calls and posts the comment. See .github/ai-review/README.md.
-#
-# TODO(before merge): pin actions by SHA + version comment to match repo policy
-# (actionlint runs in CI; see other workflows for the pinned style).
 name: AI Review - Gather
 
 on:
@@ -28,20 +25,26 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Capture PR diff + metadata
+        # All PR-controlled values are passed via env (never interpolated into
+        # the script) to avoid shell injection from a malicious title/branch.
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           mkdir -p artifacts
           gh api "repos/$REPO/pulls/$PR/files" --paginate \
             > artifacts/pr-files.json
           jq -n \
             --arg number "$PR" \
-            --arg title  "${{ github.event.pull_request.title }}" \
-            --arg author "${{ github.event.pull_request.user.login }}" \
-            --arg base   "${{ github.event.pull_request.base.sha }}" \
-            --arg head   "${{ github.event.pull_request.head.sha }}" \
+            --arg title  "$TITLE" \
+            --arg author "$AUTHOR" \
+            --arg base   "$BASE_SHA" \
+            --arg head   "$HEAD_SHA" \
             --arg repo   "$REPO" \
             --rawfile body <(gh pr view "$PR" --json body -q .body) \
             '{number: ($number|tonumber), title: $title, author: $author,
@@ -49,7 +52,7 @@ jobs:
             > artifacts/pr-meta.json
 
       - name: Upload review input
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ai-review-input
           path: artifacts/
