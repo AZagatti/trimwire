@@ -420,7 +420,7 @@
       </section>
     </div>
   </div>
-  <span class="drag-hint dim" aria-hidden="true"><span class="dh-ar">⇆</span> drag across the scene</span>
+  <span class="drag-hint dim" aria-hidden="true"><span class="dh-ar">⇆</span> drag or scroll across the scene</span>
 </figure>
 
 <style>
@@ -520,8 +520,12 @@
     /* The WHOLE window pans as one wide canvas (Superset-style): the winbar (which
        stretches to the full scene width, so its Trimwire on/off toggle sits at the
        scene's right edge), the tabs, and both panes all scroll together. */
-    .termwin { min-width: 0; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-    .termwin::-webkit-scrollbar { display: none; }
+    /* thin (not hidden) horizontal scrollbar so MOUSE users on a narrow desktop
+       window can see the canvas pans — on touch the overlay scrollbar auto-hides,
+       so phones stay clean. Without this the off-screen daemon looked unreachable. */
+    .termwin { min-width: 0; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: #2f3f3e transparent; }
+    .termwin::-webkit-scrollbar { height: 8px; }
+    .termwin::-webkit-scrollbar-thumb { background: #2f3f3e; border-radius: 999px; }
     .panes { display: flex; }
     /* bigger panes so the terminals are comfortably readable */
     .pane-cc { flex: 0 0 90vw; scroll-snap-align: start; } .pane-tw { flex: 0 0 86vw; scroll-snap-align: end; }
