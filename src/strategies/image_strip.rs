@@ -159,6 +159,45 @@ mod tests {
 
     const SCREENSHOT_TOOL: &str = "mcp__playwright__browser_take_screenshot";
 
+    /// The DEFAULT `applies_to_tools` now includes `*snapshot*`, so accessibility/
+    /// DOM/heap snapshot tools — which also return large base64 image blobs but
+    /// aren't named "screenshot" — are stripped (they previously persisted
+    /// unbounded and re-billed every turn).
+    #[test]
+    fn default_glob_strips_snapshot_tools() {
+        let payload = "A".repeat(8192);
+        let mk = |tool: &str| {
+            let mut msgs = Vec::new();
+            for i in 0..3 {
+                let uid = format!("t{i}");
+                msgs.push(json!({"role": "assistant", "content": [
+                    {"type": "tool_use", "id": uid, "name": tool, "input": {}}
+                ]}));
+                msgs.push(json!({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": uid, "content": payload.clone()}
+                ]}));
+            }
+            msgs
+        };
+        let def = ImageStripConfig {
+            enabled: true,
+            keep_recent_count: 0, // strip all matching
+            ..ImageStripConfig::default()
+        };
+        for tool in [
+            "mcp__chrome-devtools__take_snapshot",
+            "mcp__playwright__browser_snapshot",
+            "mcp__chrome-devtools__take_heapsnapshot",
+        ] {
+            let mut msgs = mk(tool);
+            let stats = apply(&mut msgs, &def).unwrap();
+            assert_eq!(
+                stats.stubbed, 3,
+                "{tool} images should be stripped by the default *snapshot* glob"
+            );
+        }
+    }
+
     /// 5 screenshots, keep 3 → 2 oldest stripped (the Python keeps-recent test).
     #[test]
     fn keeps_k_most_recent() {

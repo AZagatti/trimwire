@@ -35,7 +35,10 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &FailedInputPurgeConfig
     let idx = PairingIndex::build(messages);
     idx.validate()?;
 
-    let Some(cutoff) = assistant_cutoff(messages, cfg.keep_recent_turns) else {
+    // Clamp to >=1 (mirrors stale_reads/sliding_window/thinking_strip): a
+    // configured 0 would otherwise let the cutoff reach the most-recent COMPLETED
+    // assistant turn and purge the input the model just used.
+    let Some(cutoff) = assistant_cutoff(messages, cfg.keep_recent_turns.max(1)) else {
         return Ok(0);
     };
 
@@ -194,6 +197,41 @@ mod tests {
                 .unwrap()
                 .starts_with('x'),
             "failed Write body kept verbatim for safe re-authoring"
+        );
+    }
+
+    /// `keep_recent_turns = 0` must be clamped to 1 (like every other age-gated
+    /// strategy): the MOST-RECENT completed turn's input is the one the model just
+    /// used and must never be purged. Two back-to-back failed Bash calls with bulky
+    /// stdin; at keep=0 the older is purged but the latest survives.
+    #[test]
+    fn keep_recent_zero_is_clamped_protecting_the_last_turn() {
+        let mut msgs = Vec::new();
+        for i in 0..2 {
+            let uid = format!("f{i}");
+            msgs.push(json!({"role": "assistant", "content": [
+                {"type": "tool_use", "id": uid, "name": "Bash",
+                 "input": {"command": "c", "stdin": "x".repeat(2000)}}
+            ]}));
+            msgs.push(json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": uid, "is_error": true, "content": "err"}
+            ]}));
+        }
+        let stats = apply(&mut msgs, &cfg(0, &[])).unwrap();
+        assert_eq!(stats.stubbed, 1, "only the older failed turn is purged");
+        assert!(
+            msgs[2]["content"][0]["input"]["stdin"]
+                .as_str()
+                .unwrap()
+                .starts_with('x'),
+            "the most-recent completed turn's input must survive the keep=0 clamp"
+        );
+        assert!(
+            msgs[0]["content"][0]["input"]["stdin"]
+                .as_str()
+                .unwrap()
+                .starts_with("[trimwire:"),
+            "the older failed input is still purged"
         );
     }
 
