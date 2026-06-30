@@ -1,0 +1,176 @@
+---
+/**
+ * Production landing (`/`) — terminal-first hero (dark-only).
+ * This static route wins over Starlight's `[...slug]` catch-all (a concrete
+ * page is more specific), so there's no duplicate-route error. Starlight still
+ * owns every /guides/* doc and the markdown sync is untouched.
+ *
+ * The Claude Code pane is a pristine real transcript; ALL Trimwire shaping lives
+ * in the daemon, linked by sync flashes + hover — no fake markers in the
+ * transcript. Multi-turn session; the native Claude Code statusline (model ·
+ * context bar · % · tokens · accept-edits) is bound to the left pane. The
+ * context bar tracks context-window USAGE: it climbs as the session grows and
+ * drops when Trimwire prunes/summarizes. One interactive below-fold inspector.
+ * Research-calibrated motion/a11y.
+ *
+ * Tailwind v4 (utilities, no preflight, page-scoped — Starlight untouched).
+ * Naming/format/numbers are product-accurate (strategies/mod.rs, gateway.rs, docs/*).
+ */
+import "../styles/hero-shared.css";
+import "../styles/tailwind.css";
+import TerminalProof from "../components/landing/TerminalProof.svelte";
+import ModeInspector from "../components/landing/ModeInspector.svelte";
+const REPO = "https://github.com/AZagatti/trimwire";
+const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" />
+    <title>trimwire — prune your coding agent's context on every request</title>
+    <meta name="description" content="A tiny local gateway that prunes your coding agent's context on every request — watch a real Claude Code session run beside the live Trimwire gateway." />
+  </head>
+  <body>
+    <header class="vx-header">
+      <a class="vx-brand" href="/"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="#2aa39c"/><path d="M5 12h7" stroke="#fff" stroke-width="3.1" stroke-linecap="round"/><path d="M15.4 12h3.6" stroke="#fff" stroke-width="3.1" stroke-linecap="round" opacity="0.74"/></svg><span>trimwire</span></a>
+      <nav class="vx-nav"><a href="/guides/overview/">docs</a><a href="/performance/">results</a><a href={REPO} target="_blank" rel="noopener noreferrer">GitHub</a></nav>
+    </header>
+
+    <main class="w-full [overflow-x:clip]">
+      <!-- ── HERO (terminal-first) ────────────────────────────────────────── -->
+      <section class={`${sec} pt-[clamp(1.4rem,4vmin,2.6rem)] pb-[clamp(1.4rem,4vmin,2.4rem)]`}>
+        <div class="hero-pills">
+          <a class="release-pill" href={REPO + "/releases"} target="_blank" rel="noopener noreferrer">signed, verifiable releases <span aria-hidden="true">→</span></a>
+          <a class="release-pill install-pill" href="#get-started">install <span aria-hidden="true">↓</span></a>
+        </div>
+        <h1 class="m-0 mt-[0.9rem] font-mono font-[640] tracking-[-0.03em] leading-[1.05] text-balance text-[clamp(1.8rem,4.8vw,2.9rem)]">Stop re-sending <span class="text-accenthi">stale context</span> every turn.</h1>
+        <p class="mt-[0.7rem] mb-0 text-ink2 max-w-[52ch] leading-[1.5] text-[clamp(0.9rem,0.95vw,1rem)]">A tiny local gateway that prunes stale, repeated context from every request — your transcript stays untouched.</p>
+      </section>
+
+      <section class="mx-auto px-[clamp(1rem,4vw,2.5rem)]">
+        <div class="term-wide"><TerminalProof client:visible /></div>
+      </section>
+
+      <!-- ── Below-fold: one interactive inspector ────────────────────────── -->
+      <section class={`${sec} mt-[clamp(2.2rem,6vmin,4rem)] pt-[clamp(1.8rem,5vmin,3rem)] border-t border-border`}>
+        <ModeInspector client:visible />
+      </section>
+
+      <!-- ── Closing: get started (steps + install) ───────────────────────── -->
+      <section id="get-started" class={`${sec} scroll-mt-[1.5rem] mt-[clamp(2.2rem,6vmin,4rem)] pt-[clamp(1.8rem,5vmin,3rem)] border-t border-border`}>
+        <div class="close">
+          <div class="close-copy">
+            <p class="close-eyebrow">get started</p>
+            <h2 class="close-h">Point your agent at it. That's the install.</h2>
+            <ol class="steps">
+              <li><span class="sn">1</span><span>Install the gateway — one binary, no daemon to babysit.</span></li>
+              <li><span class="sn">2</span><span>It wires <code>ANTHROPIC_BASE_URL</code> for you, then runs as a local service.</span></li>
+              <li><span class="sn">3</span><span>Every request is pruned locally before it leaves — your transcript never changes.</span></li>
+            </ol>
+          </div>
+          <div class="close-cmd">
+            <div class="cmd-card">
+              <span class="cmd-lbl">install · crates.io</span>
+              <code class="cmd" tabindex="0"><span class="cmd-ps">$</span> cargo install trimwire</code>
+              <code class="cmd" tabindex="0"><span class="cmd-ps">$</span> trimwire install</code>
+              <span class="cmd-or">or one line (downloads the signed binary):</span>
+              <code class="cmd cmd-sm" tabindex="0" aria-label="curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh"><span class="cmd-ps">$</span> curl -LsSf https://raw.githubusercontent.com/AZagatti/trimwire/main/scripts/install.sh | sh</code>
+            </div>
+            <div class="cta-row">
+              <a class="cta cta-primary" href="/guides/overview/">Read the docs <span aria-hidden="true">→</span></a>
+              <a class="cta cta-ghost" href={REPO} target="_blank" rel="noopener noreferrer">GitHub</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="vx-footer">
+      <a class="vx-brand sm" href="/"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="#2aa39c"/><path d="M5 12h7" stroke="#fff" stroke-width="3.1" stroke-linecap="round"/><path d="M15.4 12h3.6" stroke="#fff" stroke-width="3.1" stroke-linecap="round" opacity="0.74"/></svg><span>trimwire</span></a>
+      <nav class="ft-nav"><a href="/guides/overview/">docs</a><a href="/performance/">results</a><a href={REPO} target="_blank" rel="noopener noreferrer">GitHub</a></nav>
+      <span class="ft-lic">MIT OR Apache-2.0</span>
+    </footer>
+
+    <style>
+      .hero-pills { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .release-pill { display: inline-flex; align-items: center; gap: 0.4rem; font-family: var(--mono); font-size: 0.72rem; color: var(--accent-hi); background: var(--accent-soft); border: 1px solid var(--border-2); border-radius: 999px; padding: 0.25rem 0.7rem; text-decoration: none; transition: border-color 0.15s, background 0.15s, color 0.15s; }
+      .release-pill:hover { border-color: var(--accent); }
+      /* same pill family, but the filled/actionable one — jumps to get-started */
+      .install-pill { color: #04100f; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+      .install-pill:hover { background: var(--accent-hi); border-color: var(--accent-hi); color: #04100f; }
+
+      /* terminal is the only wide element (Superset/Conductor canvas). Use % +
+         max-width (not vw) so the side margins stay symmetric — vw ignores the
+         vertical scrollbar and made the right edge sit tighter than the left. */
+      .term-wide { width: 100%; max-width: 86rem; margin-inline: auto; }
+      /* mobile (Superset-style): the WHOLE window is wider than the screen and the
+         WRAPPER pans it, so the window's border bleeds off-screen and you scroll
+         the entire terminal across (not a fixed box with an internal scrollbar).
+         Full-bleed out of the section padding; a small inline padding gives the
+         resting inset; mandatory snap pages between the two views. */
+      @media (max-width: 52rem) {
+        .term-wide {
+          display: flex; align-items: stretch;
+          width: 100vw; max-width: none; margin-inline: calc(50% - 50vw);
+          overflow-x: auto; overflow-y: hidden;
+          scroll-snap-type: x mandatory; scroll-padding-inline: 0.9rem;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;            /* touch: clean — swipe to pan */
+        }
+        /* flex spacers give real scroll room so the window rests inset on BOTH
+           ends — including the right edge when fully panned (a scroll container
+           drops its own padding-right / a child's margin-right there). */
+        .term-wide::before, .term-wide::after { content: ''; flex: 0 0 0.9rem; }
+        .term-wide::-webkit-scrollbar { display: none; }
+      }
+      /* Mouse / precise-pointer devices (incl. narrow desktop windows and larger
+         laptops still in pan-mode) keep a styled scrollbar so the pan stays
+         discoverable and usable; touch devices keep the clean, bar-less look. */
+      @media (max-width: 52rem) and (pointer: fine) {
+        .term-wide { scrollbar-width: thin; scrollbar-color: #2f3f3e transparent; }
+        .term-wide::-webkit-scrollbar { display: block; height: 8px; }
+        .term-wide::-webkit-scrollbar-thumb { background: #2f3f3e; border-radius: 999px; }
+      }
+
+      /* ── Closing get-started block ─────────────────────────────────────── */
+      /* minmax(0,…) + min-width:0 on children = columns honour the fr split and
+         the long install command scrolls INSIDE its card instead of stretching
+         the column (desktop) or overflowing the viewport (mobile). */
+      .close { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 2.6rem); align-items: start; }
+      .close-copy, .close-cmd { min-width: 0; }
+      .close-eyebrow { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 0.5rem; }
+      .close-h { margin: 0 0 1.1rem; font-size: clamp(1.3rem, 2.6vw, 1.75rem); font-weight: 660; letter-spacing: -0.02em; line-height: 1.14; }
+      .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
+      .steps li { display: flex; align-items: flex-start; gap: 0.7rem; font-size: 0.92rem; color: var(--ink-2); line-height: 1.5; }
+      .steps .sn { flex-shrink: 0; width: 1.5rem; height: 1.5rem; display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.78rem; color: var(--accent-hi); background: var(--accent-soft); border: 1px solid var(--border-2); border-radius: 999px; }
+      .steps code { font-family: var(--mono); font-size: 0.85em; color: var(--accent-hi); background: var(--inset); padding: 0.02em 0.32em; border-radius: 4px; }
+
+      .cmd-card { background: #0b0e0e; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+      .cmd-lbl { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 0.2rem; }
+      .cmd { font-family: var(--mono); font-size: 0.84rem; color: var(--ink); white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+      .cmd::-webkit-scrollbar { display: none; }
+      .cmd-ps { color: var(--accent); margin-right: 0.5rem; user-select: none; }
+      .cmd-sm { font-size: 0.74rem; color: var(--ink-2); }
+      .cmd-or { font-size: 0.74rem; color: var(--ink-3); margin-top: 0.35rem; }
+      .cta-row { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; }
+      .cta { display: inline-flex; align-items: center; gap: 0.4rem; font-family: var(--mono); font-size: 0.82rem; padding: 0.55rem 1.1rem; border-radius: 8px; text-decoration: none; transition: border-color 0.15s, background 0.15s, color 0.15s; }
+      .cta-primary { background: var(--accent); color: #04100f; border: 1px solid var(--accent); font-weight: 600; }
+      .cta-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+      .cta-ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--border-2); }
+      .cta-ghost:hover { border-color: var(--accent); color: var(--ink); }
+      @media (max-width: 46rem) { .close { grid-template-columns: 1fr; gap: 1.6rem; } }
+
+      /* ── Footer: mirrors the header's column (76rem, same padding) so the brand
+         lines up with the header brand and the nav with the header nav. License
+         sits on its own muted line below. ──────────────────────────────────── */
+      .vx-footer { display: flex; align-items: center; gap: 0.6rem 1.2rem; flex-wrap: wrap; margin-top: clamp(2.6rem, 7vmin, 4.5rem); }
+      .vx-brand.sm { font-size: 0.92rem; gap: 0.45rem; }
+      .ft-nav { margin-left: auto; display: inline-flex; gap: 1.2rem; font-family: var(--mono); font-size: 0.8rem; }
+      .ft-lic { width: 100%; font-family: var(--mono); font-size: 0.72rem; color: var(--ink-3); margin: 0; }
+      .vx-footer a { color: var(--ink-2); } .vx-footer a:hover { color: var(--accent-hi); }
+    </style>
+  </body>
+</html>

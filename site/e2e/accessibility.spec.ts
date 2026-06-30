@@ -59,8 +59,13 @@ test.describe("accessibility (axe-core)", () => {
 
   test("/ (home) has no serious or critical axe violations", async ({ page }) => {
     await page.goto("/");
-    // Wait for the Starlight hero to render (stable Starlight page title).
-    await page.waitForSelector("h1#_top");
+    // Wait for the custom landing hero heading to render.
+    await page.waitForSelector("main h1");
+    // Let the terminal island mount + finish its run so axe scans the settled
+    // state (text at full opacity), which is what a real visitor / Lighthouse sees.
+    await page.waitForSelector(".termwin");
+    await page.waitForSelector(".termwin .fwd", { timeout: 20000 });
+    await page.waitForTimeout(2500);
 
     const results = await new AxeBuilder({ page })
       .exclude("iframe")

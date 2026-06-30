@@ -1,0 +1,148 @@
+/* Shared base for the hero/demo VARIANT EXPLORATION (dark-only; not the baseline).
+   Encodes the cross-reference discipline: near-black canvas, ONE rationed teal
+   accent used only at the mechanism, mono for code/CLI + data, stepped surfaces
+   for depth (no shadow/glow), hairline borders, faint engineering grid.
+   Light-mode parity is deferred until a direction is chosen. */
+
+/* smooth in-page jumps (e.g. the hero "install" pill → #get-started) */
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+:root {
+  /* stepped dark canvas (Turso): bg → card → inset demo surface */
+  --bg: #0b0f0f;
+  --card: #121b1f;
+  --inset: #162129;
+  --border: #243130;
+  --border-2: #2f3f3e;
+  --ink: #f3f7f6;
+  --ink-2: #b9c5c3;
+  --ink-3: #889796;
+  /* the ONE accent — Trimwire teal */
+  --accent: #2aa39c;
+  --accent-hi: #5fded6;
+  --accent-soft: rgba(42, 163, 156, 0.12);
+  --ok: #22c87a;
+  /* semantic prune-diff hues (Convex-style), used sparingly on the demo surface */
+  --c-prune: #e0a07a;   /* removed */
+  --c-summ: #9a8ae0;    /* summarized (conditional) */
+  --grid-dot: rgba(255, 255, 255, 0.028);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --cap: 3px;
+  /* easing tokens (emil/Kowalski blueprint) — V9 uses these for intentional motion */
+  --ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-in-out-quart: cubic-bezier(0.77, 0, 0.175, 1);
+  --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: dark;
+}
+
+/* Light parity (only used by pages that set data-theme="light"; the dark-only
+   v1–v6 hardcode data-theme="dark", so they are unaffected). */
+:root[data-theme="light"] {
+  --bg: #f6f9f8;
+  --card: #ffffff;
+  --inset: #eef3f2;
+  --border: #dbe3e1;
+  --border-2: #c4d0ce;
+  --ink: #112120;
+  --ink-2: #3c4b4a;
+  --ink-3: #5f6e6d;
+  --accent: #178a83;
+  --accent-hi: #0f6e68;
+  --accent-soft: rgba(23, 138, 131, 0.10);
+  --ok: #1a9a5e;
+  --c-prune: #b15a2c;
+  --c-summ: #6a5acb;
+  --grid-dot: rgba(17, 32, 31, 0.045);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  background-image:
+    radial-gradient(ellipse 55% 45% at 20% 12%, var(--accent-soft), transparent 70%),
+    radial-gradient(circle at 1px 1px, var(--grid-dot) 1px, transparent 0);
+  background-size: auto, 36px 36px;
+  background-attachment: fixed, fixed;
+}
+a { color: var(--accent-hi); text-decoration: none; }
+:where(a, button, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px;
+}
+
+/* ── shared chrome ─────────────────────────────────────────────── */
+.vx-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  max-width: 76rem; margin: 0 auto; padding: 1rem clamp(1rem, 4vw, 2.5rem);
+}
+.vx-brand { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--ink); font-weight: 600; }
+.vx-brand svg { border-radius: 6px; }
+.vx-variant-tag {
+  font-family: var(--mono); font-size: 0.72rem; color: var(--accent-hi);
+  border: 1px solid var(--border-2); border-radius: 999px; padding: 0.15rem 0.6rem; background: var(--card);
+}
+.vx-nav { display: flex; gap: 0.4rem; align-items: center; font-family: var(--mono); font-size: 0.78rem; }
+.vx-nav a { color: var(--ink-3); padding: 0.25rem 0.5rem; border-radius: 6px; }
+.vx-nav a[aria-current="page"] { color: var(--accent-hi); background: var(--accent-soft); }
+.vx-nav a:hover { color: var(--ink); }
+
+.vx-main { max-width: 76rem; margin: 0 auto; padding: clamp(1.5rem, 5vmin, 4rem) clamp(1rem, 4vw, 2.5rem) 3rem; }
+
+/* eyebrow + headline shared treatment */
+.vx-eyebrow {
+  display: inline-block; font-family: var(--mono); font-size: 0.74rem;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent-hi);
+  border: 1px solid var(--border-2); border-radius: 999px; padding: 0.25rem 0.65rem; background: var(--card);
+  margin: 0 0 1rem;
+}
+.vx-h1 {
+  margin: 0 0 1rem; font-size: clamp(2rem, 5.4vw, 3.4rem); line-height: 1.05;
+  letter-spacing: -0.03em; font-weight: 680; color: var(--ink);
+}
+.vx-h1 .accent { color: var(--accent-hi); }
+.vx-lede { margin: 0 0 1.4rem; color: var(--ink-2); font-size: clamp(1rem, 1.25vw, 1.12rem); max-width: 42ch; }
+.vx-lede code { font-family: var(--mono); font-size: 0.9em; color: var(--ink); background: var(--inset); padding: 0.05em 0.3em; border-radius: 4px; }
+
+.vx-cta-row { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-bottom: 1rem; }
+.vx-btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.6rem 1.1rem; border-radius: var(--radius-sm); font-weight: 600; font-size: 0.92rem; border: 1px solid transparent; cursor: pointer; }
+.vx-btn-primary { background: var(--accent); color: #04100f; }
+.vx-btn-primary:hover { background: var(--accent-hi); }
+.vx-btn-ghost { background: var(--card); color: var(--ink); border-color: var(--border-2); }
+.vx-btn-ghost:hover { border-color: var(--accent); color: var(--accent-hi); }
+.vx-reassure { margin: 0; color: var(--ink-3); font-size: 0.82rem; }
+
+/* a surface "card" and an inset "demo" surface (stepped, no shadow) */
+.vx-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
+.vx-inset { background: var(--inset); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+
+/* terminal-style titlebar (honest frame: prompt + label, not an app window) */
+.vx-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.85rem; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 0.74rem; color: var(--ink-3); }
+.vx-bar .dot { width: 9px; height: 9px; border-radius: 999px; background: var(--border-2); }
+.vx-bar .dot.live { background: var(--accent); }
+.vx-bar .grow { flex: 1; }
+
+/* flight-recorder chips (shared, content-free) */
+.vx-rec { display: flex; flex-wrap: wrap; gap: 0.45rem; font-family: var(--mono); }
+.vx-chip { display: inline-flex; align-items: baseline; gap: 0.35rem; border: 1px solid var(--border-2); border-radius: 999px; padding: 0.25rem 0.6rem; background: var(--inset); font-size: 0.76rem; color: var(--ink-2); }
+.vx-chip b { color: var(--accent-hi); font-weight: 600; }
+.vx-chip .ok { color: var(--ok); }
+.vx-chip .lbl { color: var(--ink-3); }
+
+/* honesty caption */
+.vx-honest { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-3); margin: 0.6rem 0 0; }
+
+.vx-footer { max-width: 76rem; margin: 1.5rem auto 0; padding: 1.25rem clamp(1rem,4vw,2.5rem) 2.5rem; border-top: 1px solid var(--border); color: var(--ink-3); font-size: 0.82rem; font-family: var(--mono); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
