@@ -356,18 +356,59 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
         println!("  Model tag is required.");
     };
 
-    // API key env var name — NEVER the key itself.
+    // API key. trimwire stores the file PATH or the env-var NAME — NEVER the key.
+    // We ask for the key FILE first because it's the path that works for the
+    // default install: `trimwire install` runs an always-up systemd/launchd
+    // service, which does NOT inherit your ~/.zshrc exports — so an env var is
+    // invisible to it (issue #111). A file is read at runtime and works either way.
+    let default_key_file = format!("~/.{id}_key");
     println!();
-    println!("  Enter the NAME of the environment variable that holds your API key.");
-    println!("  trimwire stores only the variable name — NEVER the key itself.");
-    let key_hint = match style.as_str() {
-        "anthropic" => "ANTHROPIC_API_KEY",
-        _ => "OPENAI_API_KEY",
+    println!("  API key — trimwire stores WHERE to find it, never the key itself.");
+    println!();
+    println!("  RECOMMENDED: a key FILE. trimwire usually runs as a background service");
+    println!("  (that's what `trimwire install` sets up), and a service can't see an env");
+    println!("  var you exported in ~/.zshrc. A file is read at runtime — works either way.");
+    println!("  Create one now (in another terminal) if you don't have it yet:");
+    println!(
+        "    printf '%s' \"<your-api-key>\" > {default_key_file} && chmod 600 {default_key_file}"
+    );
+    let api_key_file = {
+        let raw = prompt(&format!(
+            "  Key file path (recommended; Enter to skip if you only use `trimwire run`) [{default_key_file}]: "
+        ))?;
+        let trimmed = raw.trim().to_owned();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     };
+
+    // Env-var NAME — the fallback / foreground path. Always recorded (default
+    // derived from the provider id, e.g. `zai` → `ZAI_API_KEY`) so the provider
+    // has a named source too; the file above takes over for the service.
+    let key_hint: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        + "_API_KEY";
+    println!();
+    if api_key_file.is_some() {
+        println!("  (Optional) Env-var NAME too — used for foreground `trimwire run`.");
+    } else {
+        println!("  Env-var NAME holding your key — works for foreground `trimwire run`, but a");
+        println!("  background service won't see it (prefer the key file above for the service).");
+    }
     let api_key_env = loop {
         let raw = prompt(&format!("  API key env var name [{key_hint}]: "))?;
         let name = if raw.is_empty() {
-            key_hint.to_owned()
+            key_hint.clone()
         } else {
             raw
         };
@@ -378,28 +419,6 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
             continue;
         }
         break name;
-    };
-
-    // Key FILE — RECOMMENDED for the default install. `trimwire install` sets up
-    // an always-up systemd/launchd service, which does NOT inherit your shell's
-    // ~/.zshrc exports — so the env var above is invisible to it (issue #111). A
-    // key file is read at runtime and works either way; the env var still covers
-    // foreground `trimwire run`.
-    println!();
-    println!("  Key FILE — recommended. trimwire usually runs as a background service");
-    println!("  (that's what `trimwire install` sets up), and a service can't see the env");
-    println!("  var you exported in ~/.zshrc. Point it at a file holding the key instead —");
-    println!("  read at runtime, works both as a service and in `trimwire run`. chmod 600 it.");
-    let api_key_file = {
-        let raw = prompt(
-            "  Key file path (recommended; Enter to skip if you only use `trimwire run`) [e.g. ~/.zai_key]: ",
-        )?;
-        let trimmed = raw.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
     };
 
     // Privacy notice
@@ -1150,7 +1169,25 @@ pub fn summarizer_status() -> Result<()> {
                     );
                     // Report the key the same way the runtime resolves it (env then file).
                     match trimwire::summarizer::api::resolve_provider_key(p) {
-                        Ok(_) => println!("      key: set"),
+                        Ok(_) => {
+                            let has_file = p
+                                .api_key_file
+                                .as_deref()
+                                .is_some_and(|f| !f.trim().is_empty());
+                            if !has_file && super::service::managed_service_installed() {
+                                // Resolved from the shell env, but the installed service
+                                // can't see shell exports — flag the silent-failure trap.
+                                println!(
+                                    "      key: set in THIS shell — but the installed service can't see it"
+                                );
+                                println!(
+                                    "      → set api_key_file = \"~/.{}_key\" so the background service can authenticate.",
+                                    p.id
+                                );
+                            } else {
+                                println!("      key: set");
+                            }
+                        }
                         Err(reason) => {
                             println!("      key: NOT SET ({reason})");
                             println!(

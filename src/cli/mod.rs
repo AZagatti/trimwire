@@ -428,6 +428,28 @@ pub fn doctor(strict: bool) -> Result<()> {
                     // neither source actually yields a key.
                     match trimwire::summarizer::api::resolve_provider_key(provider) {
                         Ok(_) => {
+                            let has_file = provider
+                                .api_key_file
+                                .as_deref()
+                                .is_some_and(|f| !f.trim().is_empty());
+                            // CRITICAL CAVEAT: doctor runs in YOUR shell, so it sees a
+                            // key you exported — but the always-up service that
+                            // `trimwire install` registers does NOT inherit shell
+                            // exports. If the only source is an env var (no file) and a
+                            // managed service is installed, the summarizer will silently
+                            // fail there even though doctor looks green. Surface it.
+                            if !has_file && service::managed_service_installed() {
+                                println!(
+                                    "{} provider '{}' key resolves from your shell env (${}), but the \
+                                     installed background service can't see shell exports — the \
+                                     summarizer will silently fall back to model-free there. \
+                                     Set api_key_file = \"~/.{}_key\" to fix it (works as a service).",
+                                    render::warn(),
+                                    provider.id,
+                                    provider.api_key_env,
+                                    provider.id,
+                                );
+                            }
                             // Permission hygiene: a key file readable by other users is a
                             // leak. Warn (don't block) if it isn't owner-only.
                             #[cfg(unix)]
@@ -461,7 +483,7 @@ pub fn doctor(strict: bool) -> Result<()> {
                             // Recommend the key file first: the always-up service that
                             // `trimwire install` sets up can't see shell exports.
                             println!(
-                                "  → recommended: set  api_key_file = \"~/.{}_key\"  on this provider \
+                                "  → recommended: set `api_key_file = \"~/.{}_key\"` on this provider \
                                  in trimwire.toml (works as a service — the default install; `chmod 600` it).",
                                 provider.id
                             );
@@ -472,7 +494,9 @@ pub fn doctor(strict: bool) -> Result<()> {
                                     provider.api_key_env
                                 );
                             }
-                            println!("  → then run `trimwire on` to start the gateway.");
+                            println!(
+                                "  → then `trimwire off && trimwire on` to restart the gateway with the new key."
+                            );
                         }
                     }
                     // Privacy reminder: the prunable slice leaves the machine.

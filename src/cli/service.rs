@@ -166,6 +166,18 @@ fn supervisor_pidfile() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".trimwire/daemon.pid"))
 }
 
+/// True if `trimwire install` has registered a managed always-up service (systemd
+/// user unit or launchd agent). Used by `doctor`/`status` to decide whether a
+/// shell-only API key (env var, no `api_key_file`) is a real problem: such a key
+/// is invisible to the daemon, which can't read your `~/.zshrc` exports. Best
+/// effort — any I/O error means "assume not installed" (no false alarm).
+pub fn managed_service_installed() -> bool {
+    if cfg!(target_os = "macos") {
+        return launchd_plist_path().is_ok_and(|p| p.is_file());
+    }
+    systemd_unit_dir().is_ok_and(|d| d.join(UNIT_SERVICE).is_file())
+}
+
 fn current_exe() -> Result<String> {
     Ok(std::env::current_exe()
         .context("locate current executable")?
