@@ -529,7 +529,9 @@
     .panes { display: flex; }
     /* bigger panes so the terminals are comfortably readable */
     .pane-cc { flex: 0 0 90vw; scroll-snap-align: start; } .pane-tw { flex: 0 0 86vw; scroll-snap-align: end; }
-    .cc-scroll { height: clamp(15rem, 56vh, 22rem); }
+    /* shorter on mobile so the window reads as a compact landscape-ish frame
+       (like Superset) instead of a tall square */
+    .cc-scroll { height: clamp(12.5rem, 38vh, 16rem); }
     /* winbar + tabs span the FULL canvas (= pane-cc 90vw + pane-tw 86vw) so the
        title bar reads like a real window: lights at the left corner, the Trimwire
        on/off toggle at the canvas's RIGHT corner (not stranded mid-scene). */
