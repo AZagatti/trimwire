@@ -228,8 +228,11 @@ pub struct StaleInputCapConfig {
     /// call is never reduced here at any age (its content never hit disk — that floor
     /// lives in `failed_input_purge`).
     pub authoring_keep_recent_turns: usize,
-    /// Tool-name patterns never reduced (supports `*`). Defaults to the subagent
-    /// tools (`Task`/`Agent`), whose inputs carry sub-agent prompts.
+    /// Tool-name patterns never reduced (supports `*`). EMPTY by default (#125):
+    /// an old SUCCESSFUL subagent (`Task`/`Agent`) prompt is no longer load-bearing
+    /// (the `tool_result` captured the outcome), so it is shape-reduced like any other
+    /// non-authoring input. Authoring tools are age-gated above, not exempt. The
+    /// FAILED-call subagent exemption lives in `failed_input_purge` (retry loop-safety).
     pub exempt_tools: Vec<String>,
 }
 
@@ -407,12 +410,18 @@ impl Default for StaleInputCapConfig {
             // more turns. Recent authored content is NEVER touched — that's what keeps
             // §13A (model reproducing the marker as the file body) from recurring.
             authoring_keep_recent_turns: 6,
-            // Only the SUBAGENT tools are blanket-exempt now: their inputs carry the
-            // sub-task prompt and aren't recoverable from disk. Authoring tools are no
-            // longer listed here — they are age-gated (see authoring_keep_recent_turns)
-            // with a recoverable marker, not permanently exempt. `Task`+`Agent` =
-            // subagent tools (name drifted across CC versions); both listed.
-            exempt_tools: ["Task", "Agent"].iter().map(|s| (*s).to_owned()).collect(),
+            // EMPTY by default (#125). An OLD, SUCCESSFUL subagent (Task/Agent) call's
+            // input is the sub-task prompt — once the call succeeded the `tool_result`
+            // captures the outcome, so the verbatim prompt is dead weight, not load-
+            // bearing. So it now goes through the generic shape-preserving reduction:
+            // the small scalar fields (`description`) stay (KEEP_VALUE_MAX=512 keeps
+            // short prompts), only the bulky `prompt` (>512B) is elided to a content-
+            // free size marker. The subagent never re-emits its own prompt on a SUCCESS,
+            // so there is no §13A-style corruption risk (that risk is authored file
+            // bodies, which are still age-gated above). FAILED subagent calls keep their
+            // Task/Agent exemption in `failed_input_purge` — a retry may re-emit the
+            // prompt (loop-safety) and the result there is an error, not the outcome.
+            exempt_tools: Vec::new(),
         }
     }
 }
@@ -1464,6 +1473,15 @@ mod tests {
             "default must keep authored bodies verbatim for 6 turns (§13A guard, wider \
              than keep_recent_turns=2); dropping this to 2 would silently remove the \
              recent-authored protection"
+        );
+        // #125: subagent INPUTS (Task/Agent) are no longer exempt here — an old
+        // SUCCESSFUL subagent prompt is reducible (its result captured the outcome).
+        // The FAILED-call exemption stays in failed_input_purge, asserted above.
+        assert!(
+            default.strategies.stale_input_cap.exempt_tools.is_empty(),
+            "default stale_input_cap must NOT exempt any tool (#125: old successful \
+             Task/Agent prompts are shape-reduced; failed-call exemption is in \
+             failed_input_purge)"
         );
         assert!(default.strategies.stale_reads.enabled);
         // Phase 3C: demand-page threshold lowered 32KB→16KB for recoverability (route

@@ -42,12 +42,20 @@
 //! **ON in the `default` profile** (cache-safe, `keep_recent_turns = 2`); **off
 //! in `gentle`**. Override or disable explicitly:
 //!
+//! **Subagent (`Task`/`Agent`) INPUTS are NOT exempt here** (issue #125). Once a
+//! subagent call SUCCEEDS, its `tool_result` captures the outcome, so the verbatim
+//! sub-task prompt is dead weight — it goes through the generic reduction (small
+//! `description` kept; bulky `prompt` >512B elided to a size marker). A subagent
+//! never re-emits its own prompt on success, so there is no §13A corruption risk.
+//! The subagent exemption is retained ONLY in `failed_input_purge`, where a retry
+//! may re-emit the prompt (loop-safety) — failed calls are not this strategy's job.
+//!
 //! ```toml
 //! [strategies.stale_input_cap]
 //! enabled = true
-//! keep_recent_turns = 2            # ordinary inputs (Bash stdin, MCP args)
+//! keep_recent_turns = 2            # ordinary inputs (Bash stdin, MCP args, subagent prompts)
 //! authoring_keep_recent_turns = 6  # authored bodies (wider; recoverable marker)
-//! exempt_tools = ["Task", "Agent"] # never reduced (subagent prompts)
+//! exempt_tools = []                # nothing exempt by default (#125); add a tool to protect its input
 //! ```
 
 use serde_json::Value;
@@ -400,6 +408,45 @@ mod tests {
         );
     }
 
+    /// #125 corollary: now that Task/Agent are NOT exempt, a FAILED subagent call must
+    /// STILL be left alone by stale_input_cap (the `is_error` gate filters it before the
+    /// exempt list is even consulted) — its prompt belongs to `failed_input_purge`,
+    /// which keeps its own Task/Agent exemption for retry loop-safety.
+    #[test]
+    fn does_not_touch_failed_subagent_calls() {
+        let mut msgs = Vec::new();
+        for name in ["Task", "Agent"] {
+            let uid = format!("toolu_{name}");
+            msgs.push(json!({"role": "user", "content": [{"type": "text", "text": "go"}]}));
+            msgs.push(json!({"role": "assistant", "content": [
+                {"type": "tool_use", "id": uid, "name": name, "input": {
+                    "description": "delegate", "prompt": "x".repeat(2000)
+                }}
+            ]}));
+            msgs.push(json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": uid, "is_error": true,
+                 "content": "subagent failed"}
+            ]}));
+        }
+        // Pad so the subagent calls are old (would be reduced if successful).
+        for extra in successful_session(6) {
+            msgs.push(extra);
+        }
+        // Empty exempt list (the #125 default) — the ONLY thing protecting these is the
+        // is_error gate, not an exemption.
+        let _ = apply(&mut msgs, &cfg(4, &[])).unwrap();
+        for (mi, tool) in [(1usize, "Task"), (4usize, "Agent")] {
+            assert_eq!(
+                msgs[mi]["content"][0]["input"]["prompt"]
+                    .as_str()
+                    .unwrap()
+                    .len(),
+                2000,
+                "FAILED {tool} prompt must be untouched by stale_input_cap (is_error gate)"
+            );
+        }
+    }
+
     #[test]
     fn skips_exempt_task_tool() {
         let mut msgs = Vec::new();
@@ -436,13 +483,13 @@ mod tests {
         );
     }
 
-    /// The SHIPPED default exempt list (`StaleInputCapConfig::default()`) protects
-    /// BOTH subagent tool names — `Task` AND the drifted `Agent` — so an old
-    /// subagent call's prompt is never elided, while non-exempt Bash bulk still
-    /// reduces. Mirrors the bloat_cap exemption regression test; uses the real
-    /// default exempt list (only `keep_recent_turns` is sized for the test).
+    /// #125: the SHIPPED default (`StaleInputCapConfig::default()`) has an EMPTY
+    /// exempt list, so an OLD, SUCCESSFUL subagent call (`Task` AND the drifted
+    /// `Agent`) has its bulky `prompt` shape-reduced — the result captured the
+    /// outcome, so the verbatim prompt is dead weight. The small `description`
+    /// scalar is kept (KEEP_VALUE_MAX), so the model still sees what was delegated.
     #[test]
-    fn default_exempt_preserves_both_task_and_agent_subagent_inputs() {
+    fn default_reduces_old_successful_task_and_agent_subagent_inputs() {
         let mut msgs = Vec::new();
         for name in ["Task", "Agent"] {
             let uid = format!("toolu_{name}");
@@ -456,34 +503,75 @@ mod tests {
                 {"type": "tool_result", "tool_use_id": uid, "content": "done"}
             ]}));
         }
-        // Pad with non-exempt Bash so the subagent calls are old AND there is
-        // something reducible (non-vacuous).
+        // Pad with Bash so the subagent calls are old (past the recency window).
         for extra in successful_session(6) {
             msgs.push(extra);
         }
         let c = StaleInputCapConfig {
             enabled: true,
             keep_recent_turns: 4,
-            ..StaleInputCapConfig::default() // the REAL exempt list
+            ..StaleInputCapConfig::default() // the REAL (now empty) exempt list
         };
         let stats = apply(&mut msgs, &c).unwrap();
-        // msgs[1] = Task call, msgs[4] = Agent call — both prompts intact.
-        assert_eq!(
-            msgs[1]["content"][0]["input"]["prompt"]
-                .as_str()
-                .unwrap()
-                .len(),
-            2000,
-            "Task prompt intact (default-exempt)"
+        // msgs[1] = Task call, msgs[4] = Agent call — both bulky prompts elided,
+        // both short descriptions kept.
+        for (mi, tool) in [(1usize, "Task"), (4usize, "Agent")] {
+            assert!(
+                msgs[mi]["content"][0]["input"]["prompt"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("[trimwire:"),
+                "{tool} prompt should be reduced (#125: no longer default-exempt)"
+            );
+            assert_eq!(
+                msgs[mi]["content"][0]["input"]["description"],
+                json!("delegate"),
+                "{tool} description kept (structural scalar < KEEP_VALUE_MAX)"
+            );
+        }
+        // Both subagent prompts + the Bash bulk were reduced.
+        assert!(
+            stats.stubbed >= 3,
+            "two subagent prompts + Bash bulk reduced, got {}",
+            stats.stubbed
         );
-        assert_eq!(
-            msgs[4]["content"][0]["input"]["prompt"]
-                .as_str()
-                .unwrap()
-                .len(),
-            2000,
-            "Agent prompt intact (default-exempt)"
-        );
+        // The subagent results are untouched.
+        assert_eq!(msgs[2]["content"][0]["content"], json!("done"));
+        assert_eq!(msgs[5]["content"][0]["content"], json!("done"));
+        PairingIndex::build(&msgs).validate().unwrap();
+    }
+
+    /// A user who still wants subagent prompts protected can put `Task`/`Agent` back
+    /// in `exempt_tools` — the explicit path still works after #125's default change.
+    #[test]
+    fn explicit_exempt_still_protects_subagent_inputs() {
+        let mut msgs = Vec::new();
+        for name in ["Task", "Agent"] {
+            let uid = format!("toolu_{name}");
+            msgs.push(json!({"role": "user", "content": [{"type": "text", "text": "go"}]}));
+            msgs.push(json!({"role": "assistant", "content": [
+                {"type": "tool_use", "id": uid, "name": name, "input": {
+                    "description": "delegate", "prompt": "x".repeat(2000)
+                }}
+            ]}));
+            msgs.push(json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": uid, "content": "done"}
+            ]}));
+        }
+        for extra in successful_session(6) {
+            msgs.push(extra);
+        }
+        let stats = apply(&mut msgs, &cfg(4, &["Task", "Agent"])).unwrap();
+        for mi in [1usize, 4] {
+            assert_eq!(
+                msgs[mi]["content"][0]["input"]["prompt"]
+                    .as_str()
+                    .unwrap()
+                    .len(),
+                2000,
+                "explicitly-exempt subagent prompt intact"
+            );
+        }
         assert!(
             stats.stubbed >= 1,
             "non-exempt Bash bulk still reduced, got {}",
