@@ -108,9 +108,13 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &SlidingWindowConfig) -
         if let Some(loc) = use_loc {
             if let Some(block) = block_mut(messages, loc) {
                 let cur = block.get("input");
+                // Only stub an input that EXISTS — never add an `input` key that
+                // wasn't there (that would GROW the body on malformed traffic and
+                // count a false mutation).
+                let exists = cur.is_some();
                 let already_stubbed = cur == Some(&empty) || cur == Some(&elided_input);
                 let cur_len = cur.map_or(0, json_len);
-                if !already_stubbed {
+                if exists && !already_stubbed {
                     block["input"] = if json_len(&elided_input) < cur_len {
                         elided_input.clone()
                     } else {

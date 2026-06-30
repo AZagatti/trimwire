@@ -545,13 +545,14 @@ impl Default for StaleReadsConfig {
         Self {
             enabled: false,
             exempt_tools: Vec::new(),
-            // Kept CONCISE on purpose: the marker length is the floor below which a
-            // superseded read won't be trimmed (shrink guard), so a verbose stub would
-            // stop trimwire eliding small reads. The supersession case is low-risk (a
-            // newer view of the file is present later), so it does not need the
-            // actionable "tell the user / trimwire report" text the demand-page marker
-            // carries — agent awareness lives in the /trimwire skill + FOR-AGENTS.md.
-            stub: "[trimwire: stale read — superseded by a newer view of this file later in the conversation]".to_owned(),
+            // Kept SHORT on purpose (~57 B, near the original 53 B): the marker
+            // length is the floor below which a superseded read won't be trimmed
+            // (shrink guard), so a verbose stub would stop trimwire eliding small
+            // reads. The supersession case is low-risk (a newer view of the file is
+            // present later), so it does not need the actionable "tell the user /
+            // trimwire report" text the demand-page marker carries — agent awareness
+            // lives in the /trimwire skill + FOR-AGENTS.md.
+            stub: "[trimwire: stale read — superseded by a newer view later]".to_owned(),
             page_min_bytes: 0,
             keep_recent_turns: 4,
             protected_file_patterns: Vec::new(), // POC: OFF by default

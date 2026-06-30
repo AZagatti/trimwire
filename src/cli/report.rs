@@ -33,7 +33,16 @@ pub fn report(url_only: bool, auto: bool, session: Option<String>) -> Result<()>
     // Best-effort ledger probe: produce a coarse cache-stability phrase or None.
     let cache_line = best_effort_cache_line();
 
-    let url = build_issue_url(tw_ver, &claude_ver, &rustc_ver, os, arch, cache_line.as_deref());
+    let url = build_issue_url(
+        tw_ver,
+        &claude_ver,
+        &rustc_ver,
+        os,
+        arch,
+        cache_line.as_deref(),
+        "trimwire: unexpected behaviour",
+        None,
+    );
 
     if url_only {
         println!("{url}");
@@ -150,9 +159,10 @@ pub(crate) fn build_issue_url(
     os: &str,
     arch: &str,
     cache_line: Option<&str>,
+    title: &str,
+    anomaly: Option<&str>,
 ) -> String {
-    let title = "trimwire: unexpected behaviour";
-    let body = issue_body(tw, claude, rustc, os, arch, cache_line, None);
+    let body = issue_body(tw, claude, rustc, os, arch, cache_line, anomaly);
 
     let base = "https://github.com/AZagatti/trimwire/issues/new";
     format!(
@@ -250,9 +260,11 @@ fn do_auto_report(session_arg: Option<&str>) -> Result<()> {
         Some(&note),
     );
 
-    // Try to file via `gh issue create`.
-    let gh_result = std::process::Command::new("gh")
-        .args([
+    // Try to file via `gh issue create`, with a bounded wait: this runs from a
+    // global Stop hook, so a hung GitHub call (captive portal, VPN, DNS) must
+    // NOT freeze session teardown. On timeout/failure we fall back to the URL.
+    let gh_result = gh_create_issue_timed(
+        &[
             "issue",
             "create",
             "--repo",
@@ -263,11 +275,12 @@ fn do_auto_report(session_arg: Option<&str>) -> Result<()> {
             &body,
             "--label",
             "trimwire-anomaly",
-        ])
-        .output();
+        ],
+        std::time::Duration::from_secs(15),
+    );
 
     match gh_result {
-        Ok(out) if out.status.success() => {
+        Some(out) if out.status.success() => {
             // Record fingerprint so we don't file again for this session.
             let _ = record_filed(&dir, &fingerprint);
             let url_raw = String::from_utf8_lossy(&out.stdout);
@@ -275,15 +288,47 @@ fn do_auto_report(session_arg: Option<&str>) -> Result<()> {
             println!("trimwire: filed anomaly issue {url}");
         }
         _ => {
-            // gh missing, not authenticated, or non-zero exit → fallback URL.
-            // Do NOT record the fingerprint; allow a retry / manual filing.
-            let fallback =
-                build_issue_url(tw_ver, &claude_ver, &rustc_ver, os, arch, cache_line.as_deref());
+            // gh missing, not authenticated, non-zero exit, or timed out →
+            // fallback URL carrying the SAME anomaly title + note as the gh path
+            // (so a no-auth user's manual report isn't stripped of context). Do
+            // NOT record the fingerprint; allow a retry / manual filing.
+            let fallback = build_issue_url(
+                tw_ver,
+                &claude_ver,
+                &rustc_ver,
+                os,
+                arch,
+                cache_line.as_deref(),
+                title,
+                Some(&note),
+            );
             println!("trimwire: anomaly this session — file it: {fallback}");
         }
     }
 
     Ok(())
+}
+
+/// Run `gh issue create <args>` with a bounded wait so a hung GitHub call never
+/// freezes the caller (this runs from a Stop hook). Returns the captured output,
+/// or `None` on timeout, spawn failure, or thread error. On timeout the child
+/// `gh` process is left to finish in the background (it may still file) — we
+/// just stop waiting; the fingerprint is only recorded on an observed success.
+fn gh_create_issue_timed(
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> Option<std::process::Output> {
+    use std::sync::mpsc;
+    let owned: Vec<String> = args.iter().map(|s| (*s).to_owned()).collect();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let out = std::process::Command::new("gh").args(&owned).output();
+        let _ = tx.send(out);
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(Ok(out)) => Some(out),
+        _ => None, // timed out, spawn error, or sender dropped
+    }
 }
 
 /// Return an anomaly note if `report` has detectable anomalies, else `None`.
@@ -398,7 +443,7 @@ mod tests {
 
     #[test]
     fn build_issue_url_starts_with_github_base() {
-        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None);
+        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None, "trimwire: unexpected behaviour", None);
         assert!(
             url.starts_with("https://github.com/AZagatti/trimwire/issues/new?"),
             "URL must start with the GitHub base; got: {url}"
@@ -407,7 +452,7 @@ mod tests {
 
     #[test]
     fn build_issue_url_contains_required_params() {
-        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None);
+        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None, "trimwire: unexpected behaviour", None);
         assert!(
             url.contains("template=bug_report.md"),
             "URL must contain template param; got: {url}"
@@ -421,7 +466,7 @@ mod tests {
     #[test]
     fn build_issue_url_decoded_body_contains_trimwire_version() {
         let url =
-            build_issue_url("0.3.16", "claude 1.0", "rustc 1.85", "linux", "x86_64", None);
+            build_issue_url("0.3.16", "claude 1.0", "rustc 1.85", "linux", "x86_64", None, "trimwire: unexpected behaviour", None);
         // The body is percent-encoded in the URL; check the decoded body directly.
         let body_marker = percent_encode("trimwire version: 0.3.16");
         assert!(
@@ -439,6 +484,8 @@ mod tests {
             "linux",
             "x86_64",
             Some("cache stability: ~75% (may be thrashing)"),
+            "trimwire: unexpected behaviour",
+            None,
         );
         let encoded_cache = percent_encode("cache stability: ~75% (may be thrashing)");
         assert!(
@@ -448,8 +495,32 @@ mod tests {
     }
 
     #[test]
+    fn build_issue_url_with_anomaly_carries_title_and_note() {
+        // The gh-failure fallback path must pre-fill the SAME anomaly title + note
+        // as the gh path (not the generic "unexpected behaviour" form).
+        let url = build_issue_url(
+            "0.3.16",
+            "1.0.0",
+            "rustc 1.85",
+            "linux",
+            "x86_64",
+            None,
+            "trimwire: post-prune HTTP error (auto-detected)",
+            Some("post-prune HTTP >=400 on 3 request(s) this session"),
+        );
+        assert!(
+            url.contains(&percent_encode("post-prune HTTP error (auto-detected)")),
+            "fallback URL must carry the anomaly-specific title; got: {url}"
+        );
+        assert!(
+            url.contains(&percent_encode("Auto-detected anomaly")),
+            "fallback URL body must include the anomaly section; got: {url}"
+        );
+    }
+
+    #[test]
     fn build_issue_url_without_cache_line_omits_stability() {
-        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None);
+        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None, "trimwire: unexpected behaviour", None);
         assert!(
             !url.contains("cache%20stability"),
             "URL without a cache_line must not mention cache stability; got: {url}"
@@ -470,6 +541,8 @@ mod tests {
             "linux",
             "x86_64",
             Some("cache stability: ok"),
+            "trimwire: unexpected behaviour",
+            None,
         );
         // No `.rs` extensions (encoded or plain) — would indicate a source file path.
         assert!(
@@ -557,7 +630,7 @@ mod tests {
         // The body produced by issue_body with anomaly=None must be identical to
         // what build_issue_url embeds (backwards-compat with existing URL tests).
         let body = issue_body("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None, None);
-        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None);
+        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None, "trimwire: unexpected behaviour", None);
         let encoded_trimwire_ver = percent_encode("trimwire version: 0.3.16");
         assert!(
             url.contains(&encoded_trimwire_ver),
