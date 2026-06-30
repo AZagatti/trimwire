@@ -44,7 +44,7 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
       <section class={`${sec} pt-[clamp(1.4rem,4vmin,2.6rem)] pb-[clamp(1.4rem,4vmin,2.4rem)]`}>
         <a class="release-pill" href={REPO + "/releases"} target="_blank" rel="noopener noreferrer">signed, verifiable releases <span aria-hidden="true">→</span></a>
         <h1 class="m-0 mt-[0.9rem] font-mono font-[640] tracking-[-0.03em] leading-[1.05] text-balance text-[clamp(1.8rem,4.8vw,2.9rem)]">Stop re-sending <span class="text-accenthi">stale context</span> every turn.</h1>
-        <p class="mt-[0.7rem] mb-0 text-ink2 max-w-[58ch] leading-[1.55] text-[clamp(0.88rem,0.9vw,0.98rem)]">Long agent sessions pile up old tool output and repeated reads. Trimwire is a tiny local gateway that removes what no longer helps before the next request — and your session transcript stays intact.</p>
+        <p class="mt-[0.7rem] mb-0 text-ink2 max-w-[52ch] leading-[1.5] text-[clamp(0.9rem,0.95vw,1rem)]">A tiny local gateway that prunes stale, repeated context from every request — your transcript stays untouched.</p>
       </section>
 
       <section class="mx-auto px-[clamp(0.75rem,3vw,2.5rem)]">
@@ -105,15 +105,19 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
       }
 
       /* ── Closing get-started block ─────────────────────────────────────── */
-      .close { display: grid; grid-template-columns: 1.05fr 1fr; gap: clamp(1.5rem, 4vw, 3rem); align-items: start; }
+      /* minmax(0,…) + min-width:0 on children = columns honour the fr split and
+         the long install command scrolls INSIDE its card instead of stretching
+         the column (desktop) or overflowing the viewport (mobile). */
+      .close { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 2.6rem); align-items: start; }
+      .close-copy, .close-cmd { min-width: 0; }
       .close-eyebrow { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 0.5rem; }
-      .close-h { margin: 0 0 1.1rem; font-size: clamp(1.3rem, 3vw, 1.9rem); font-weight: 660; letter-spacing: -0.02em; line-height: 1.12; max-width: 18ch; }
+      .close-h { margin: 0 0 1.1rem; font-size: clamp(1.3rem, 2.6vw, 1.75rem); font-weight: 660; letter-spacing: -0.02em; line-height: 1.14; }
       .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
       .steps li { display: flex; align-items: flex-start; gap: 0.7rem; font-size: 0.92rem; color: var(--ink-2); line-height: 1.5; }
       .steps .sn { flex-shrink: 0; width: 1.5rem; height: 1.5rem; display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.78rem; color: var(--accent-hi); background: var(--accent-soft); border: 1px solid var(--border-2); border-radius: 999px; }
       .steps code { font-family: var(--mono); font-size: 0.85em; color: var(--accent-hi); background: var(--inset); padding: 0.02em 0.32em; border-radius: 4px; }
 
-      .cmd-card { background: #0b0e0e; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.45rem; }
+      .cmd-card { background: #0b0e0e; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
       .cmd-lbl { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 0.2rem; }
       .cmd { font-family: var(--mono); font-size: 0.84rem; color: var(--ink); white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
       .cmd::-webkit-scrollbar { display: none; }

@@ -9,7 +9,7 @@
    */
   import { Tween, prefersReducedMotion } from "svelte/motion";
   import { cubicOut } from "svelte/easing";
-  import { slide, fade } from "svelte/transition";
+  import { slide } from "svelte/transition";
 
   // Each row: plain behavior first; `tech` (the real strategy id) is secondary.
   // `on` lists which modes the pass runs in. `hue` tints the row's dot + state
@@ -77,8 +77,13 @@
     </div>
   </div>
 
+  <!-- all three ledes are stacked in one grid cell so the box auto-sizes to the
+       TALLEST (summarizer) at any width — no fixed min-height, so the long summ
+       copy can never overflow onto the rows on mobile. Only the active one shows. -->
   <p class="ins-lede">
-    {#key mode}<span class="lede-txt" transition:fade={{ duration: reduced ? 0 : 240 }}>{LEDE[mode]}</span>{/key}
+    {#each ["default", "gentle", "summ"] as m (m)}
+      <span class="lede-txt" class:show={mode === m} aria-hidden={mode !== m}>{LEDE[m]}</span>
+    {/each}
   </p>
 
   <ul class="rows">
@@ -123,7 +128,7 @@
     </div>
     <p class="foot-note">
       {#if mode === "summ"}
-        Optional, off by default. Summaries are written by a small local model (<code>qwen3.5:4b</code>) or one you choose, only on long sessions, and never block the request.
+        Optional, off by default. A small local model (<code>qwen3.5:4b</code>) or an API provider you choose writes the summary — only on long sessions, never blocking the request.
       {:else}
         Runs locally on every request — no model call, and your transcript is never changed.
       {/if}
@@ -143,10 +148,12 @@
   .modesw button:last-child.on { color: #0a0612; background: var(--c-summ); }
   @media (hover: hover) { .modesw button:not(.on):hover { color: var(--accent-hi); } }
 
-  /* fixed-height lede so mode changes don't jump the layout */
-  .ins-lede { position: relative; margin: 0; padding: 0.9rem 1.2rem 0.4rem; color: var(--ink-2); font-size: 0.92rem; line-height: 1.5; min-height: 5rem; max-width: 68ch; }
-  /* light cross-fade of the explanation text between modes (no layout shift) */
-  .lede-txt { position: absolute; left: 1.2rem; right: 1.2rem; top: 0.9rem; }
+  /* grid-stack: every lede shares one cell, so the box auto-sizes to the tallest
+     (summarizer) at any width — no fixed height to overflow, no jump on switch. */
+  .ins-lede { display: grid; margin: 0; padding: 0.9rem 1.2rem 0.4rem; color: var(--ink-2); font-size: 0.92rem; line-height: 1.5; max-width: 68ch; }
+  .lede-txt { grid-area: 1 / 1; opacity: 0; transition: opacity 0.24s ease; }
+  .lede-txt.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .lede-txt { transition: none; } }
 
   .rows { list-style: none; margin: 0; padding: 0 0.7rem 0.5rem; }
   .row { border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); transition: opacity 0.25s ease; }
@@ -192,7 +199,6 @@
 
   @media (max-width: 40rem) {
     .ins-head { flex-direction: column; align-items: stretch; } .modesw { width: 100%; } .modesw button { flex: 1; padding: 0.4rem 0.4rem; }
-    .ins-lede { min-height: 6.2rem; }
     .ins-foot { grid-template-columns: 1fr; } .foot-note { grid-column: 1; }
   }
 </style>

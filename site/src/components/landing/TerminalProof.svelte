@@ -480,7 +480,9 @@
   .ccline[data-level="hi"] .cl-bar { color: #e0664f; } .ccline[data-level="hi"] .cl-pct { color: #e0664f; }
   .ccline2 { padding: 0 0.9rem 0.4rem; font-size: 0.64rem; color: #7c8b89; }
 
-  .tw-head { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-bottom: 1px solid #141b1a; flex-wrap: nowrap; min-height: 2.1rem; }
+  /* wrap so the mode switcher drops to its own line on a narrow daemon pane
+     instead of overflowing the terminal window (which clips it). */
+  .tw-head { display: flex; align-items: center; gap: 0.4rem 0.5rem; padding: 0.4rem 0.6rem; border-bottom: 1px solid #141b1a; flex-wrap: wrap; row-gap: 0.35rem; min-height: 2.1rem; }
   .tw-name { font-size: var(--t-fs-sub); color: var(--ink-3); white-space: nowrap; flex-shrink: 0; } .tw-head .grow { flex: 1; }
   .modesw { display: inline-flex; gap: 0.1rem; padding: 0.15rem; border: 1px solid var(--border-2); border-radius: 999px; background: var(--inset); flex-shrink: 0; flex-wrap: nowrap; }
   .modesw button { font-family: var(--mono); font-size: 0.66rem; color: var(--ink-3); background: transparent; border: 0; border-radius: 999px; padding: 0.22rem 0.5rem; cursor: pointer; transition: color 0.15s, background 0.15s; white-space: nowrap; }
