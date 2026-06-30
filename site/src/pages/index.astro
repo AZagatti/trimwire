@@ -42,7 +42,10 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
     <main class="w-full [overflow-x:clip]">
       <!-- ── HERO (terminal-first) ────────────────────────────────────────── -->
       <section class={`${sec} pt-[clamp(1.4rem,4vmin,2.6rem)] pb-[clamp(1.4rem,4vmin,2.4rem)]`}>
-        <a class="release-pill" href={REPO + "/releases"} target="_blank" rel="noopener noreferrer">signed, verifiable releases <span aria-hidden="true">→</span></a>
+        <div class="hero-pills">
+          <a class="release-pill" href={REPO + "/releases"} target="_blank" rel="noopener noreferrer">signed, verifiable releases <span aria-hidden="true">→</span></a>
+          <a class="release-pill install-pill" href="#get-started">install <span aria-hidden="true">↓</span></a>
+        </div>
         <h1 class="m-0 mt-[0.9rem] font-mono font-[640] tracking-[-0.03em] leading-[1.05] text-balance text-[clamp(1.8rem,4.8vw,2.9rem)]">Stop re-sending <span class="text-accenthi">stale context</span> every turn.</h1>
         <p class="mt-[0.7rem] mb-0 text-ink2 max-w-[52ch] leading-[1.5] text-[clamp(0.9rem,0.95vw,1rem)]">A tiny local gateway that prunes stale, repeated context from every request — your transcript stays untouched.</p>
       </section>
@@ -57,7 +60,7 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
       </section>
 
       <!-- ── Closing: get started (steps + install) ───────────────────────── -->
-      <section class={`${sec} mt-[clamp(2.2rem,6vmin,4rem)] pt-[clamp(1.8rem,5vmin,3rem)] border-t border-border`}>
+      <section id="get-started" class={`${sec} scroll-mt-[1.5rem] mt-[clamp(2.2rem,6vmin,4rem)] pt-[clamp(1.8rem,5vmin,3rem)] border-t border-border`}>
         <div class="close">
           <div class="close-copy">
             <p class="close-eyebrow">get started</p>
@@ -92,8 +95,12 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
     </footer>
 
     <style>
-      .release-pill { display: inline-flex; align-items: center; gap: 0.4rem; font-family: var(--mono); font-size: 0.72rem; color: var(--accent-hi); background: var(--accent-soft); border: 1px solid var(--border-2); border-radius: 999px; padding: 0.25rem 0.7rem; text-decoration: none; transition: border-color 0.15s; }
+      .hero-pills { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .release-pill { display: inline-flex; align-items: center; gap: 0.4rem; font-family: var(--mono); font-size: 0.72rem; color: var(--accent-hi); background: var(--accent-soft); border: 1px solid var(--border-2); border-radius: 999px; padding: 0.25rem 0.7rem; text-decoration: none; transition: border-color 0.15s, background 0.15s, color 0.15s; }
       .release-pill:hover { border-color: var(--accent); }
+      /* same pill family, but the filled/actionable one — jumps to get-started */
+      .install-pill { color: #04100f; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+      .install-pill:hover { background: var(--accent-hi); border-color: var(--accent-hi); color: #04100f; }
 
       /* terminal is the only wide element (Superset/Conductor canvas). Use % +
          max-width (not vw) so the side margins stay symmetric — vw ignores the

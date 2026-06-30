@@ -4,6 +4,10 @@
    for depth (no shadow/glow), hairline borders, faint engineering grid.
    Light-mode parity is deferred until a direction is chosen. */
 
+/* smooth in-page jumps (e.g. the hero "install" pill → #get-started) */
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
 :root {
   /* stepped dark canvas (Turso): bg → card → inset demo surface */
   --bg: #0b0f0f;
