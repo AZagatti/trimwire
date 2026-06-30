@@ -23,6 +23,11 @@ compatibility_date = "2026-06-12"
 # (`<prefix|branch>-trimwire.<subdomain>.workers.dev`) for non-production
 # branches and the Cloudflare GitHub app posts the links on the PR. Production
 # (`trimwire.dev`, main-only deploy) is unaffected.
+#
+# NB: `wrangler deploy` is declarative — it reconciles the worker's settings to
+# THIS file on every production deploy. Without this line a main deploy resets
+# `previews_enabled` back to false, silently undoing any dashboard toggle. So
+# this MUST live on `main` for previews to stay on.
 preview_urls = true
 
 [assets]
