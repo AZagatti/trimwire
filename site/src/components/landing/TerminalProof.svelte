@@ -288,13 +288,14 @@
 
   // Auto-run once when scrolled into view. Re-running only happens on an explicit
   // replay click — casual scrolling back (especially on mobile) must NOT restart
-  // it. A high threshold means it triggers only when the terminal is genuinely
-  // the focus, not on a glancing scroll-by.
+  // it. NB: on mobile the figure is a 176vw canvas (mostly off-screen), so its
+  // intersection ratio tops out ~0.5 — a low threshold is required or it never
+  // fires. We also guard on isIntersecting so a glancing scroll-by is unlikely.
   let hasRun = false;
   function inview(node) {
     const o = new IntersectionObserver((es) => {
       if (es[0].isIntersecting && !hasRun) { hasRun = true; run(); o.disconnect(); }
-    }, { threshold: 0.55 });
+    }, { threshold: 0.2 });
     o.observe(node); return { destroy() { o.disconnect(); } };
   }
 </script>
@@ -525,6 +526,8 @@
        full canvas width so the lights sit at the left corner and the Trimwire
        toggle at the right corner. */
     .termwin { min-width: 0; width: 176vw; }
+    /* the figure is a flex item in the panning wrapper — don't let it shrink */
+    .termwrap { flex: 0 0 auto; }
     .panes { display: flex; }
     .pane-cc { flex: 0 0 90vw; scroll-snap-align: start; } .pane-tw { flex: 0 0 86vw; scroll-snap-align: end; }
     /* shorter on mobile so the window reads as a compact landscape-ish frame */

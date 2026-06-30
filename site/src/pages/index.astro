@@ -106,14 +106,25 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
          resting inset; mandatory snap pages between the two views. */
       @media (max-width: 52rem) {
         .term-wide {
+          display: flex; align-items: stretch;
           width: 100vw; max-width: none; margin-inline: calc(50% - 50vw);
-          padding-inline: 0.9rem;
           overflow-x: auto; overflow-y: hidden;
           scroll-snap-type: x mandatory; scroll-padding-inline: 0.9rem;
           -webkit-overflow-scrolling: touch;
-          scrollbar-width: thin; scrollbar-color: #2f3f3e transparent;
+          scrollbar-width: none;            /* touch: clean — swipe to pan */
         }
-        .term-wide::-webkit-scrollbar { height: 8px; }
+        /* flex spacers give real scroll room so the window rests inset on BOTH
+           ends — including the right edge when fully panned (a scroll container
+           drops its own padding-right / a child's margin-right there). */
+        .term-wide::before, .term-wide::after { content: ''; flex: 0 0 0.9rem; }
+        .term-wide::-webkit-scrollbar { display: none; }
+      }
+      /* Mouse / precise-pointer devices (incl. narrow desktop windows and larger
+         laptops still in pan-mode) keep a styled scrollbar so the pan stays
+         discoverable and usable; touch devices keep the clean, bar-less look. */
+      @media (max-width: 52rem) and (pointer: fine) {
+        .term-wide { scrollbar-width: thin; scrollbar-color: #2f3f3e transparent; }
+        .term-wide::-webkit-scrollbar { display: block; height: 8px; }
         .term-wide::-webkit-scrollbar-thumb { background: #2f3f3e; border-radius: 999px; }
       }
 
