@@ -523,7 +523,7 @@
     /* thin (not hidden) horizontal scrollbar so MOUSE users on a narrow desktop
        window can see the canvas pans — on touch the overlay scrollbar auto-hides,
        so phones stay clean. Without this the off-screen daemon looked unreachable. */
-    .termwin { min-width: 0; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: #2f3f3e transparent; }
+    .termwin { min-width: 0; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: #2f3f3e transparent; }
     .termwin::-webkit-scrollbar { height: 8px; }
     .termwin::-webkit-scrollbar-thumb { background: #2f3f3e; border-radius: 999px; }
     .panes { display: flex; }
