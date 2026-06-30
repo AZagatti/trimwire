@@ -1,8 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-  <!-- Rounded square mark -->
-  <rect x="1" y="1" width="22" height="22" rx="5" fill="#2aa39c"/>
-  <!-- "t" crossbar -->
-  <rect x="5.5" y="7" width="13" height="2" rx="1" fill="#ffffff"/>
-  <!-- "t" stem -->
-  <rect x="9.5" y="7" width="4" height="13" rx="1" fill="#ffffff"/>
+  <!-- teal badge -->
+  <rect x="1" y="1" width="22" height="22" rx="6" fill="#2aa39c"/>
+  <!-- a "wire", trimmed: long kept segment + clear gap + short remnant -->
+  <path d="M5 12h7" stroke="#ffffff" stroke-width="3.1" stroke-linecap="round"/>
+  <path d="M15.4 12h3.6" stroke="#ffffff" stroke-width="3.1" stroke-linecap="round" opacity="0.74"/>
 </svg>

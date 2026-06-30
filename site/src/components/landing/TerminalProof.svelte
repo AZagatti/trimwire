@@ -498,9 +498,11 @@
   .modesw button:disabled.m-summ.on { background: color-mix(in srgb, var(--c-summ) 45%, #243130); color: #0c1211; }
   @media (hover: hover) { .modesw button:not(.on):not(:disabled):hover { color: var(--ink); } }
 
-  /* flex:1 so the daemon fills its pane down to match the Claude pane (which is
-     taller by its input + statusline rows) — no dead black space under the log. */
-  .daemon { flex: 1 1 auto; min-height: clamp(14rem, 40vh, 20rem); overflow-y: auto; padding: 0.6rem 0.7rem; font-size: var(--t-fs-sub); line-height: 1.65; color: var(--ink-2); overflow-anchor: none; scrollbar-width: thin; scrollbar-color: #243130 transparent; }
+  /* flex:1 1 0 + min-height:0 so the daemon fills its pane down to match the
+     Claude pane (no dead black space) BUT scrolls internally instead of growing
+     the terminal — basis 0 + min-height 0 stop the tall log from inflating the
+     row height. */
+  .daemon { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 0.6rem 0.7rem; font-size: var(--t-fs-sub); line-height: 1.65; color: var(--ink-2); overflow-anchor: none; scrollbar-width: thin; scrollbar-color: #243130 transparent; }
   .daemon::-webkit-scrollbar { width: 5px; } .daemon::-webkit-scrollbar-thumb { background: #243130; border-radius: 999px; }
   .lg { margin-bottom: 0.14rem; border-radius: 5px; padding: 0.06rem 0.3rem; margin-inline: -0.3rem; transition: background 0.2s ease; }
   .lg.linkable { cursor: pointer; } .lg.linkable:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); box-shadow: inset 2px 0 0 var(--accent); }
@@ -524,6 +526,10 @@
     /* bigger panes so the terminals are comfortably readable */
     .pane-cc { flex: 0 0 90vw; scroll-snap-align: start; } .pane-tw { flex: 0 0 86vw; scroll-snap-align: end; }
     .cc-scroll { height: clamp(15rem, 56vh, 22rem); }
+    /* winbar + tabs span the FULL canvas (= pane-cc 90vw + pane-tw 86vw) so the
+       title bar reads like a real window: lights at the left corner, the Trimwire
+       on/off toggle at the canvas's RIGHT corner (not stranded mid-scene). */
+    .winbar { width: 176vw; }
     .drag-hint { display: inline-flex; }
   }
   @media (prefers-reduced-motion: reduce) { .cursor, .msg, .dh-ar { animation: none; transition: none; } }
