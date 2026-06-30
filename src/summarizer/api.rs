@@ -75,12 +75,14 @@ const API_MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 /// after BOTH sources so the message is actionable). Pure except for the env read
 /// and file read; never makes a network call.
 pub fn resolve_provider_key(api: &SummarizerProviderConfig) -> Result<String, String> {
-    // 1. Env var (the named source). Keep existing precedence: env wins.
+    // 1. Env var (the named source). Keep existing precedence: env wins. Record
+    //    WHY it failed (unset vs set-but-empty) so the step-3 message is accurate.
+    let mut env_detail: Option<String> = None;
     if !api.api_key_env.is_empty() {
-        if let Ok(k) = std::env::var(&api.api_key_env) {
-            if !k.trim().is_empty() {
-                return Ok(k.trim().to_owned());
-            }
+        match std::env::var(&api.api_key_env) {
+            Ok(k) if !k.trim().is_empty() => return Ok(k.trim().to_owned()),
+            Ok(_) => env_detail = Some(format!("env var {} is set but empty", api.api_key_env)),
+            Err(_) => env_detail = Some(format!("env var {} is not set", api.api_key_env)),
         }
     }
 
@@ -107,18 +109,10 @@ pub fn resolve_provider_key(api: &SummarizerProviderConfig) -> Result<String, St
     }
 
     // 3. Neither source yielded a key — describe exactly what's missing.
-    Err(
-        match (api.api_key_env.is_empty(), api.api_key_file.is_none()) {
-            (true, true) => {
-                "summarizer provider has neither api_key_env nor api_key_file set".to_owned()
-            }
-            (false, _) => format!(
-                "env var {} is not set (and no api_key_file fallback)",
-                api.api_key_env
-            ),
-            (true, false) => "api_key_file did not yield a key".to_owned(),
-        },
-    )
+    Err(match env_detail {
+        Some(detail) => format!("{detail} (and no api_key_file fallback)"),
+        None => "summarizer provider has neither api_key_env nor api_key_file set".to_owned(),
+    })
 }
 
 /// Call the cloud API backend once (non-streaming) and return the summary text.
@@ -861,9 +855,9 @@ mod tests {
     #[test]
     fn resolve_key_file_is_fallback_when_named_env_var_unset() {
         // api_key_env is named but not exported (the systemd-service scenario);
-        // the file fills the gap.
-        let var = "TW_TEST_UNSET_BUT_FILE";
-        unsafe { std::env::remove_var(var) };
+        // the file fills the gap. Unique name so the remove can't race a sibling test.
+        let var = unique_key_env("TW_TEST_UNSET_BUT_FILE");
+        unsafe { std::env::remove_var(&var) };
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("k");
         std::fs::write(&path, "from-file").unwrap();
@@ -878,40 +872,59 @@ mod tests {
     #[test]
     fn resolve_key_env_wins_over_file() {
         // When both are present and the env var IS set, env precedence is preserved.
-        let var = "TW_TEST_ENV_WINS";
-        unsafe { std::env::set_var(var, "from-env") };
+        let var = unique_key_env("TW_TEST_ENV_WINS");
+        unsafe { std::env::set_var(&var, "from-env") };
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("k");
         std::fs::write(&path, "from-file").unwrap();
         let cfg = SummarizerProviderConfig {
-            api_key_env: var.to_owned(),
+            api_key_env: var.clone(),
             api_key_file: Some(path.to_string_lossy().into_owned()),
             ..anthropic_cfg("http://127.0.0.1:1".to_owned())
         };
         let got = resolve_provider_key(&cfg);
-        unsafe { std::env::remove_var(var) };
+        unsafe { std::env::remove_var(&var) };
         assert_eq!(got.unwrap(), "from-env");
     }
 
     #[test]
     fn resolve_key_tilde_path_expands_to_home() {
-        // A leading ~/ must expand to $HOME (reuses ledger::resolve_path).
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(".tw_test_key"), "tilde-key").unwrap();
-        // SAFETY: test-only; restored below.
-        let prev_home = std::env::var("HOME").ok();
-        unsafe { std::env::set_var("HOME", dir.path()) };
+        // A leading ~/ must expand to $HOME (reuses ledger::resolve_path). Verify
+        // via the error path so we don't have to MUTATE the global $HOME — mutating
+        // it would race every other test that reads HOME in this multi-threaded run.
+        let Ok(home) = std::env::var("HOME") else {
+            return; // No HOME in this environment — nothing to prove.
+        };
         let cfg = SummarizerProviderConfig {
             api_key_env: String::new(),
-            api_key_file: Some("~/.tw_test_key".to_owned()),
+            api_key_file: Some("~/.__tw_definitely_missing_key__".to_owned()),
             ..anthropic_cfg("http://127.0.0.1:1".to_owned())
         };
-        let got = resolve_provider_key(&cfg);
-        match prev_home {
-            Some(h) => unsafe { std::env::set_var("HOME", h) },
-            None => unsafe { std::env::remove_var("HOME") },
-        }
-        assert_eq!(got.unwrap(), "tilde-key");
+        let err = resolve_provider_key(&cfg).unwrap_err();
+        // The reported path must be the EXPANDED one ($HOME/...), proving ~/ was
+        // resolved — and must not contain a literal leading tilde.
+        assert!(
+            err.contains(&home) && !err.contains("~/"),
+            "tilde must expand to $HOME ({home}); got error: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_key_set_but_empty_env_reports_empty_not_unset() {
+        // A set-but-empty env var (no file) must say "set but empty", not "not set".
+        let var = unique_key_env("TW_TEST_SET_EMPTY");
+        unsafe { std::env::set_var(&var, "  ") };
+        let cfg = SummarizerProviderConfig {
+            api_key_env: var.clone(),
+            api_key_file: None,
+            ..anthropic_cfg("http://127.0.0.1:1".to_owned())
+        };
+        let err = resolve_provider_key(&cfg).unwrap_err();
+        unsafe { std::env::remove_var(&var) };
+        assert!(
+            err.contains("set but empty"),
+            "set-but-empty env must be reported accurately; got: {err}"
+        );
     }
 
     #[test]
