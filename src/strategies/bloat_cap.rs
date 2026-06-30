@@ -144,7 +144,15 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &BloatCapConfig) -> Res
                 if very_old {
                     // B-5 stub tier: a full marker instead of head+tail (only when
                     // it actually shrinks the body).
-                    let marker = elision_marker("[trimwire: aged-out result", result_content);
+                    // B-5 fully erases the result (no head/tail glimpse), leaving only
+                    // a byte count — so, unlike the inline trim, the model has nothing
+                    // to work from. A recovery hint (NOT a report nudge: bloat_cap only
+                    // reduces, it never fabricates) shortens the model's path back to
+                    // the content. Opt-in (stub_age_turns>0); off by default.
+                    let marker = elision_marker(
+                        "[trimwire: aged-out result — re-run the tool to restore full content",
+                        result_content,
+                    );
                     if serde_json::to_string(&marker)
                         .map(|m| m.len())
                         .unwrap_or(usize::MAX)
