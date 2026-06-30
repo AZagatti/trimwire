@@ -354,7 +354,7 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &StaleReadsConfig) -> R
                 // marker should state the actual file-content size (audit P3-3).
                 let raw_len = content.as_str().map(str::len).unwrap_or(content_len);
                 let marker = Value::String(format!(
-                    "[trimwire: paged out — Read {path} ({raw_len} bytes); re-read the file to restore]"
+                    "[trimwire: paged out — Read {path} ({raw_len} bytes) removed to save context. Re-reading once returns fresh content; if you keep re-reading this same file, trimwire may be over-trimming — tell the user (they can run `trimwire report`)]"
                 ));
                 let marker_len = serde_json::to_string(&marker)
                     .map(|s| s.len())
@@ -1148,6 +1148,52 @@ mod tests {
                 .unwrap()
                 .starts_with("[trimwire: stale read")
         );
+    }
+
+    /// §13B re-read spiral guard: a file that has been Read MORE THAN ONCE is never
+    /// demand-paged, even when old and large. The first Read can be paged (it is
+    /// the superseded, not current-view read) but the second (current-view) Read
+    /// must survive intact — paging it would force yet another re-read, which
+    /// trimwire would page out again (the observed spiral). This test verifies the
+    /// hot-path guard at `read_count > 1` prevents the spiral: the current-view
+    /// Read of a multi-read path is NOT paged.
+    #[test]
+    fn reread_of_paged_file_is_not_repaged_spiral_guard() {
+        let large = "z".repeat(40_000); // well above any typical page_min_bytes
+        let large2 = "q".repeat(40_000);
+        let mut msgs = vec![
+            // First Read of the path (will be superseded → eligible for elision).
+            tool_use_msg("r0", "Read", json!({"path": "/src/spiral.rs"})),
+            tool_result_msg("r0", &large),
+            // Second Read of the SAME path → read_count == 2 → hot-path guard activates.
+            tool_use_msg("r1", "Read", json!({"path": "/src/spiral.rs"})),
+            tool_result_msg("r1", &large2),
+        ];
+        // Age both reads past the keep-recent window so paging would otherwise
+        // target r1 (the current-view read) if the guard weren't there.
+        for i in 0..6 {
+            let id = format!("p{i}");
+            msgs.push(tool_use_msg(
+                &id,
+                "Bash",
+                json!({"command": format!("echo {i}")}),
+            ));
+            msgs.push(tool_result_msg(&id, "ok"));
+        }
+        apply(&mut msgs, &cfg_paging(8192, 4)).unwrap();
+
+        // r1 is the current-view Read on a multiply-read path → must NOT be paged.
+        let r1_content = msgs[3]["content"][0]["content"].as_str().unwrap();
+        assert!(
+            r1_content.starts_with('q'),
+            "current-view Read of a re-read path must NOT be demand-paged (spiral guard); got: {}",
+            &r1_content[..r1_content.len().min(80)]
+        );
+        assert!(
+            !r1_content.starts_with("[trimwire: "),
+            "paged marker must NOT appear on the current-view of a re-read path (spiral guard)"
+        );
+        PairingIndex::build(&msgs).validate().unwrap();
     }
 
     /// Read superseded by MultiEdit.

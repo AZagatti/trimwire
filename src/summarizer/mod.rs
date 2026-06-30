@@ -2178,8 +2178,7 @@ mod tests {
             "the appended delta's fact must be present"
         );
         assert_eq!(
-            s.matches("local-model compaction of original turns")
-                .count(),
+            s.matches("[trimwire: summarized turns").count(),
             2,
             "both frozen segments appear in the replay"
         );

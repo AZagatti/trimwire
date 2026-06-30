@@ -48,14 +48,22 @@ pub struct SummaryDecision {
     pub messages: Vec<Value>,
 }
 
-/// The recoverable, content-free marker prepended to a summary. It is audit-only
-/// (not model-actionable like a demand-paging marker): it tells a human reader
-/// the turn range was locally compacted and that exact detail is recoverable by
-/// re-reading the files. The model treats it as prose.
+/// The content-free marker prepended to a summary. It is part of the shared
+/// `[trimwire: …]` marker family (recognizable + idempotency-skippable) and is
+/// model-facing: it tells the agent the turn range was locally compacted, that
+/// exact detail is recoverable by re-reading, and — crucially — that the summary
+/// may be lossy or wrong (the runtime accept-gate is size-only, no fidelity
+/// check), so load-bearing "done"/result claims should be verified before they
+/// are relied on. If the summary looks fabricated, the agent surfaces it and
+/// offers `trimwire report`.
 fn summary_marker(start: usize, end: usize) -> String {
     format!(
-        "<!-- trimwire: local-model compaction of original turns [{start}..{end}); \
-         exact file/output detail is recoverable by re-reading -->"
+        "[trimwire: summarized turns {start}..{end} — a local model compacted these \
+         older turns to save context; file/output detail is recoverable by re-reading \
+         the files or re-running the tools. This summary may be lossy: treat any \
+         \"done\"/result claims in it as unverified and double-check load-bearing ones \
+         before relying on them. If it looks wrong or fabricated, tell the user (they \
+         can run `trimwire report`).]"
     )
 }
 
@@ -676,7 +684,7 @@ mod tests {
         assert_eq!(out.len(), 9);
         // Summary is an assistant text turn carrying the marker + text.
         let txt = out[1]["content"][0]["text"].as_str().unwrap();
-        assert!(txt.contains("trimwire: local-model compaction"));
+        assert!(txt.contains("[trimwire: summarized turns"));
         assert!(txt.contains("## Goal"));
         assert_eq!(out[2]["role"], "user", "ack turn follows the summary");
         // Surviving tool pairs are intact; no orphans introduced.
