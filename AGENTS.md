@@ -53,7 +53,9 @@ trimwire is a Rust HTTP gateway for Claude Code context pruning.
 > - **Additive changes** (new optional config key, new subcommand): no back-compat work.
 > - **Structural breaks** (rename/remove a required config key or CLI command, change
 >   the ledger schema): add a migration shim OR a clear error pointing to the new form,
->   and note it in `CHANGELOG.md` under `[Unreleased]`.
+>   and call it out in the **commit/PR description** (a Conventional-Commit `feat!:` /
+>   `BREAKING CHANGE:` footer is how release-plz surfaces it in the changelog — do **not**
+>   hand-edit `CHANGELOG.md`; see "What NOT to do").
 > - Purely internal/agent-facing conventions (commit trailer, working style) have no
 >   user impact — change freely.
 > Still avoid speculative over-engineering (the profile-rename alias machinery was
@@ -328,6 +330,13 @@ code probably belongs in `proxy/`; pure logic stays pure.
   ratio is 1.0 when no strategy fires.
 - **Do not introduce a new module without updating
   [`ARCHITECTURE.md`](ARCHITECTURE.md).**
+- **Do not hand-edit `CHANGELOG.md`.** [release-plz](https://release-plz.dev)
+  owns the changelog — it generates entries from Conventional-Commit messages and
+  the release PR. A manual `[Unreleased]` entry just gets dropped (see the historical
+  `*(changelog)* drop the manual [Unreleased] F10 entry` commit), and editing it can
+  conflict with the open release PR. Put the user-facing note in your **commit subject/
+  body** instead (`feat:`/`fix:`/`perf:` …, with a `BREAKING CHANGE:` footer for breaks);
+  release-plz turns that into the changelog line on merge.
 
 ## Build / defer / document tier split
 

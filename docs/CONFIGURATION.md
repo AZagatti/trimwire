@@ -190,12 +190,19 @@ so the content is on disk and the model re-reads to recover it. A *failed* autho
 call's body is never touched here (it never hit disk — that floor stays in
 `failed_input_purge`).
 
+**Subagent (`Task`/`Agent`) prompts are reduced once old and successful** — no
+default exemption. After a subagent call succeeds its result captures the outcome,
+so the verbatim sub-task prompt is dead weight; the short `description` is kept and
+only the bulky `prompt` is elided to a size marker. (A *failed* subagent call keeps
+its exemption in `failed_input_purge`, where a retry may re-emit the prompt.) Add a
+tool name back to `exempt_tools` if you want to keep its input verbatim.
+
 ```toml
 [strategies.stale_input_cap]
 enabled = true
-keep_recent_turns = 2            # ordinary inputs (Bash stdin, MCP args)
+keep_recent_turns = 2            # ordinary inputs (Bash stdin, MCP args, subagent prompts)
 authoring_keep_recent_turns = 6  # authored bodies — wider; recoverable "read the file" marker once old
-exempt_tools = ["Task", "Agent"] # subagent prompts never reduced
+exempt_tools = []                # nothing exempt by default; add a tool to protect its input
 ```
 
 ### `[strategies.stale_reads]` — on in `default`, off in `gentle`
