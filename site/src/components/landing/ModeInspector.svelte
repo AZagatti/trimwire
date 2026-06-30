@@ -43,9 +43,9 @@
     summ:    { lo: 73, hi: 78, sub: "model-free passes + a summary — high even on pure chat" },
   };
   const LEDE = {
-    default: "Trimwire keeps your recent work and edits intact, then removes repeated or heavy tool output before the request is sent.",
-    gentle: "A lighter setting — only the safest, most certain trims run, a strict subset of default. Less reduction, more caution.",
-    summ: "Runs every model-free pass, then ALSO folds older turns into a short summary — strategies plus a summary, so the agent keeps its knowledge. The big win on long, conversation-heavy sessions.",
+    default: "Keeps your recent work and edits, then strips repeated or heavy tool output before each request.",
+    gentle: "A lighter setting — only the safest, most certain trims run. Less reduction, more caution.",
+    summ: "Runs the model-free passes, then folds older turns into a short summary — the agent keeps its knowledge instead of losing it.",
   };
 
   let mode = $state("default");
@@ -139,7 +139,7 @@
 
 <style>
   .inspector { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); overflow: hidden; }
-  .ins-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.8rem; padding: 1.1rem 1.2rem 0.9rem; border-bottom: 1px solid var(--border); }
+  .ins-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.7rem; padding: 0.85rem 1.1rem 0.7rem; border-bottom: 1px solid var(--border); }
   .eyebrow { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 0.3rem; }
   .ins-title { margin: 0; font-size: clamp(1.15rem, 2.5vw, 1.5rem); font-weight: 640; letter-spacing: -0.02em; }
   .modesw { display: inline-flex; gap: 0.15rem; padding: 0.2rem; border: 1px solid var(--border-2); border-radius: 999px; background: var(--inset); flex-shrink: 0; }
@@ -150,7 +150,7 @@
 
   /* grid-stack: every lede shares one cell, so the box auto-sizes to the tallest
      (summarizer) at any width — no fixed height to overflow, no jump on switch. */
-  .ins-lede { display: grid; margin: 0; padding: 0.9rem 1.2rem 0.4rem; color: var(--ink-2); font-size: 0.92rem; line-height: 1.5; max-width: 68ch; }
+  .ins-lede { display: grid; margin: 0; padding: 0.7rem 1.1rem 0.3rem; color: var(--ink-2); font-size: 0.9rem; line-height: 1.48; max-width: 68ch; }
   .lede-txt { grid-area: 1 / 1; opacity: 0; transition: opacity 0.24s ease; }
   .lede-txt.show { opacity: 1; }
   @media (prefers-reduced-motion: reduce) { .lede-txt { transition: none; } }
@@ -158,7 +158,7 @@
   .rows { list-style: none; margin: 0; padding: 0 0.7rem 0.5rem; }
   .row { border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); transition: opacity 0.25s ease; }
   .row.off { opacity: 0.4; }
-  .row-btn { width: 100%; display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.5rem; background: transparent; border: 0; cursor: pointer; font-family: inherit; font-size: 0.9rem; color: var(--ink); text-align: left; }
+  .row-btn { width: 100%; display: flex; align-items: center; gap: 0.6rem; padding: 0.47rem 0.5rem; background: transparent; border: 0; cursor: pointer; font-family: inherit; font-size: 0.88rem; color: var(--ink); text-align: left; }
   .row-btn.static { cursor: default; }
   .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--accent); flex-shrink: 0; }
   .dot.keep { background: var(--ok); } .dot.summ { background: var(--c-summ); }
@@ -185,7 +185,7 @@
   .row-memory { border-bottom: 0; }
   .mem-body { } .mem-sum { margin: 0 0.5rem 0.6rem 1.6rem; padding: 0.5rem 0.6rem; border-left: 2px solid color-mix(in srgb, var(--c-summ) 50%, transparent); background: color-mix(in srgb, var(--c-summ) 7%, transparent); color: var(--ink); font-size: 0.84rem; line-height: 1.5; }
 
-  .ins-foot { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 1.1rem; align-items: center; padding: 0.9rem 1.2rem 1.1rem; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 2%, var(--card)); }
+  .ins-foot { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1.1rem; align-items: center; padding: 0.75rem 1.1rem 0.85rem; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 2%, var(--card)); }
   /* min-height keeps the metric row a fixed height so switching modes (whose sub
      labels differ in length and may wrap to 2 lines) never shifts the layout. */
   .foot-metric { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; min-height: 2.4rem; }

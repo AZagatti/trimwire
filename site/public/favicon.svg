@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <!-- Rounded square background — transparent so it reads on any tab bar colour -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="trimwire">
+  <!-- teal badge — reads on any tab-bar colour -->
   <rect width="32" height="32" rx="7" fill="#2aa39c"/>
-  <!-- Monospace "t" glyph: crossbar + stem, crisp at 16×16 and up -->
-  <!-- Crossbar -->
-  <rect x="8" y="10" width="16" height="2.5" rx="1.25" fill="#ffffff"/>
-  <!-- Stem -->
-  <rect x="13.75" y="10" width="4.5" height="15" rx="1.25" fill="#ffffff"/>
+  <!-- a "wire": solid where the context is kept (recent), fading into shrinking
+       dashes where trimwire trims the old context away -->
+  <path d="M8 16h9" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M20.4 16h2.6" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" opacity="0.62"/>
+  <path d="M25.8 16h1.2" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" opacity="0.32"/>
 </svg>

@@ -314,26 +314,27 @@
       <span class="wintitle">~/todo-cli</span>
       <span class="win-spacer"></span>
       <span class="democtl"><button type="button" class="dc" aria-label={phase === "running" && !paused ? "Pause demo" : paused ? "Resume demo" : "Replay demo"} onclick={pausePlay}>{phase === "running" && !paused ? "⏸" : paused ? "▶" : "↻"}</button></span>
-      <button type="button" class="gw-toggle" aria-label="Toggle the Trimwire gateway" aria-pressed={gateway} onclick={toggleGateway}><span class="led" class:on={gateway}></span><span class="gw-lbl">Trimwire {gateway ? "on" : "off"}</span></button>
-    </div>
-
-    <div class="tabsrow" aria-hidden="true">
-      {#each TABS as t, i}
-        <span class="tab" class:active={i === 0} title={i === 0 ? "active session" : "switch harness"}>
-          <svg class="ticon" width="12" height="12" viewBox="0 0 16 16">
-            {#if t.icon === "claude"}<path d="M8 1v14M1 8h14M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />{/if}
-            {#if t.icon === "openai"}<path d="M8 1.4 13.7 4.7v6.6L8 14.6 2.3 11.3V4.7Z M8 1.4V14.6 M2.3 4.7 13.7 11.3 M13.7 4.7 2.3 11.3" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" />{/if}
-            {#if t.icon === "opencode"}<path d="M6 3C4 3 4.3 7 2.3 8 4.3 9 4 13 6 13M10 3c2 0 1.7 4 3.7 5-2 1-1.7 5-3.7 5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />{/if}
-            {#if t.icon === "gemini"}<path d="M8 1c.4 4 2.9 6.6 7 7-4.1.4-6.6 3-7 7-.4-4-2.9-6.6-7-7 4.1-.4 6.6-3 7-7Z" fill="currentColor" />{/if}
-          </svg>
-          <span class="tlabel">{t.label}</span>
-        </span>
-      {/each}
+      <button type="button" class="gw-toggle" aria-label={`Trimwire ${gateway ? "on" : "off"} — toggle the gateway`} aria-pressed={gateway} onclick={toggleGateway}><span class="led" class:on={gateway}></span><span class="gw-lbl">Trimwire {gateway ? "on" : "off"}</span></button>
     </div>
 
     <div class="panes">
       <!-- LEFT — Claude Code (pristine transcript + native statusline) -->
       <section class="pane pane-cc" aria-label="Claude Code session">
+        <!-- harness tabs belong to the Claude pane only — scoped to its width,
+             horizontally scrollable with a right-edge fade when they overflow -->
+        <div class="tabsrow" aria-hidden="true">
+          {#each TABS as t, i}
+            <span class="tab" class:active={i === 0} title={i === 0 ? "active session" : "switch harness"}>
+              <svg class="ticon" width="12" height="12" viewBox="0 0 16 16">
+                {#if t.icon === "claude"}<path d="M8 1v14M1 8h14M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />{/if}
+                {#if t.icon === "openai"}<path d="M8 1.4 13.7 4.7v6.6L8 14.6 2.3 11.3V4.7Z M8 1.4V14.6 M2.3 4.7 13.7 11.3 M13.7 4.7 2.3 11.3" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" />{/if}
+                {#if t.icon === "opencode"}<path d="M6 3C4 3 4.3 7 2.3 8 4.3 9 4 13 6 13M10 3c2 0 1.7 4 3.7 5-2 1-1.7 5-3.7 5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />{/if}
+                {#if t.icon === "gemini"}<path d="M8 1c.4 4 2.9 6.6 7 7-4.1.4-6.6 3-7 7-.4-4-2.9-6.6-7-7 4.1-.4 6.6-3 7-7Z" fill="currentColor" />{/if}
+              </svg>
+              <span class="tlabel">{t.label}</span>
+            </span>
+          {/each}
+        </div>
         <div class="cc-scroll" aria-hidden="true" bind:this={convoEl} onscroll={() => onScroll("c")}>
           <div class="boot">
             <pre class="mascot">{MASCOT}</pre>
@@ -440,7 +441,10 @@
   .gw-lbl { display: inline-flex; align-items: center; }
   .led { width: 8px; height: 8px; border-radius: 999px; background: var(--ink-3); flex-shrink: 0; } .led.on { background: var(--ok); box-shadow: 0 0 7px color-mix(in srgb, var(--ok) 70%, transparent); }
 
-  .tabsrow { display: flex; align-items: stretch; gap: 0.1rem; padding: 0 0.5rem; background: #0a0e0e; border-bottom: 1px solid #1d2625; flex-wrap: nowrap; overflow: hidden; }
+  /* scoped to the Claude pane; scrolls horizontally with a right-edge fade that
+     only "shows" when a tab actually reaches the edge (masks empty bg otherwise) */
+  .tabsrow { display: flex; align-items: stretch; gap: 0.1rem; padding: 0 0.5rem; background: #0a0e0e; border-bottom: 1px solid #1d2625; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.4rem), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 1.4rem), transparent); }
+  .tabsrow::-webkit-scrollbar { display: none; }
   .tab { display: inline-flex; align-items: center; gap: 0.4rem; height: 2rem; font-size: 0.73rem; line-height: 1; color: var(--ink-3); padding: 0 0.6rem; border-bottom: 2px solid transparent; white-space: nowrap; flex-shrink: 0; transition: color 0.15s, background 0.15s, border-color 0.15s; cursor: default; }
   .tab .ticon { opacity: 0.55; flex-shrink: 0; display: block; transition: opacity 0.15s; }
   .tab .tlabel { display: inline-flex; align-items: center; }
@@ -509,13 +513,15 @@
   @keyframes dh { 0%,100% { transform: translateX(0); } 50% { transform: translateX(3px); } }
 
   @media (max-width: 52rem) {
-    /* let the window itself pan horizontally so the gateway pane is reachable;
-       keep vertical clipping + rounded corners intact */
-    .termwin { min-width: 0; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-    .termwin::-webkit-scrollbar { display: none; }
-    .panes { display: flex; }
-    .pane-cc { flex: 0 0 82vw; scroll-snap-align: start; } .pane-tw { flex: 0 0 64vw; scroll-snap-align: end; }
-    .cc-scroll, .daemon { height: clamp(13rem, 50vh, 19rem); }
+    /* Only the PANES pan — the winbar (with the Trimwire on/off toggle + replay)
+       stays fixed to the window edge instead of scrolling off into the middle of
+       the scene. The window itself keeps clipping + rounded corners. */
+    .termwin { min-width: 0; }
+    .panes { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .panes::-webkit-scrollbar { display: none; }
+    /* wider daemon so it's actually readable, and a bit taller */
+    .pane-cc { flex: 0 0 86vw; scroll-snap-align: start; } .pane-tw { flex: 0 0 82vw; scroll-snap-align: end; }
+    .cc-scroll, .daemon { height: clamp(14rem, 52vh, 20rem); }
     .drag-hint { display: inline-flex; }
   }
   @media (prefers-reduced-motion: reduce) { .cursor, .msg, .dh-ar { animation: none; transition: none; } }

@@ -35,7 +35,7 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
   </head>
   <body>
     <header class="vx-header">
-      <a class="vx-brand" href="/"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="5" fill="#2aa39c"/><rect x="5.5" y="7" width="13" height="2" rx="1" fill="#fff"/><rect x="11" y="7" width="2" height="11" rx="1" fill="#fff"/></svg><span>trimwire</span></a>
+      <a class="vx-brand" href="/"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="#2aa39c"/><path d="M6 12h6.4" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><path d="M15.2 12h1.9" stroke="#fff" stroke-width="2.2" stroke-linecap="round" opacity="0.62"/><path d="M19.4 12h0.9" stroke="#fff" stroke-width="1.9" stroke-linecap="round" opacity="0.32"/></svg><span>trimwire</span></a>
       <nav class="vx-nav"><a href="/guides/overview/">docs</a><a href="/performance/">results</a><a href={REPO} target="_blank" rel="noopener noreferrer">GitHub</a></nav>
     </header>
 
@@ -47,7 +47,7 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
         <p class="mt-[0.7rem] mb-0 text-ink2 max-w-[52ch] leading-[1.5] text-[clamp(0.9rem,0.95vw,1rem)]">A tiny local gateway that prunes stale, repeated context from every request — your transcript stays untouched.</p>
       </section>
 
-      <section class="mx-auto px-[clamp(0.75rem,3vw,2.5rem)]">
+      <section class="mx-auto px-[clamp(1rem,4vw,2.5rem)]">
         <div class="term-wide"><TerminalProof client:visible /></div>
       </section>
 
@@ -86,8 +86,8 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
     </main>
 
     <footer class="vx-footer">
-      <a class="vx-brand sm" href="/"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="5" fill="#2aa39c"/><rect x="5.5" y="7" width="13" height="2" rx="1" fill="#fff"/><rect x="11" y="7" width="2" height="11" rx="1" fill="#fff"/></svg><span>trimwire</span></a>
-      <span class="ft-links"><a href="/guides/overview/">docs</a> · <a href="/performance/">results</a> · <a href={REPO} target="_blank" rel="noopener noreferrer">GitHub</a></span>
+      <a class="vx-brand sm" href="/"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="#2aa39c"/><path d="M6 12h6.4" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><path d="M15.2 12h1.9" stroke="#fff" stroke-width="2.2" stroke-linecap="round" opacity="0.62"/><path d="M19.4 12h0.9" stroke="#fff" stroke-width="1.9" stroke-linecap="round" opacity="0.32"/></svg><span>trimwire</span></a>
+      <nav class="ft-nav"><a href="/guides/overview/">docs</a><a href="/performance/">results</a><a href={REPO} target="_blank" rel="noopener noreferrer">GitHub</a></nav>
       <span class="ft-lic">MIT OR Apache-2.0</span>
     </footer>
 
@@ -95,8 +95,10 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
       .release-pill { display: inline-flex; align-items: center; gap: 0.4rem; font-family: var(--mono); font-size: 0.72rem; color: var(--accent-hi); background: var(--accent-soft); border: 1px solid var(--border-2); border-radius: 999px; padding: 0.25rem 0.7rem; text-decoration: none; transition: border-color 0.15s; }
       .release-pill:hover { border-color: var(--accent); }
 
-      /* terminal is the only wide element (Superset/Conductor canvas) */
-      .term-wide { width: min(86rem, 96vw); margin-inline: auto; }
+      /* terminal is the only wide element (Superset/Conductor canvas). Use % +
+         max-width (not vw) so the side margins stay symmetric — vw ignores the
+         vertical scrollbar and made the right edge sit tighter than the left. */
+      .term-wide { width: 100%; max-width: 86rem; margin-inline: auto; }
       /* mobile: the terminal window itself pans (overflow-x on .termwin), so the
          wrapper must NOT add a second scroller or an edge mask — the mask faded
          the window border + text mid-read. Just let it be full-width. */
@@ -132,13 +134,14 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
       .cta-ghost:hover { border-color: var(--accent); color: var(--ink); }
       @media (max-width: 46rem) { .close { grid-template-columns: 1fr; gap: 1.6rem; } }
 
-      /* ── Tightened footer ──────────────────────────────────────────────── */
-      .vx-footer { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; margin-top: clamp(2.6rem, 7vmin, 4.5rem); }
-      .vx-brand.sm { font-size: 0.86rem; gap: 0.4rem; }
-      .vx-footer .ft-links { font-family: var(--mono); font-size: 0.78rem; }
-      .vx-footer .ft-lic { margin-left: auto; font-family: var(--mono); font-size: 0.72rem; color: var(--ink-3); }
+      /* ── Footer: mirrors the header's column (76rem, same padding) so the brand
+         lines up with the header brand and the nav with the header nav. License
+         sits on its own muted line below. ──────────────────────────────────── */
+      .vx-footer { display: flex; align-items: center; gap: 0.6rem 1.2rem; flex-wrap: wrap; margin-top: clamp(2.6rem, 7vmin, 4.5rem); }
+      .vx-brand.sm { font-size: 0.92rem; gap: 0.45rem; }
+      .ft-nav { margin-left: auto; display: inline-flex; gap: 1.2rem; font-family: var(--mono); font-size: 0.8rem; }
+      .ft-lic { width: 100%; font-family: var(--mono); font-size: 0.72rem; color: var(--ink-3); margin: 0; }
       .vx-footer a { color: var(--ink-2); } .vx-footer a:hover { color: var(--accent-hi); }
-      @media (max-width: 32rem) { .vx-footer .ft-lic { margin-left: 0; width: 100%; } }
     </style>
   </body>
 </html>
