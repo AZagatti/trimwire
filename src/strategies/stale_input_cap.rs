@@ -264,9 +264,11 @@ mod tests {
 
     /// Build a session of `turns` assistant turns. Each turn is a Bash call with a
     /// large `stdin` (bulk) and a small `command` (structural). All calls succeed
-    /// (no is_error on their results). Bash is a NON-authoring tool, so its bulk is
-    /// a legitimate `stale_input_cap` target — authored Write/Edit/MultiEdit content
-    /// is hard-exempt and must never be elided (§13A).
+    /// (no is_error on their results). Bash is a NON-authoring tool, so its bulk goes
+    /// through the generic (size-marker) reduction path. Authored Write/Edit/MultiEdit/
+    /// NotebookEdit content is age-gated instead (#122): recent bodies stay verbatim
+    /// (§13A guard), old ones get a recoverable "read the file" marker — exercised by
+    /// the authoring-specific tests, not this Bash helper.
     fn successful_session(turns: usize) -> Vec<Value> {
         let mut msgs = Vec::new();
         for i in 0..turns {
