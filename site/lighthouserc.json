@@ -2,14 +2,43 @@
   "ci": {
     "collect": {
       "staticDistDir": "./site/dist",
-      "numberOfRuns": 1
+      "numberOfRuns": 3,
+      "settings": {
+        "preset": "desktop"
+      }
     },
     "assert": {
       "assertions": {
         "categories:performance": ["error", { "minScore": 0.85 }],
         "categories:accessibility": ["error", { "minScore": 0.95 }],
-        "categories:best-practices": ["error", { "minScore": 0.90 }],
-        "categories:seo": ["error", { "minScore": 0.90 }]
+        "categories:best-practices": ["error", { "minScore": 0.9 }],
+        "categories:seo": ["error", { "minScore": 0.9 }],
+
+        "cumulative-layout-shift": [
+          "error",
+          { "maxNumericValue": 0.1, "aggregationMethod": "median-run" }
+        ],
+        "resource-summary:script:size": [
+          "error",
+          { "maxNumericValue": 153600, "aggregationMethod": "median-run" }
+        ],
+
+        "largest-contentful-paint": [
+          "warn",
+          { "maxNumericValue": 2500, "aggregationMethod": "median-run" }
+        ],
+        "total-blocking-time": [
+          "warn",
+          { "maxNumericValue": 300, "aggregationMethod": "median-run" }
+        ],
+        "speed-index": [
+          "warn",
+          { "maxNumericValue": 3400, "aggregationMethod": "median-run" }
+        ],
+        "first-contentful-paint": [
+          "warn",
+          { "maxNumericValue": 1800, "aggregationMethod": "median-run" }
+        ]
       }
     }
   }

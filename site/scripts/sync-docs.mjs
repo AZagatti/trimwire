@@ -72,6 +72,11 @@ for (const [file, title, order] of DOCS) {
     const otherSlug = other.replace(/\.md$/, "").toLowerCase();
     md = md.replaceAll(`](${other}`, `](/guides/${otherSlug}/`);
   }
+  // RESULTS.md is NOT synced as a guide — its published home is the dedicated
+  // /performance/ page. Rewrite the bare relative links (e.g. in OVERVIEW.md and
+  // FOR-AGENTS.md) so they resolve on the site instead of 404ing as
+  // /guides/<this>/RESULTS.md. Absolute GitHub links to RESULTS.md are left as-is.
+  md = md.replaceAll("](RESULTS.md)", "](/performance/)");
   const fm =
     `---\n` +
     `title: ${JSON.stringify(title)}\n` +

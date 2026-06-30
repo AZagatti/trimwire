@@ -51,6 +51,11 @@ jobs:
         run: npm run test
       - name: Build
         run: npm run build
+      - name: Internal link check (linkinator)
+        # Crawls the built dist for dead internal links/anchors. External links
+        # (https, non-localhost) are skipped on purpose — they rot on their own
+        # schedule and 429/timeout flakily, which doesn't belong on a PR gate.
+        run: npm run linkcheck
 
   e2e:
     name: E2E tests (Playwright)
