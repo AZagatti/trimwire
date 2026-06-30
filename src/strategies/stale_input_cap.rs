@@ -62,7 +62,10 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &StaleInputCapConfig) -
     let idx = PairingIndex::build(messages);
     idx.validate()?;
 
-    let Some(cutoff) = assistant_cutoff(messages, cfg.keep_recent_turns) else {
+    // Clamp to >=1 (mirrors stale_reads/sliding_window/thinking_strip): a
+    // configured 0 would otherwise let the cutoff reach the most-recent COMPLETED
+    // assistant turn and reduce the input the model just used.
+    let Some(cutoff) = assistant_cutoff(messages, cfg.keep_recent_turns.max(1)) else {
         return Ok(0);
     };
 
@@ -178,6 +181,34 @@ mod tests {
             ]}));
         }
         msgs
+    }
+
+    /// `keep_recent_turns = 0` must be clamped to 1 (like every other age-gated
+    /// strategy): the MOST-RECENT completed turn's input is the one the model just
+    /// used and must never be reduced. Two successful Bash calls; at keep=0 the older
+    /// is reduced but the latest survives verbatim.
+    #[test]
+    fn keep_recent_zero_is_clamped_protecting_the_last_turn() {
+        let mut msgs = successful_session(2);
+        let stats = apply(&mut msgs, &cfg(0, &[])).unwrap();
+        assert_eq!(
+            stats.stubbed, 1,
+            "only the older successful turn is reduced"
+        );
+        assert!(
+            msgs[4]["content"][0]["input"]["stdin"]
+                .as_str()
+                .unwrap()
+                .starts_with('x'),
+            "the most-recent completed turn's input must survive the keep=0 clamp"
+        );
+        assert!(
+            msgs[1]["content"][0]["input"]["stdin"]
+                .as_str()
+                .unwrap()
+                .starts_with("[trimwire:"),
+            "the older successful input is still reduced"
+        );
     }
 
     #[test]

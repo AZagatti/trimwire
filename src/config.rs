@@ -452,10 +452,21 @@ impl Default for SlidingWindowConfig {
             denylist_tools: Vec::new(),
             // SPIKE.md §4: these are "never mutate" across all strategies.
             // `Task`+`Agent` = subagent tools (name drifted across CC versions); both listed.
-            exempt_tools: ["Read", "Edit", "Write", "MultiEdit", "Task", "Agent"]
-                .iter()
-                .map(|s| (*s).to_owned())
-                .collect(),
+            // `NotebookEdit` authors cell source (`new_source`) — same §13A corruption
+            // class as Write/Edit, so it must be exempt here too (sliding_window stubs
+            // the input to `{}`, which would wipe an authored cell body if denylisted).
+            exempt_tools: [
+                "Read",
+                "Edit",
+                "Write",
+                "MultiEdit",
+                "NotebookEdit",
+                "Task",
+                "Agent",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect(),
             stub: "[trimwire: elided, older than sliding window]".to_owned(),
         }
     }
@@ -465,7 +476,13 @@ impl Default for ImageStripConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            applies_to_tools: vec!["*screenshot*".to_owned()],
+            // `*screenshot*` covers screenshot tools; `*snapshot*` covers
+            // accessibility/DOM/heap snapshots (`browser_snapshot`,
+            // `take_snapshot`, `take_heapsnapshot`) that also return large image/
+            // base64 blobs but don't contain "screenshot" — they were persisting
+            // unbounded and re-billing every turn. is_base64_image_content already
+            // detects the payloads; only the name gate was too narrow.
+            applies_to_tools: vec!["*screenshot*".to_owned(), "*snapshot*".to_owned()],
             keep_recent_count: 3,
             stub: "[trimwire: image stripped]".to_owned(),
         }
@@ -1473,6 +1490,37 @@ mod tests {
                     .exempt_tools
                     .contains(&t.to_owned()),
                 "default must exempt {t} from cross_turn_dedup"
+            );
+        }
+        // sliding_window must exempt all authoring tools incl. NotebookEdit (its
+        // input stub `{}` would otherwise wipe an authored cell body — §13A class).
+        for t in [
+            "Read",
+            "Edit",
+            "Write",
+            "MultiEdit",
+            "NotebookEdit",
+            "Task",
+            "Agent",
+        ] {
+            assert!(
+                default
+                    .strategies
+                    .sliding_window
+                    .exempt_tools
+                    .contains(&t.to_owned()),
+                "default sliding_window must exempt {t}"
+            );
+        }
+        // image_strip default glob covers snapshot tools (not just screenshots).
+        for g in ["*screenshot*", "*snapshot*"] {
+            assert!(
+                default
+                    .strategies
+                    .image_strip
+                    .applies_to_tools
+                    .contains(&g.to_owned()),
+                "default image_strip must apply to {g}"
             );
         }
 
