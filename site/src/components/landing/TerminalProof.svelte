@@ -517,25 +517,18 @@
   @keyframes dh { 0%,100% { transform: translateX(0); } 50% { transform: translateX(3px); } }
 
   @media (max-width: 52rem) {
-    /* The WHOLE window pans as one wide canvas (Superset-style): the winbar (which
-       stretches to the full scene width, so its Trimwire on/off toggle sits at the
-       scene's right edge), the tabs, and both panes all scroll together. */
-    /* thin (not hidden) horizontal scrollbar so MOUSE users on a narrow desktop
-       window can see the canvas pans — on touch the overlay scrollbar auto-hides,
-       so phones stay clean. Without this the off-screen daemon looked unreachable. */
-    .termwin { min-width: 0; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: #2f3f3e transparent; }
-    .termwin::-webkit-scrollbar { height: 8px; }
-    .termwin::-webkit-scrollbar-thumb { background: #2f3f3e; border-radius: 999px; }
+    /* The whole window is a wide canvas (= pane-cc 90vw + pane-tw 86vw = 176vw),
+       PANNED by the .term-wide wrapper (Superset-style): the window's border
+       bleeds off-screen and you scroll the entire terminal across, rather than a
+       fixed box with an internal scrollbar. The window keeps the base
+       overflow:hidden so its rounded corners clip cleanly; the winbar fills the
+       full canvas width so the lights sit at the left corner and the Trimwire
+       toggle at the right corner. */
+    .termwin { min-width: 0; width: 176vw; }
     .panes { display: flex; }
-    /* bigger panes so the terminals are comfortably readable */
     .pane-cc { flex: 0 0 90vw; scroll-snap-align: start; } .pane-tw { flex: 0 0 86vw; scroll-snap-align: end; }
-    /* shorter on mobile so the window reads as a compact landscape-ish frame
-       (like Superset) instead of a tall square */
+    /* shorter on mobile so the window reads as a compact landscape-ish frame */
     .cc-scroll { height: clamp(12.5rem, 38vh, 16rem); }
-    /* winbar + tabs span the FULL canvas (= pane-cc 90vw + pane-tw 86vw) so the
-       title bar reads like a real window: lights at the left corner, the Trimwire
-       on/off toggle at the canvas's RIGHT corner (not stranded mid-scene). */
-    .winbar { width: 176vw; }
     .drag-hint { display: inline-flex; }
   }
   @media (prefers-reduced-motion: reduce) { .cursor, .msg, .dh-ar { animation: none; transition: none; } }

@@ -99,11 +99,22 @@ const sec = "mx-auto max-w-[58rem] px-[clamp(1rem,4vw,2.5rem)]";
          max-width (not vw) so the side margins stay symmetric — vw ignores the
          vertical scrollbar and made the right edge sit tighter than the left. */
       .term-wide { width: 100%; max-width: 86rem; margin-inline: auto; }
-      /* mobile: the terminal window itself pans (overflow-x on .termwin), so the
-         wrapper must NOT add a second scroller or an edge mask — the mask faded
-         the window border + text mid-read. Just let it be full-width. */
+      /* mobile (Superset-style): the WHOLE window is wider than the screen and the
+         WRAPPER pans it, so the window's border bleeds off-screen and you scroll
+         the entire terminal across (not a fixed box with an internal scrollbar).
+         Full-bleed out of the section padding; a small inline padding gives the
+         resting inset; mandatory snap pages between the two views. */
       @media (max-width: 52rem) {
-        .term-wide { width: 100%; max-width: 100%; }
+        .term-wide {
+          width: 100vw; max-width: none; margin-inline: calc(50% - 50vw);
+          padding-inline: 0.9rem;
+          overflow-x: auto; overflow-y: hidden;
+          scroll-snap-type: x mandatory; scroll-padding-inline: 0.9rem;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: thin; scrollbar-color: #2f3f3e transparent;
+        }
+        .term-wide::-webkit-scrollbar { height: 8px; }
+        .term-wide::-webkit-scrollbar-thumb { background: #2f3f3e; border-radius: 999px; }
       }
 
       /* ── Closing get-started block ─────────────────────────────────────── */
