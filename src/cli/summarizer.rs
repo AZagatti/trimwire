@@ -1276,17 +1276,26 @@ pub fn summarizer_probe(
                     "  Provider \"{}\" ({}) — probing makes {runs} real, PAID API call(s)",
                     p.id, p.model
                 );
-                println!("  to {} with the key in ${}.", p.base_url, p.api_key_env);
+                // Name whichever key source is configured (env var, file, or both).
+                let key_src = match (p.api_key_env.is_empty(), p.api_key_file.as_deref()) {
+                    (false, Some(f)) if !f.is_empty() => {
+                        format!("the key in ${} (or {f})", p.api_key_env)
+                    }
+                    (false, _) => format!("the key in ${}", p.api_key_env),
+                    (true, Some(f)) if !f.is_empty() => format!("the key in {f}"),
+                    (true, _) => "your configured key".to_owned(),
+                };
+                println!("  to {} with {key_src}.", p.base_url);
                 println!("  Re-run with --yes to make the call(s).");
                 return Ok(());
             }
             if let Err(reason) = trimwire::summarizer::api::resolve_provider_key(p) {
-                anyhow::bail!(
-                    "{reason} — set your API key (export {} or api_key_file) before \
-                     probing provider \"{}\".",
-                    p.api_key_env,
-                    p.id
-                );
+                let how = if p.api_key_env.is_empty() {
+                    "set api_key_file".to_owned()
+                } else {
+                    format!("export {} or set api_key_file", p.api_key_env)
+                };
+                anyhow::bail!("{reason} — {how} before probing provider \"{}\".", p.id);
             }
             println!("  engine=API  model={}  base_url={}", p.model, p.base_url);
         }
