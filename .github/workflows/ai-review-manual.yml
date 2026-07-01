@@ -46,6 +46,30 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Validate model ids (fail fast on a typo)
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          M1: ${{ inputs.model_1 }}
+          M2: ${{ inputs.model_2 }}
+          M3: ${{ inputs.model_3 }}
+          AGG: ${{ inputs.aggregator }}
+        run: |
+          # Free catalog check (no inference spend) — a bad id fails the job in ~1s
+          # with a clear annotation, instead of silently dropping the model.
+          ids=$(curl -sf https://openrouter.ai/api/v1/models \
+                 -H "Authorization: Bearer $OPENROUTER_API_KEY" | jq -r '.data[].id')
+          [ -n "$ids" ] || { echo "::error::could not fetch OpenRouter catalog"; exit 1; }
+          fail=0
+          for m in "$M1" "$M2" "$M3" "$AGG"; do
+            [ -z "$m" ] && continue
+            if ! printf '%s\n' "$ids" | grep -qxF -- "$m"; then
+              echo "::error::unknown OpenRouter model id: '$m'"
+              fail=1
+            fi
+          done
+          [ "$fail" = 0 ] || { echo "Fix the model id(s) above and re-run."; exit 1; }
+          echo "all model ids valid"
+
       - name: Fetch PR diff + metadata
         env:
           GH_TOKEN: ${{ github.token }}
