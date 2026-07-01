@@ -39,19 +39,32 @@ Remove the service, the GUI/login env hooks, and lingering that `install` set up
 
 ### `trimwire on`
 
-Start the gateway service.
+Resume pruning. Clears any bypass set by `trimwire off` **and** (re)starts the gateway service, so a single `trimwire on` gets you back to a normal pruning setup whether the gateway was bypassed or stopped.
 
 ### `trimwire off`
 
-Stop the gateway service. Your shell still exports `ANTHROPIC_BASE_URL` (from `install`), so Claude Code keeps pointing at the now-stopped local gateway and its calls **fail** until you either `trimwire on` again **or** `unset ANTHROPIC_BASE_URL` (or open a fresh shell after `trimwire uninstall`) to go straight to Anthropic.
+Turn off pruning. By default this is a **true bypass**, not a kill switch: the gateway keeps serving but forwards every request **unmodified** to Anthropic, so your shell's `ANTHROPIC_BASE_URL` still resolves and Claude Code keeps working with zero pruning — in the current shell **and** every new shell/GUI app, with no env or rc edits. `trimwire on` resumes pruning. (Under the hood, `off` flips a runtime sentinel — `~/.trimwire/bypass` — that the gateway reads per request; `on` removes it.)
+
+| Flag | Description |
+|---|---|
+| `--stop` | Hard-stop the gateway process instead of bypassing (frees the port). Your shell still exports `ANTHROPIC_BASE_URL`, so Claude Code calls **fail** until you `trimwire on` again — use `trimwire off` (no `--stop`) if you just want to disable pruning. |
 
 ### `trimwire run [<claude args>…]`
 
 Launch `claude` through a one-shot gateway, without installing the always-on service: trimwire starts the gateway in the background, points it at `claude` via `ANTHROPIC_BASE_URL`, runs `claude`, then tears the gateway down on exit. The command is always `claude` — any positional args are forwarded to it (so it's `trimwire run`, *not* `trimwire run claude`). Good for trying trimwire once. `--audit FILE` (or `TRIMWIRE_AUDIT=FILE`) writes a metadata-only wire audit (JSONL — shape/counts only, never message content).
 
+| Flag | Description |
+|---|---|
+| `--bypass` | Run **this one session** without trimwire: skip the gateway entirely and point `claude` straight at Anthropic (no pruning), while the always-on gateway keeps serving every other session. Handy for a quick apples-to-apples comparison or to sidestep pruning once without touching global state. |
+
+```sh
+trimwire run --bypass -- -p "one prompt, straight to Anthropic"
+trimwire run --bypass                 # interactive, no pruning, gateway untouched
+```
+
 ### `trimwire status`
 
-Show whether the gateway is running and serving.
+Show whether the gateway is running and serving, plus a `pruning:` line — `on`, or `OFF (bypass — forwarding unmodified)` after `trimwire off`.
 
 ### `trimwire doctor`
 
@@ -454,7 +467,7 @@ trimwire man --out ./man/      # write all pages for packaging
 
 | Variable | Description |
 |---|---|
-| `ANTHROPIC_BASE_URL` | Points Claude Code at the trimwire gateway. Set automatically by `trimwire install`; `unset` it to send Claude Code straight to Anthropic. (`trimwire off` only stops the gateway — with this var still set, calls then fail until `trimwire on` or you unset it.) |
+| `ANTHROPIC_BASE_URL` | Points Claude Code at the trimwire gateway. Set automatically by `trimwire install`; `unset` it to send Claude Code straight to Anthropic. You rarely need to touch it: `trimwire off` bypasses to Anthropic while keeping this var valid, and `trimwire run --bypass` overrides it for a single session. |
 | `TRIMWIRE_LOG` | Log verbosity for the gateway: `warn` (default), `info`, `debug`. Logs go to stderr. Example: `TRIMWIRE_LOG=info trimwire run` (the foreground gateway picks up the env). |
 | `TRIMWIRE_AUDIT` | Opt-in metadata-only wire audit: append one JSONL line per request describing its *shape* (counts/flags + cache-prefix structure, never content) to `<file>`. Same as `--audit <file>`. See [CONFIGURATION.md](CONFIGURATION.md). Off when unset |
 

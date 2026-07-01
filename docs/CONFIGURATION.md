@@ -24,17 +24,20 @@ var that `trimwire install` adds to your shell rc. Activation is therefore
 **per-shell**, so running it for one Claude Code session but not another already
 works — no global toggle needed:
 
-- **Bypass trimwire for one shell** (gateway stays up for everyone else):
-  `unset ANTHROPIC_BASE_URL` then run `claude` — it goes straight to Anthropic.
-- **Bypass for a single command:** `ANTHROPIC_BASE_URL= claude …`.
+- **Bypass trimwire for ONE session** (gateway stays up for everyone else):
+  `trimwire run --bypass -- <claude args>` — it points that one `claude` straight
+  at Anthropic (no pruning) without touching global state. (Equivalent by hand:
+  `ANTHROPIC_BASE_URL= claude …` or `unset ANTHROPIC_BASE_URL` then `claude`.)
 - **Use trimwire for ONE session without the always-on service:**
   `trimwire run …` — it scopes `ANTHROPIC_BASE_URL` to just that child
   process (reusing the running gateway if one is up, else starting a private one)
   and tears it down afterward.
 
 So "active for this session, off for that one" is just which shells export
-`ANTHROPIC_BASE_URL`. (Note: `trimwire off` stops the gateway globally and does
-**not** edit your rc — see its output for how to send a shell straight to Anthropic.)
+`ANTHROPIC_BASE_URL`, or a single `trimwire run --bypass`. (Note: `trimwire off`
+globally puts the gateway in **bypass** — it keeps serving but forwards
+unmodified, so every shell keeps working with no pruning; `trimwire on` resumes.
+It does **not** edit your rc.)
 
 ## `profile` — the one knob most people need
 

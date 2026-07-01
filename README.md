@@ -139,11 +139,11 @@ instead of being refused. Set it and forget it.
   [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/docs/CONFIGURATION.md)
   and [`benchmark/`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md)
   for what each trades.
-- **Rollback any time.** To route Claude Code straight to Anthropic again,
-  `unset ANTHROPIC_BASE_URL` in your shell (or open a fresh shell after
-  uninstalling). `trimwire off` stops the gateway — note your rc still exports
-  `ANTHROPIC_BASE_URL`, so Claude calls fail until you `on` again or unset it.
-  `trimwire uninstall` removes the service, login autostart, and the statusline
+- **Rollback any time.** `trimwire off` routes Claude Code straight to Anthropic
+  again — the gateway keeps serving but forwards **unmodified** (a true bypass),
+  so `ANTHROPIC_BASE_URL` stays valid and Claude keeps working with no pruning in
+  every shell; `trimwire on` resumes. For a single session, `trimwire run
+  --bypass`. `trimwire uninstall` removes the service, login autostart, and the statusline
   (only if trimwire added it); it **leaves the shell-rc `ANTHROPIC_BASE_URL`
   block** for you to delete by hand (it prints a reminder). Your config and
   ledger stay until you delete `~/.trimwire/`.

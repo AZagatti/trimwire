@@ -289,7 +289,19 @@ async fn handle(
     // CSV) for the ledger, recorded only for the messages endpoint we prune.
     let mut ledger_entry: Option<(String, String, String, String, Option<String>)> = None;
     let is_messages = method == Method::POST && path_only(&path_and_query) == MESSAGES_PATH;
-    if is_messages {
+    // `trimwire off` flips a runtime sentinel (src/bypass.rs) — when it's set we
+    // forward the body UNMODIFIED (a true bypass), so `off` sends the agent
+    // straight to Anthropic instead of stranding it on a dead socket. One
+    // `stat(2)`, on the messages path only; against the already-buffered body
+    // and the upstream round trip it's sub-noise. Skipping the whole prune block
+    // means no ledger prune row, no summarizer spawn, and no reprune-cache
+    // mutation — the reprune prefix fingerprint self-corrects on the first turn
+    // after `trimwire on`.
+    let bypassed = is_messages && crate::bypass::is_active();
+    if bypassed {
+        prune_log = " bypass".to_owned();
+    }
+    if is_messages && !bypassed {
         // One parse: the cache-prefix hash + the request model (for the reprune key).
         let (hash_in, model) = ledger::prefix_hash_and_model(&out_body);
         // The un-pruned inbound bytes — the local-model compactor summarizes the

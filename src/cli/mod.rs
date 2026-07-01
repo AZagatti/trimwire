@@ -97,10 +97,28 @@ fn listen_addr() -> Result<std::net::SocketAddr> {
         .with_context(|| format!("parse listen address {listen}"))
 }
 
-/// `trimwire on` — start the always-up gateway service.
+/// `trimwire on` — resume pruning: clear the bypass sentinel and (re)start the
+/// always-up gateway service.
 pub fn on() -> Result<()> {
+    // Clear bypass first so that even if the service is already up (the common
+    // case — `on` after `off` never stopped it), pruning resumes immediately.
+    // If we CAN'T clear it, don't go on to claim "pruning active": the sentinel
+    // would still force the gateway to forward unmodified. Report honestly and
+    // stop, so the success line never lies about the pruning state.
+    if let Err(e) = trimwire::bypass::disable() {
+        println!("couldn't clear bypass: {e}");
+        println!(
+            "→ pruning is still OFF — the {} sentinel remains. Fix the error above, \
+             then re-run `trimwire on`.",
+            trimwire::bypass::sentinel_path().display()
+        );
+        return Ok(());
+    }
     match service::on() {
-        Ok(()) => println!("trimwire is on ({})", service::detect().label()),
+        Ok(()) => println!(
+            "trimwire is on — pruning active ({}).",
+            service::detect().label()
+        ),
         // Degrade gracefully like `status`/`stats` rather than a bare `Error:`.
         Err(e) => {
             println!("couldn't start the service: {e}");
@@ -113,37 +131,81 @@ pub fn on() -> Result<()> {
     Ok(())
 }
 
-/// `trimwire off` — stop the gateway service (explicit kill switch).
-pub fn off() -> Result<()> {
-    // Degrade gracefully like `on()` rather than a raw anyhow "Error:" blast — a
-    // user running `off` on a never-installed / already-stopped setup shouldn't see
-    // a `systemctl ... failed` stack.
-    match service::off() {
+/// `trimwire off` — stop pruning. By default this is a **true bypass**: the
+/// gateway keeps serving but forwards every request UNMODIFIED to Anthropic, so
+/// the shell's `ANTHROPIC_BASE_URL` still resolves and Claude Code keeps working
+/// with zero pruning. `--stop` instead hard-stops the gateway process (the old
+/// kill-switch behavior — power users / freeing the port).
+pub fn off(stop: bool) -> Result<()> {
+    if stop {
+        let had_bypass = trimwire::bypass::is_active();
+        // Hard stop — degrade gracefully rather than a raw anyhow "Error:" blast.
+        match service::off() {
+            Ok(()) => {
+                println!("trimwire gateway stopped.");
+                // Now that the gateway is down, clear any bypass sentinel so a
+                // later restart-by-other-means (socket activation, `systemctl
+                // start`, launchd RunAtLoad) doesn't silently come back bypassed.
+                // Only on a SUCCESSFUL stop: if the stop failed we leave the state
+                // untouched (still "off" if it was bypassing), which matches the
+                // user's intent better than flipping the running gateway back to
+                // pruning.
+                if had_bypass {
+                    if trimwire::bypass::disable().is_ok() {
+                        println!("  (also cleared the bypass sentinel.)");
+                    } else {
+                        println!(
+                            "  (note: couldn't clear the bypass sentinel — remove {} by hand.)",
+                            trimwire::bypass::sentinel_path().display()
+                        );
+                    }
+                }
+                println!(
+                    "→ your shell still exports ANTHROPIC_BASE_URL, so Claude Code can't reach \
+                     Anthropic until you `trimwire on` (restart it) — or use plain `trimwire off` \
+                     (no --stop) next time, which bypasses to Anthropic without stopping."
+                );
+            }
+            Err(e) => {
+                println!("couldn't stop the service: {e}");
+                println!(
+                    "→ is it installed/running? check `trimwire status`. If you never ran \
+                     `trimwire install`, there's nothing to stop."
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    // Default: bypass. Keep the gateway serving (so ANTHROPIC_BASE_URL stays
+    // live) and flip the runtime sentinel the gateway reads per request.
+    match trimwire::bypass::enable() {
         Ok(()) => {
             println!(
-                "trimwire is off. (The gateway is stopped — no longer accepting connections.)"
+                "trimwire is off — sessions go straight to Anthropic, unmodified (no pruning)."
             );
+            // Bypass only takes effect if the gateway is actually serving (it
+            // reads the sentinel per request). If it was hard-stopped, the socket
+            // is dead and ANTHROPIC_BASE_URL has nothing to connect to — say so
+            // rather than imply Claude will keep working. Best-effort probe; we do
+            // NOT auto-start (that would surprise `off` and shell the service
+            // manager) — `trimwire on` is the one command that both starts it and
+            // resumes pruning.
+            if let Ok(addr) = listen_addr() {
+                if !service::healthz_ok(addr) {
+                    println!(
+                        "⚠ but the gateway isn't running right now — run `trimwire on` to start it \
+                         so requests actually reach Anthropic."
+                    );
+                }
+            }
             println!(
-                "→ Your shell rc still exports ANTHROPIC_BASE_URL (from `trimwire install`), so \
-                 Claude Code will try the stopped gateway and fail until you either:"
-            );
-            println!("    • `trimwire on` to start it again, or");
-            println!(
-                "    • `unset ANTHROPIC_BASE_URL` to send Claude Code straight to Anthropic in this shell"
-            );
-            println!(
-                "  Note: every new shell you open also exports ANTHROPIC_BASE_URL from the \
-                 `# >>> trimwire >>>` block in your shell rc — unset only fixes the current shell. \
-                 To stop ALL shells routing through trimwire, delete that `# >>> trimwire >>>` \
-                 block from your rc by hand (or run `trimwire uninstall`, which names the block to remove)."
+                "→ `trimwire on` to resume pruning. (`trimwire off --stop` stops the gateway entirely.)"
             );
         }
         Err(e) => {
-            println!("couldn't stop the service: {e}");
-            println!(
-                "→ is it installed/running? check `trimwire status`. If you never ran \
-                 `trimwire install`, there's nothing to stop."
-            );
+            println!("couldn't switch to bypass: {e}");
+            println!("→ stop the gateway instead with `trimwire off --stop`.");
         }
     }
     Ok(())
@@ -353,6 +415,17 @@ pub fn doctor(strict: bool) -> Result<()> {
         }
     }
 
+    // Bypass state (from `trimwire off`): the gateway is serving but forwarding
+    // unmodified. Advisory, not a failure — it's a deliberate user choice — so it
+    // never flips the exit code (matching the "all strategies disabled" note).
+    if trimwire::bypass::is_active() {
+        println!(
+            "{} bypass ON (`trimwire off`) — the gateway forwards unmodified; NO pruning. \
+             Run `trimwire on` to resume.",
+            render::warn()
+        );
+    }
+
     println!(
         "{} service manager: {}",
         render::bullet(),
@@ -497,7 +570,7 @@ pub fn doctor(strict: bool) -> Result<()> {
                                 );
                             }
                             println!(
-                                "  → then `trimwire off && trimwire on` to restart the gateway with the new key."
+                                "  → then `trimwire off --stop && trimwire on` to restart the gateway with the new key."
                             );
                         }
                     }

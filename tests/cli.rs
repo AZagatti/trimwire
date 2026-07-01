@@ -2632,3 +2632,116 @@ fn upgrade_apply_rejects_non_stable_tag() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("not a stable"), "got: {err}");
 }
+
+/// `trimwire off` (default) is a true BYPASS, not a kill switch: it writes the
+/// `~/.trimwire/bypass` sentinel (keeping the gateway serving) rather than
+/// stopping the service, and `trimwire status` then reports pruning OFF. This is
+/// the fix for the "off leaves a dead ANTHROPIC_BASE_URL" footgun.
+///
+/// Also asserts the honesty guard: when the gateway isn't actually serving,
+/// `off` warns that bypass has nothing to connect to (rather than implying Claude
+/// will keep working) — proven here by pointing at a free port nothing serves.
+#[test]
+fn off_bypasses_and_status_reflects_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let sentinel = dir.path().join(".trimwire").join("bypass");
+    // A free port nothing listens on, so the gateway health probe deterministically
+    // fails and the "gateway isn't running" warning must fire.
+    let listen = format!("127.0.0.1:{}", free_port());
+
+    // `off` writes the sentinel and prints the one-line bypass message.
+    let out = Command::new(bin())
+        .arg("off")
+        .env("HOME", dir.path())
+        .env("TRIMWIRE_SERVER__LISTEN", &listen)
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn trimwire off");
+    assert!(out.status.success(), "off exits 0");
+    assert!(sentinel.exists(), "off creates the bypass sentinel");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("straight to Anthropic") && stdout.contains("no pruning"),
+        "off prints the bypass message: {stdout}"
+    );
+    assert!(
+        stdout.contains("gateway isn't running"),
+        "off warns when the gateway isn't serving: {stdout}"
+    );
+
+    // `status` surfaces the bypass state on its `pruning:` line.
+    let st = Command::new(bin())
+        .arg("status")
+        .env("HOME", dir.path())
+        .env("TRIMWIRE_SERVER__LISTEN", &listen)
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn trimwire status");
+    let sout = String::from_utf8_lossy(&st.stdout);
+    assert!(
+        sout.contains("pruning: OFF") && sout.contains("bypass"),
+        "status shows bypass: {sout}"
+    );
+}
+
+/// `trimwire run --bypass` runs ONE session with trimwire out of the loop: it
+/// launches `claude` pointed straight at the configured upstream (not the local
+/// gateway), leaving global state untouched.
+#[test]
+fn run_bypass_points_claude_at_upstream() {
+    let dir = tempfile::tempdir().unwrap();
+    let bindir = dir.path().join("bin");
+    fs::create_dir_all(&bindir).unwrap();
+
+    // Fake `claude`: record the base URL it was handed, then exit 0.
+    let fake = bindir.join("claude");
+    fs::write(
+        &fake,
+        "#!/bin/sh\nprintf 'BASE=%s TS=%s' \"$ANTHROPIC_BASE_URL\" \"$ENABLE_TOOL_SEARCH\" > \"$CLAUDE_OUT\"\nexit 0\n",
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let out_file = dir.path().join("out.txt");
+    let path = format!(
+        "{}:{}",
+        bindir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    // Pin the gateway listen port so we can prove --bypass never bound it.
+    let port = free_port();
+
+    let status = Command::new(bin())
+        .args(["run", "--bypass", "--print", "hi"])
+        .env("HOME", dir.path())
+        .env("PATH", path)
+        .env("CLAUDE_OUT", &out_file)
+        .env("TRIMWIRE_SERVER__LISTEN", format!("127.0.0.1:{port}"))
+        // A distinctive upstream so we can prove the child was pointed at IT,
+        // not at any local gateway URL.
+        .env(
+            "TRIMWIRE_SERVER__UPSTREAM",
+            "https://upstream.example.invalid",
+        )
+        .env("TRIMWIRE_LEDGER__ENABLED", "false")
+        .env_remove("XDG_CONFIG_HOME")
+        .status()
+        .expect("spawn trimwire run --bypass");
+
+    assert_eq!(status.code(), Some(0), "claude's exit code propagates");
+    let recorded = fs::read_to_string(&out_file).expect("fake claude wrote output");
+    assert!(
+        recorded.contains("BASE=https://upstream.example.invalid"),
+        "child points straight at the upstream, not the gateway: {recorded}"
+    );
+    assert!(
+        recorded.contains("TS=true"),
+        "ENABLE_TOOL_SEARCH still set so web search works: {recorded}"
+    );
+    // Prove the "no gateway in the loop" property: nothing is listening on the
+    // configured gateway port — `--bypass` returned before starting one.
+    assert!(
+        std::net::TcpStream::connect(("127.0.0.1", port)).is_err(),
+        "run --bypass must NOT start a gateway on the configured port {port}"
+    );
+}

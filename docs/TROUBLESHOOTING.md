@@ -14,8 +14,11 @@ watch the gateway's stderr.
 The gateway isn't running, or `ANTHROPIC_BASE_URL` points somewhere nothing is
 listening. trimwire is a live proxy: if you `export ANTHROPIC_BASE_URL=...` and
 then kill the daemon, every `claude` call fails until you restart it
-(`trimwire on`) or `unset ANTHROPIC_BASE_URL`. The `trimwire run`
-wrapper avoids this by scoping the env var to that one invocation.
+(`trimwire on`). Note `trimwire off` (without `--stop`) does **not** cause this —
+it keeps the gateway serving in bypass, so calls keep working; only `trimwire off
+--stop` (or `trimwire uninstall`) actually stops the process. To sidestep the
+gateway for one session regardless, `trimwire run --bypass` points that `claude`
+straight at Anthropic.
 
 ### `trimwire stats` shows nothing / zero rows
 The ledger records **every** `/v1/messages` request the gateway sees (including
@@ -96,7 +99,7 @@ model        = "glm-5.2"
 api_key_file = "~/.zai_key"     # read at runtime; works for a daemon. chmod 600 it.
 ```
 
-Then `chmod 600 ~/.zai_key` and restart the gateway (`trimwire off && trimwire on`).
+Then `chmod 600 ~/.zai_key` and restart the gateway (`trimwire off --stop && trimwire on`).
 `trimwire doctor` and `trimwire summarizer status` resolve the key the same way the
 runtime does, so they'll confirm `key: set` once the file is in place (and warn if the
 file is group/world-readable).
