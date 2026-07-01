@@ -266,6 +266,21 @@ pub struct BloatCapConfig {
     /// needs the old content. Empty = the legacy behaviour (recent-only exemption
     /// off). Supports `*`.
     pub exempt_recent_only_tools: Vec<String>,
+    /// Recent-window (in assistant turns) for the `exempt_recent_only_tools` tier
+    /// (i.e. `Read`), distinct from the global `keep_recent_turns` (#121). The
+    /// EFFECTIVE window is `max(this, keep_recent_turns)`, so a recent-only-exempt
+    /// tool is never LESS protected than an ordinary result; set this HIGHER than
+    /// `keep_recent_turns` to protect old Reads for longer. Why: `stale_reads`
+    /// protects a non-superseded Read for its own `keep_recent_turns` (4) before
+    /// demand-paging it, but only if it exceeds `page_min_bytes` (16 KB). A 4–16 KB
+    /// non-superseded Read falls in the gap — inside stale_reads' 4-turn window but
+    /// past bloat_cap's tight global window — so bloat_cap head+tail-trims its middle
+    /// at age 3 while the model may still reference it. Matching this to stale_reads'
+    /// window (4) closes that gap. The tradeoff is read-heavy savings (protecting the
+    /// 2–4 age band leaves more old Read bulk on the wire); it's a recoverable trim
+    /// (head+tail kept + the file is re-readable), so the cost is savings, not
+    /// correctness. 0 = fall back to `keep_recent_turns` (legacy: no separate window).
+    pub exempt_recent_only_keep_turns: usize,
     /// Recent-window (in assistant turns) for SUBAGENT results (`Task`/`Agent`),
     /// distinct from the global `keep_recent_turns` (#124). A subagent `tool_result`
     /// is a findings/blocker list the parent agent refers back to for many turns, so
@@ -464,6 +479,9 @@ impl Default for BloatCapConfig {
             // Read: exempt while RECENT (a just-read file may be in active use),
             // trimmed to head+tail once OLD (the model re-reads on demand).
             exempt_recent_only_tools: vec!["Read".to_owned()],
+            // 0 = the Read recent-window falls back to keep_recent_turns (legacy). The
+            // `default` profile widens it to 4 to close the 4–16 KB Read gap (#121).
+            exempt_recent_only_keep_turns: 0,
             // Subagent (Task/Agent) results: exempt for a GENEROUS window (8 turns —
             // findings/blocker lists are consumed across many follow-up turns), then
             // head+tail-salvaged once old (#124). Wider than the global keep_recent.
@@ -927,6 +945,11 @@ pub fn profile_baseline(name: &str) -> Config {
             s.bloat_cap.enabled = true;
             s.bloat_cap.threshold_bytes = 4_096;
             s.bloat_cap.keep_recent_turns = 2;
+            // #121: give Read (the recent-only-exempt tier) a wider window (4) than the
+            // tight global one (2), matching stale_reads.keep_recent_turns — so a 4–16 KB
+            // non-superseded Read isn't head+tail-trimmed at age 3 while still referenced.
+            // Bash/MCP results keep the tight 2-turn window (savings preserved).
+            s.bloat_cap.exempt_recent_only_keep_turns = 4;
             // Reduce OLD successful tool_use inputs (cache-safe content-overwrite;
             // reprune-replayable). Tight window matches the aggressive profile.
             s.stale_input_cap.enabled = true;
@@ -1563,6 +1586,12 @@ mod tests {
                 .exempt_tools
                 .contains(&"Read".to_owned()),
             "default must NOT exempt Read at every age (it is age-gated)"
+        );
+        // #121: Read gets a WIDER recent window (4) than the tight global keep_recent (2),
+        // matching stale_reads so a 4–16 KB non-superseded Read isn't trimmed at age 3.
+        assert_eq!(
+            default.strategies.bloat_cap.exempt_recent_only_keep_turns, 4,
+            "default must widen the Read window to 4 (close the 4–16 KB Read gap, #121)"
         );
         // Authoring results stay all-ages exempt (load-bearing §13A floor).
         for t in ["Edit", "Write", "MultiEdit"] {

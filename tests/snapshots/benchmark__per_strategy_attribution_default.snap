@@ -119,12 +119,12 @@ expression: attribution_report(&default_install_config())
   "read_heavy": {
     "attribution": [
       {
-        "bytes": 27461,
+        "bytes": 19615,
         "strategy": "bloat_cap"
       }
     ],
     "in_bytes": 83771,
-    "reduction_pct": 32.8
+    "reduction_pct": 23.4
   },
   "repeated_grep": {
     "attribution": [

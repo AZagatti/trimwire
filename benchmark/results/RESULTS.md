@@ -41,7 +41,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `pure_chat_floor` | 75.2% → **75.2%** | 0.0% → **0.0%** |
 | `exempt_heavy` | 55.2% → **55.2%** | 0.0% → **0.0%** |
 | `subagent_heavy` | 41.5% → **48.3%** | 0.0% → **0.0%** |
-| `read_heavy` | 49.8% → **60.1%** | 0.0% → **0.0%** |
+| `read_heavy` | 49.8% → **65.0%** | 0.0% → **0.0%** |
 | `unique_bash_spam` | 41.6% → **67.2%** | 0.0% → **0.0%** |
 | `at_the_boundary` | 71.3% → **88.6%** | 0.0% → **0.0%** |
 | `repeated_grep` | 32.8% → **65.7%** | 59.6% → **0.0%** |
@@ -74,7 +74,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `pure_chat_floor` | the floor: nothing to prune, forwarded byte-for-byte | 9.5 KB | 9.5 KB | 0 B | 0.0% | no-op |
 | `exempt_heavy` | honest low case: load-bearing authoring content → ~nothing to prune | 57.2 KB | 57.2 KB | 0 B | 0.0% | no-op |
 | `subagent_heavy` | #124: old subagent findings (past the 8-turn window) get head+tail-salvaged | 125.5 KB | 107.7 KB | 17.8 KB | 14.2% | pruned |
-| `read_heavy` | old reads bloat_capped now Read is age-gated (coverage-gap fix); recent reads intact | 83.8 KB | 56.3 KB | 27.5 KB | 32.8% | pruned |
+| `read_heavy` | old reads bloat_capped now Read is age-gated (coverage-gap fix); recent reads intact | 83.8 KB | 64.2 KB | 19.6 KB | 23.4% | pruned |
 | `unique_bash_spam` | only the oldest results past the recent window get capped | 222.1 KB | 95.6 KB | 126.5 KB | 57.0% | pruned |
 | `at_the_boundary` | recent results stay intact; only aged ones are capped | 143.6 KB | 79.3 KB | 64.3 KB | 44.8% | pruned |
 | `repeated_grep` | drops 7 superseded repeats; the distinct searches are kept | 29.8 KB | 6.5 KB | 23.2 KB | 78.1% | pruned |
@@ -101,7 +101,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `pure_chat_floor` | 0.0% | 0.0% |
 | `exempt_heavy` | 0.0% | 0.0% |
 | `subagent_heavy` | 14.2% | 0.0% |
-| `read_heavy` | 32.8% | 0.0% |
+| `read_heavy` | 23.4% | 0.0% |
 | `unique_bash_spam` | 57.0% | 0.0% |
 | `at_the_boundary` | 44.8% | 0.0% |
 | `repeated_grep` | 78.1% | 58.1% |
@@ -137,7 +137,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `pure_chat_floor` | — | — | — | — | — | — | — | — | — |
 | `exempt_heavy` | — | — | — | — | — | — | — | — | — |
 | `subagent_heavy` | — | — | — | — | — | 17.8 KB | — | — | — |
-| `read_heavy` | — | — | — | — | — | 27.5 KB | — | — | — |
+| `read_heavy` | — | — | — | — | — | 19.6 KB | — | — | — |
 | `unique_bash_spam` | — | — | — | — | — | 126.5 KB | — | — | — |
 | `at_the_boundary` | — | — | — | — | — | 64.3 KB | — | — | — |
 | `repeated_grep` | — | — | 14 B | — | — | — | 5.9 KB | — | — |
@@ -158,7 +158,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `pure_chat_floor` | 100.0% | 100.0% | 100.0% |
 | `exempt_heavy` | 100.0% | 100.0% | 100.0% |
 | `subagent_heavy` | 100.0% | 76.2% | 100.0% |
-| `read_heavy` | 100.0% | 46.6% | 100.0% |
+| `read_heavy` | 100.0% | 53.7% | 100.0% |
 | `unique_bash_spam` | 100.0% | 36.7% | 100.0% |
 | `at_the_boundary` | 100.0% | 39.7% | 100.0% |
 | `repeated_grep` | 100.0% | 23.9% | 55.8% |
@@ -200,7 +200,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `pure_chat_floor` | $0.0201 | +0.0% | +0.0% |
 | `exempt_heavy` | $0.0763 | +0.0% | +0.0% |
 | `subagent_heavy` | $0.1658 | +105.8% | +0.0% |
-| `read_heavy` | $0.1082 | +84.2% | +0.0% |
+| `read_heavy` | $0.1082 | +113.8% | +0.0% |
 | `unique_bash_spam` | $0.2771 | +73.4% | +0.0% |
 | `at_the_boundary` | $0.1544 | +71.4% | +0.0% |
 | `repeated_grep` | $0.0547 | -4.4% | -17.6% |
@@ -253,7 +253,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `pure_chat_floor` | $0.0201 → $0.0201 ↓ | 100.0% → **100.0%** |
 | `exempt_heavy` | $0.0763 → $0.0763 ↓ | 100.0% → **100.0%** |
 | `subagent_heavy` | $0.3411 → $0.2237 ↓ | 76.2% → **91.7%** |
-| `read_heavy` | $0.1993 → $0.1240 ↓ | 46.6% → **88.9%** |
+| `read_heavy` | $0.2313 → $0.1322 ↓ | 53.7% → **88.9%** |
 | `unique_bash_spam` | $0.4805 → $0.3182 ↓ | 36.7% → **82.7%** |
 | `at_the_boundary` | $0.2646 → $0.1837 ↓ | 39.7% → **83.4%** |
 | `repeated_grep` | $0.0523 → $0.0500 ↓ | 23.9% → **82.6%** |
@@ -318,22 +318,22 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 
 | Corpus | Body | min | median | mean | p99 | stddev | round spread |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| `pure_chat_floor` | 11.0 KB | 0.015 | 0.017 | 0.020 | 0.056 | 0.011 | 0.016–0.022 ms |
-| `exempt_heavy` | 58.8 KB | 0.109 | 0.131 | 0.150 | 0.337 | 0.062 | 0.128–0.134 ms |
-| `subagent_heavy` | 127.0 KB | 0.255 | 0.307 | 0.343 | 0.694 | 0.104 | 0.304–0.315 ms |
-| `read_heavy` | 85.3 KB | 0.242 | 0.293 | 0.329 | 0.637 | 0.093 | 0.286–0.304 ms |
-| `unique_bash_spam` | 223.6 KB | 0.475 | 0.552 | 0.610 | 1.287 | 0.168 | 0.544–0.570 ms |
-| `at_the_boundary` | 145.1 KB | 0.274 | 0.332 | 0.369 | 0.736 | 0.101 | 0.330–0.336 ms |
-| `repeated_grep` | 31.3 KB | 0.140 | 0.170 | 0.192 | 0.401 | 0.060 | 0.166–0.172 ms |
-| `coding` | 49.5 KB | 0.224 | 0.271 | 0.302 | 0.591 | 0.080 | 0.268–0.283 ms |
-| `mixed_realistic` | 364.5 KB | 0.921 | 1.101 | 1.203 | 2.243 | 0.281 | 1.091–1.111 ms |
-| `mcp_non_playwright` | 131.1 KB | 0.292 | 0.355 | 0.389 | 0.721 | 0.098 | 0.351–0.357 ms |
-| `long_running` | 135.2 KB | 0.399 | 0.461 | 0.500 | 0.923 | 0.111 | 0.457–0.467 ms |
-| `resumed_session` | 187.9 KB | 0.777 | 0.902 | 0.971 | 1.735 | 0.205 | 0.893–0.913 ms |
-| `browser_heavy` | 424.7 KB | 0.763 | 0.875 | 0.929 | 1.551 | 0.166 | 0.863–0.889 ms |
-| `giant_paste` | 509.7 KB | 0.821 | 0.986 | 1.042 | 1.813 | 0.195 | 0.968–0.999 ms |
-| `stale_input_heavy` | 15.8 KB | 0.062 | 0.072 | 0.083 | 0.196 | 0.040 | 0.071–0.073 ms |
-| `thinking_heavy` | 14.0 KB | 0.070 | 0.081 | 0.091 | 0.205 | 0.034 | 0.080–0.084 ms |
+| `pure_chat_floor` | 11.0 KB | 0.014 | 0.016 | 0.020 | 0.076 | 0.032 | 0.016–0.017 ms |
+| `exempt_heavy` | 58.8 KB | 0.112 | 0.131 | 0.148 | 0.319 | 0.046 | 0.128–0.133 ms |
+| `subagent_heavy` | 127.0 KB | 0.250 | 0.295 | 0.334 | 0.716 | 0.113 | 0.291–0.301 ms |
+| `read_heavy` | 85.3 KB | 0.242 | 0.285 | 0.318 | 0.651 | 0.092 | 0.282–0.290 ms |
+| `unique_bash_spam` | 223.6 KB | 0.463 | 0.522 | 0.575 | 1.146 | 0.153 | 0.517–0.537 ms |
+| `at_the_boundary` | 145.1 KB | 0.269 | 0.320 | 0.357 | 0.716 | 0.097 | 0.318–0.326 ms |
+| `repeated_grep` | 31.3 KB | 0.139 | 0.161 | 0.183 | 0.402 | 0.074 | 0.158–0.164 ms |
+| `coding` | 49.5 KB | 0.224 | 0.268 | 0.301 | 0.623 | 0.104 | 0.264–0.273 ms |
+| `mixed_realistic` | 364.5 KB | 0.956 | 1.105 | 1.202 | 2.127 | 0.265 | 1.037–1.196 ms |
+| `mcp_non_playwright` | 131.1 KB | 0.301 | 0.357 | 0.399 | 0.780 | 0.127 | 0.346–0.367 ms |
+| `long_running` | 135.2 KB | 0.390 | 0.450 | 0.494 | 0.892 | 0.109 | 0.446–0.455 ms |
+| `resumed_session` | 187.9 KB | 0.759 | 0.889 | 0.966 | 1.817 | 0.222 | 0.882–0.904 ms |
+| `browser_heavy` | 424.7 KB | 0.767 | 0.877 | 0.948 | 1.872 | 0.225 | 0.859–0.903 ms |
+| `giant_paste` | 509.7 KB | 0.894 | 1.051 | 1.169 | 2.214 | 0.336 | 1.003–1.231 ms |
+| `stale_input_heavy` | 15.8 KB | 0.063 | 0.076 | 0.090 | 0.212 | 0.034 | 0.073–0.083 ms |
+| `thinking_heavy` | 14.0 KB | 0.074 | 0.094 | 0.110 | 0.268 | 0.043 | 0.086–0.100 ms |
 
 > Milliseconds for the whole transform (parse → prune → re-serialize), 5
 > rounds × {2000 | 200 for the big body} iterations after warm-up. Off the
