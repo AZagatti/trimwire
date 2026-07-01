@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read       # checkout the trusted base repo (script + prompts)
   actions: read        # download the gather artifact
+  checks: read         # read existing CI check-run results (grounding)
   pull-requests: write # post/update the review comment
 
 # Serialize posts for the same source branch so two runs can't both create the
@@ -41,6 +42,21 @@ jobs:
           path: artifacts
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
+
+      - name: Capture existing CI results (best effort — no re-run)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          HEAD=$(jq -r '.head_sha // ""' artifacts/pr-meta.json)
+          [ -n "$HEAD" ] || exit 0
+          # Fold this PR head's check-run conclusions into a signal the reviewer reads
+          # (clippy/tests/audit already ran in ci.yml — we consume, never re-run).
+          gh api "repos/$REPO/commits/$HEAD/check-runs" --paginate \
+            -q '.check_runs[] | "\(.name): \(.conclusion // .status)"' \
+            2>/dev/null | sort -u > artifacts/ci-signals.txt || true
+          echo "ci-signals:"; cat artifacts/ci-signals.txt 2>/dev/null || echo "(none yet)"
 
       - name: Run multi-model review
         env:
