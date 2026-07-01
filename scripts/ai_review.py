@@ -31,16 +31,21 @@ from pathlib import Path
 
 # --- Panel configuration -----------------------------------------------------
 # Each entry: name (display), provider (key in PROVIDERS), model (provider id).
-# Picks confirmed by the review dogfood at N=3 (internal/ai-review-bench/RESULTS.md):
-# Gemini-3.5-Flash (perfect recall, lowest FP, top quality) and DeepSeek-V4-Flash
-# (cheapest reliable, different lineage). GLM-5.2 anchor = free via the z.ai sub,
-# 100% recall (its harness "errors" were z.ai rate-limits under concurrency — a
-# single call per PR in prod won't trip them). 3 distinct families (Google /
-# DeepSeek / GLM). Swap freely — this is the only edit point.
+# Picks from the review dogfood (internal/ai-review-bench/RESULTS.md). Two strong
+# models already SATURATE recall — Gemini-3.5-Flash and GLM-5.2 each hit 100% on
+# every planted-bug class — so the 3rd model is for consensus confidence + resilience,
+# not coverage. Nex-N2-Pro is the cheapest 100%-recall option and a distinct (Qwen)
+# lineage; its one weakness (an occasional non-JSON reply, ~6%) is exactly what a
+# panel absorbs — the aggregator just uses whichever members returned. GLM-5.2 anchor
+# is free via z.ai. GLM anchor = GLM-5-Turbo: at N=3 on both easy AND hard cases it
+# beat GLM-5.2 on every axis (quality, 0 FP incl. not crying wolf on a clean trap) and
+# is ~2.3-4.6x faster (18-27s vs 45-61s) — and panel latency ≈ slowest member, so the
+# GLM leg's speed matters. (GLM-4.7 scored slightly higher quality but at 83s is too
+# slow to anchor.) 3 lineages: z.ai / Google / Qwen. Swap freely — only edit point.
 PANEL = json.loads(os.environ.get("AI_REVIEW_PANEL") or json.dumps([
-    {"name": "GLM-5.2",           "provider": "zai",        "model": "glm-5.2"},
-    {"name": "Gemini-3.5-Flash",  "provider": "openrouter", "model": "google/gemini-3.5-flash"},
-    {"name": "DeepSeek-V4-Flash", "provider": "openrouter", "model": "deepseek/deepseek-v4-flash"},
+    {"name": "GLM-5-Turbo",      "provider": "zai",        "model": "glm-5-turbo"},
+    {"name": "Gemini-3.5-Flash", "provider": "openrouter", "model": "google/gemini-3.5-flash"},
+    {"name": "Nex-N2-Pro",       "provider": "openrouter", "model": "nex-agi/nex-n2-pro"},
 ]))
 
 # The aggregator synthesizes the panel's reviews into the final comment, so it's
