@@ -68,6 +68,12 @@ pub struct Record {
     pub applied_edits_cleared_tool_uses: i64,
     /// Counts from `context_management.applied_edits` if seen; 0 = not present.
     pub applied_edits_cleared_input_tokens: i64,
+    /// HTTP response status code returned by upstream for this `/v1/messages`
+    /// request. 0 = not captured (non-messages path, early error return before
+    /// the upstream response head was received, or MeteredBody not used). A 4xx
+    /// here means Anthropic rejected the (possibly pruned) body — the
+    /// attributable-suspicion signal surfaced by `post_prune_errors`.
+    pub response_status: u16,
 }
 
 /// Cheaply-cloneable handle held by the gateway. `None` = degraded (the DB
@@ -296,11 +302,24 @@ impl Ledger {
         if per_model.is_empty() {
             return Ok(None);
         }
+        // Post-prune HTTP errors for this session. Column-tolerant: a READ_ONLY
+        // connection can predate the `response_status` migration → treat as zero.
+        let post_prune_errors: u64 = if column_exists(&conn, "requests", "response_status")? {
+            conn.query_row(
+                "SELECT COUNT(*) FROM requests
+                 WHERE session_id = ?1 AND response_status >= 400 AND strategies != ''",
+                [&sid],
+                |row| row.get::<_, i64>(0),
+            )? as u64
+        } else {
+            0
+        };
         Ok(Some(SessionReport {
             session_id: sid,
             started_at,
             ended_at,
             per_model,
+            post_prune_errors,
         }))
     }
 
@@ -482,6 +501,11 @@ pub struct SessionReport {
     pub ended_at: i64,
     /// One entry per distinct `model` seen in the session, sorted by model.
     pub per_model: Vec<SessionModelStat>,
+    /// Requests in this session where `response_status >= 400` AND `strategies`
+    /// is non-empty (trimwire pruned the body before the upstream rejected it).
+    /// The per-session analogue of the all-time `Report::post_prune_errors`.
+    /// 0 when the `response_status` column is absent (older ledger).
+    pub post_prune_errors: u64,
 }
 
 /// SHA-256 (hex) of the request **prefix**: the top-level JSON object with the
@@ -562,7 +586,8 @@ fn init_schema(conn: &Connection) -> Result<()> {
             applied_edits_cleared_thinking_turns INTEGER NOT NULL DEFAULT 0,
             applied_edits_cleared_tool_uses      INTEGER NOT NULL DEFAULT 0,
             applied_edits_cleared_input_tokens   INTEGER NOT NULL DEFAULT 0,
-            model           TEXT
+            model           TEXT,
+            response_status INTEGER NOT NULL DEFAULT 0
         ) STRICT;
         CREATE INDEX IF NOT EXISTS idx_requests_ts ON requests(ts);
         -- Opt-in summarizer outcomes — one append-only row per model
@@ -623,6 +648,16 @@ fn add_missing_columns(conn: &Connection) -> Result<()> {
             "ALTER TABLE summarizer_events ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0",
         )?;
     }
+    // requests.response_status: added to record the upstream HTTP response status
+    // code per /v1/messages request. DEFAULT 0 = "not captured" (non-messages path
+    // or no upstream response head received) — the correct reading for pre-existing
+    // rows where no status was recorded.
+    let has_response_status = column_exists(conn, "requests", "response_status")?;
+    if !has_response_status {
+        conn.execute_batch(
+            "ALTER TABLE requests ADD COLUMN response_status INTEGER NOT NULL DEFAULT 0",
+        )?;
+    }
     Ok(())
 }
 
@@ -641,8 +676,9 @@ fn insert(conn: &Connection, r: &Record) -> rusqlite::Result<()> {
              prefix_hash_in, prefix_hash_out,
              ttft_us, input_tokens, cache_read_input_tokens, cache_creation_input_tokens,
              output_tokens, applied_edits_cleared_thinking_turns,
-             applied_edits_cleared_tool_uses, applied_edits_cleared_input_tokens)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+             applied_edits_cleared_tool_uses, applied_edits_cleared_input_tokens,
+             response_status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         rusqlite::params![
             r.ts,
             r.session_id,
@@ -661,6 +697,7 @@ fn insert(conn: &Connection, r: &Record) -> rusqlite::Result<()> {
             r.applied_edits_cleared_thinking_turns,
             r.applied_edits_cleared_tool_uses,
             r.applied_edits_cleared_input_tokens,
+            r.response_status as i64,
         ],
     )?;
     Ok(())
@@ -766,6 +803,15 @@ pub struct Report {
     /// trimwire fail to reach Anthropic?" — these never produce a normal request row.
     pub upstream_errors: u64,
     pub upstream_timeouts: u64,
+    /// Requests where `response_status >= 400` AND `strategies` is non-empty:
+    /// upstream returned an HTTP error AFTER trimwire mutated the body. The
+    /// attributable-suspicion signal — a 4xx caused by pruning is detectable here.
+    /// 0 when the `response_status` column is absent (older ledger).
+    pub post_prune_errors: u64,
+    /// Requests where `response_status >= 400` regardless of strategies (all
+    /// upstream HTTP ≥400 responses). Superset of `post_prune_errors`.
+    /// 0 when the `response_status` column is absent (older ledger).
+    pub upstream_http_errors: u64,
     pub db_path: PathBuf,
 }
 
@@ -1061,6 +1107,23 @@ fn build_report(conn: &Connection, db_path: PathBuf, since: i64, until: i64) -> 
         (0, 0)
     };
 
+    // Post-prune HTTP errors + total upstream HTTP errors. Column-tolerant: a
+    // READ_ONLY connection can predate the `response_status` migration that the
+    // read-write `Ledger::open` applies → treat as zero rather than erroring.
+    let (post_prune_errors, upstream_http_errors) =
+        if column_exists(conn, "requests", "response_status")? {
+            conn.query_row(
+                "SELECT
+                    COUNT(CASE WHEN response_status >= 400 AND strategies != '' THEN 1 END),
+                    COUNT(CASE WHEN response_status >= 400 THEN 1 END)
+                 FROM requests WHERE ts >= ?1 AND ts < ?2",
+                rusqlite::params![since, until],
+                |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64)),
+            )?
+        } else {
+            (0, 0)
+        };
+
     Ok(Report {
         total_requests: total_requests as u64,
         total_in_bytes: total_in_bytes as u64,
@@ -1094,6 +1157,8 @@ fn build_report(conn: &Connection, db_path: PathBuf, since: i64, until: i64) -> 
         summarizer_collapses,
         upstream_errors,
         upstream_timeouts,
+        post_prune_errors,
+        upstream_http_errors,
         db_path,
     })
 }
@@ -1166,6 +1231,8 @@ mod tests {
             summarizer_collapses: 0,
             upstream_errors: 0,
             upstream_timeouts: 0,
+            post_prune_errors: 0,
+            upstream_http_errors: 0,
             db_path: std::path::PathBuf::from(":memory:"),
         };
         assert_eq!(r.bytes_saved(), 400);
@@ -1346,6 +1413,7 @@ mod tests {
             applied_edits_cleared_thinking_turns: 0,
             applied_edits_cleared_tool_uses: 0,
             applied_edits_cleared_input_tokens: 0,
+            response_status: 0,
         }
     }
 
@@ -1577,6 +1645,7 @@ mod tests {
                     applied_edits_cleared_thinking_turns: 0,
                     applied_edits_cleared_tool_uses: 0,
                     applied_edits_cleared_input_tokens: 0,
+                    response_status: 0,
                 }
             };
         // Session s1: two Opus rows + one Haiku row. Then s2 (one Opus row) is
@@ -1602,13 +1671,65 @@ mod tests {
         assert_eq!(opus.total_input_tokens(), 5760);
         assert!((opus.cache_hit_pct() - 46.875).abs() < 1e-9);
 
+        // post_prune_errors: no 400+pruned rows in this test → 0 for all sessions.
+        assert_eq!(
+            rep.post_prune_errors, 0,
+            "no 4xx rows → 0 per-session errors"
+        );
+
         // None → "last" resolves to s2 by insert order (MAX(id)), not MAX(ts).
         let last = Ledger::session_report(p, None).unwrap().unwrap();
         assert_eq!(last.session_id, "s2");
         assert_eq!(last.per_model.len(), 1);
+        assert_eq!(last.post_prune_errors, 0);
 
         // Unknown session → None (not an error).
         assert!(Ledger::session_report(p, Some("nope")).unwrap().is_none());
+    }
+
+    /// `SessionReport.post_prune_errors` counts only rows for the given session
+    /// where response_status >= 400 AND strategies is non-empty; other sessions
+    /// and non-qualifying rows must not be counted.
+    #[test]
+    fn session_report_post_prune_errors_per_session() {
+        let (conn, dir) = temp_ledger();
+        let p = dir.path().join("ledger.db");
+        let p = p.to_str().unwrap();
+
+        // Session "sa": one pruned-400 row (should count) + one non-pruned-400 row (shouldn't).
+        let mut r1 = rec(1000, "sliding_window", "a", "a");
+        r1.session_id = Some("sa".to_owned());
+        r1.response_status = 400;
+        let mut r2 = rec(2000, "", "b", "b");
+        r2.session_id = Some("sa".to_owned());
+        r2.response_status = 400;
+
+        // Session "sb": pruned-400 row (should count for sb, NOT for sa).
+        let mut r3 = rec(3000, "bloat_cap", "c", "c");
+        r3.session_id = Some("sb".to_owned());
+        r3.response_status = 400;
+
+        // Session "sc": pruned row with 200 (default=0) → no error for sc.
+        let mut r4 = rec(4000, "bloat_cap", "d", "d");
+        r4.session_id = Some("sc".to_owned());
+
+        insert(&conn, &r1).unwrap();
+        insert(&conn, &r2).unwrap();
+        insert(&conn, &r3).unwrap();
+        insert(&conn, &r4).unwrap();
+        drop(conn);
+
+        let rep_a = Ledger::session_report(p, Some("sa")).unwrap().unwrap();
+        assert_eq!(
+            rep_a.post_prune_errors, 1,
+            "sa: only r1 (pruned+400); r2 has no strategies"
+        );
+
+        let rep_b = Ledger::session_report(p, Some("sb")).unwrap().unwrap();
+        assert_eq!(rep_b.post_prune_errors, 1, "sb: r3 qualifies");
+
+        let rep_c = Ledger::session_report(p, Some("sc")).unwrap().unwrap();
+        assert_eq!(rep_c.post_prune_errors, 0, "sc: pruned but status 0 (ok)");
     }
 
     #[test]
@@ -1750,6 +1871,7 @@ mod tests {
             applied_edits_cleared_thinking_turns: 2,
             applied_edits_cleared_tool_uses: 5,
             applied_edits_cleared_input_tokens: 3000,
+            response_status: 0,
         };
         // Row 2: has TTFT + tokens, no applied_edits.
         let r2 = Record {
@@ -1770,6 +1892,7 @@ mod tests {
             applied_edits_cleared_thinking_turns: 0,
             applied_edits_cleared_tool_uses: 0,
             applied_edits_cleared_input_tokens: 0,
+            response_status: 0,
         };
         // Row 3: no TTFT (ttft_ms=0), no tokens.
         let r3 = Record {
@@ -1790,6 +1913,7 @@ mod tests {
             applied_edits_cleared_thinking_turns: 0,
             applied_edits_cleared_tool_uses: 0,
             applied_edits_cleared_input_tokens: 0,
+            response_status: 0,
         };
         insert(&conn, &r1).unwrap();
         insert(&conn, &r2).unwrap();
@@ -1840,5 +1964,203 @@ mod tests {
         // Unknown session → zeros (the statusline shows "ready").
         let empty = Ledger::session_savings(path.to_str().unwrap(), "nope").unwrap();
         assert_eq!(empty, SessionSavings::default());
+    }
+
+    // -----------------------------------------------------------------------
+    // response_status: new column tests
+    // -----------------------------------------------------------------------
+
+    /// response_status is stored and read back; post_prune_errors and
+    /// upstream_http_errors aggregate it correctly.
+    #[test]
+    fn response_status_roundtrip() {
+        let (conn, dir) = temp_ledger();
+        // r1: pruned + 400 → qualifies for both post_prune_errors and
+        // upstream_http_errors.
+        let mut r1 = rec(1000, "sliding_window", "a", "a");
+        r1.response_status = 400;
+        // r2: not pruned + 400 → upstream_http_errors only (not post_prune_errors).
+        let mut r2 = rec(2000, "", "b", "b");
+        r2.response_status = 400;
+        // r3: pruned + 200 (status = 0 = "not captured") → neither error counter.
+        let r3 = rec(3000, "bloat_cap", "c", "c");
+        insert(&conn, &r1).unwrap();
+        insert(&conn, &r2).unwrap();
+        insert(&conn, &r3).unwrap();
+        drop(conn);
+
+        let report = Ledger::report(dir.path().join("ledger.db").to_str().unwrap()).unwrap();
+        assert_eq!(
+            report.post_prune_errors, 1,
+            "only r1: pruned body + upstream 4xx"
+        );
+        assert_eq!(
+            report.upstream_http_errors, 2,
+            "r1 + r2: any response_status >= 400"
+        );
+        assert_eq!(
+            report.total_requests, 3,
+            "all three rows recorded regardless"
+        );
+    }
+
+    /// post_prune_errors counts only rows where BOTH response_status >= 400 AND
+    /// strategies is non-empty; upstream_http_errors counts any >= 400.
+    #[test]
+    fn post_prune_errors_aggregate() {
+        let (conn, dir) = temp_ledger();
+        // 1. Pruned + 400 → both counters.
+        let mut r1 = rec(1000, "bloat_cap", "a", "a");
+        r1.response_status = 400;
+        // 2. Not pruned + 429 (rate-limit) → upstream_http_errors only.
+        let mut r2 = rec(2000, "", "b", "b");
+        r2.response_status = 429;
+        // 3. Pruned + status 0 (200-ish, no error) → neither.
+        let r3 = rec(3000, "sliding_window", "c", "c");
+        // 4. Not pruned + status 0 → neither.
+        let r4 = rec(4000, "", "d", "d");
+        insert(&conn, &r1).unwrap();
+        insert(&conn, &r2).unwrap();
+        insert(&conn, &r3).unwrap();
+        insert(&conn, &r4).unwrap();
+        drop(conn);
+
+        let report = Ledger::report(dir.path().join("ledger.db").to_str().unwrap()).unwrap();
+        assert_eq!(
+            report.post_prune_errors, 1,
+            "only r1: pruned + 4xx qualifies"
+        );
+        assert_eq!(
+            report.upstream_http_errors, 2,
+            "r1 + r2: any >= 400 regardless of strategies"
+        );
+        // Sanity: a 400 on a non-pruned row should NOT inflate post_prune_errors.
+        // Already covered by the assertions above (r2 has empty strategies).
+    }
+
+    /// add_missing_columns adds response_status to an older requests table that
+    /// lacks it (mirrors open_migrates_missing_engine_column). After the read-write
+    /// open, the column is present and old rows default to 0.
+    #[test]
+    fn open_migrates_missing_response_status_column() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.db");
+        // Create a requests table WITHOUT response_status (pre-migration ledger).
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL;
+                 CREATE TABLE requests (
+                     id              INTEGER PRIMARY KEY,
+                     ts              INTEGER NOT NULL,
+                     session_id      TEXT,
+                     in_bytes        INTEGER NOT NULL DEFAULT 0,
+                     out_bytes       INTEGER NOT NULL DEFAULT 0,
+                     strategies      TEXT NOT NULL DEFAULT '',
+                     prefix_hash_in  TEXT NOT NULL DEFAULT '',
+                     prefix_hash_out TEXT NOT NULL DEFAULT '',
+                     strategy_bytes  TEXT NOT NULL DEFAULT '',
+                     ttft_us         INTEGER NOT NULL DEFAULT 0,
+                     input_tokens    INTEGER NOT NULL DEFAULT 0,
+                     cache_read_input_tokens    INTEGER NOT NULL DEFAULT 0,
+                     cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+                     output_tokens   INTEGER NOT NULL DEFAULT 0,
+                     applied_edits_cleared_thinking_turns INTEGER NOT NULL DEFAULT 0,
+                     applied_edits_cleared_tool_uses      INTEGER NOT NULL DEFAULT 0,
+                     applied_edits_cleared_input_tokens   INTEGER NOT NULL DEFAULT 0,
+                     model           TEXT
+                 ) STRICT;
+                 CREATE TABLE summarizer_events (
+                     id      INTEGER PRIMARY KEY,
+                     ts      INTEGER NOT NULL,
+                     outcome TEXT NOT NULL,
+                     engine  TEXT NOT NULL DEFAULT 'model-free',
+                     collapsed INTEGER NOT NULL DEFAULT 0
+                 ) STRICT;
+                 CREATE TABLE upstream_errors (
+                     id   INTEGER PRIMARY KEY,
+                     ts   INTEGER NOT NULL,
+                     kind TEXT NOT NULL
+                 ) STRICT;
+                 INSERT INTO requests
+                     (ts, in_bytes, out_bytes, strategies, prefix_hash_in, prefix_hash_out)
+                 VALUES (9_000_000_001, 100, 80, 'sliding_window', 'h', 'h');",
+            )
+            .unwrap();
+        }
+        // Ledger::open calls add_missing_columns → the column is added.
+        let l = Ledger::open(path.to_str().unwrap(), 365);
+        assert!(
+            l.conn.is_some(),
+            "ledger must open after response_status column migration"
+        );
+        // The pre-existing row should expose the DEFAULT value 0.
+        {
+            let conn =
+                Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                    .unwrap();
+            let status: i64 = conn
+                .query_row(
+                    "SELECT response_status FROM requests WHERE ts = 9000000001",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(status, 0, "migrated row must default to 0 (not captured)");
+        }
+    }
+
+    /// A READ_ONLY report against a requests table that lacks response_status
+    /// (pre-migration) must not crash — post_prune_errors and upstream_http_errors
+    /// come back as 0.
+    #[test]
+    fn report_tolerates_requests_missing_response_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.db");
+        // Build an older-style schema without response_status.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL;
+                 CREATE TABLE requests (
+                     id              INTEGER PRIMARY KEY,
+                     ts              INTEGER NOT NULL,
+                     session_id      TEXT,
+                     in_bytes        INTEGER NOT NULL DEFAULT 0,
+                     out_bytes       INTEGER NOT NULL DEFAULT 0,
+                     strategies      TEXT NOT NULL DEFAULT '',
+                     prefix_hash_in  TEXT NOT NULL DEFAULT '',
+                     prefix_hash_out TEXT NOT NULL DEFAULT '',
+                     strategy_bytes  TEXT NOT NULL DEFAULT '',
+                     ttft_us         INTEGER NOT NULL DEFAULT 0,
+                     input_tokens    INTEGER NOT NULL DEFAULT 0,
+                     cache_read_input_tokens    INTEGER NOT NULL DEFAULT 0,
+                     cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+                     output_tokens   INTEGER NOT NULL DEFAULT 0,
+                     applied_edits_cleared_thinking_turns INTEGER NOT NULL DEFAULT 0,
+                     applied_edits_cleared_tool_uses      INTEGER NOT NULL DEFAULT 0,
+                     applied_edits_cleared_input_tokens   INTEGER NOT NULL DEFAULT 0,
+                     model           TEXT
+                 ) STRICT;
+                 CREATE TABLE summarizer_events (
+                     id INTEGER PRIMARY KEY, ts INTEGER NOT NULL,
+                     outcome TEXT NOT NULL,
+                     engine  TEXT NOT NULL DEFAULT 'model-free',
+                     collapsed INTEGER NOT NULL DEFAULT 0
+                 ) STRICT;
+                 CREATE TABLE upstream_errors (
+                     id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL
+                 ) STRICT;
+                 INSERT INTO requests
+                     (ts, in_bytes, out_bytes, strategies, prefix_hash_in, prefix_hash_out)
+                 VALUES (1000, 1000, 600, 'bloat_cap', 'a', 'a');",
+            )
+            .unwrap();
+        }
+        // Read-only path (build_report) must tolerate the absent column → zeros.
+        let report = Ledger::report(path.to_str().unwrap()).unwrap();
+        assert_eq!(report.total_requests, 1, "request row visible");
+        assert_eq!(report.post_prune_errors, 0, "absent column → 0");
+        assert_eq!(report.upstream_http_errors, 0, "absent column → 0");
     }
 }

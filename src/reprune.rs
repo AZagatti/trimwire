@@ -1157,6 +1157,86 @@ mod tests {
         );
     }
 
+    /// The new demand-page marker text (Part B) is deterministic — it embeds the
+    /// file path + raw byte count — so reprune replays it identically across turns,
+    /// keeping the pruned prefix byte-identical (cache-stable). Runs
+    /// `stable_apply_to_body` at turn N and again at turn N+2 on a stable prefix
+    /// and asserts the first `checkpoint_len` messages are byte-for-byte identical.
+    /// Also verifies the new marker text (`trimwire report`) appears in the prefix.
+    #[test]
+    fn new_markers_keep_prefix_byte_identical() {
+        /// A session: turn 0 is a large Read (will be demand-paged by the default
+        /// profile), followed by small Bash calls that age the Read past
+        /// `keep_recent_turns = 4`.
+        fn body_with_reads(total_turns: usize) -> Vec<u8> {
+            let mut m = Vec::new();
+            // Turn 0: large Read — 20 KB > page_min_bytes=16384 in the default profile.
+            let file_content = "x".repeat(20_000);
+            m.push(json!({"role":"assistant","content":[
+                {"type":"tool_use","id":"r0","name":"Read","input":{"path":"/src/large.rs"}}
+            ]}));
+            m.push(json!({"role":"user","content":[
+                {"type":"tool_result","tool_use_id":"r0","content":file_content}
+            ]}));
+            // Remaining turns: small Bash results to age the Read past keep_recent=4.
+            for i in 1..total_turns {
+                let id = format!("u{i}");
+                m.push(json!({"role":"assistant","content":[
+                    {"type":"tool_use","id":id,"name":"Bash","input":{"command":format!("run {i}")}}
+                ]}));
+                m.push(json!({"role":"user","content":[
+                    {"type":"tool_result","tool_use_id":id,"content":format!("step {i} ok")}
+                ]}));
+            }
+            serde_json::to_vec(&json!({
+                "model": "claude",
+                "system": [{"type":"text","text":"sys"}],
+                "messages": m
+            }))
+            .unwrap()
+        }
+
+        let cfg = cfg(); // default profile: stale_reads.page_min_bytes=16384, keep_recent=4
+        let mut state = PruneState::default();
+
+        // Turn N=10: cold checkpoint. stale_reads demand-pages the large Read
+        // (read_count=1, age=9 assistant turns > keep_recent=4, size=20000 > 16384).
+        let b10 = body_with_reads(10);
+        let out10 = bytes_of(&stable_apply_to_body(&b10, &cfg, &mut state, 8), &b10);
+        let cp_len = state.checkpoint_len;
+
+        // The demand-page marker must be present in the checkpoint prefix.
+        let p10: Value = serde_json::from_slice(&out10).unwrap();
+        let m10 = p10["messages"].as_array().unwrap();
+        let read_content = m10[1]["content"][0]["content"].as_str().unwrap_or("");
+        assert!(
+            read_content.starts_with("[trimwire: paged out"),
+            "expected demand-page marker in checkpoint prefix at turn 10; got: {}",
+            &read_content[..read_content.len().min(80)]
+        );
+        assert!(
+            read_content.contains("trimwire report"),
+            "new marker text must reference `trimwire report`; got: {read_content}"
+        );
+
+        // Turn N+2=12: stable branch (grew=4 <= threshold=8, new tail is tiny).
+        // The demand-page marker is replayed from state.result_decisions → byte-identical.
+        let b12 = body_with_reads(12);
+        let out12 = bytes_of(&stable_apply_to_body(&b12, &cfg, &mut state, 8), &b12);
+        assert_eq!(
+            state.checkpoint_len, cp_len,
+            "no re-checkpoint within threshold"
+        );
+
+        let p12: Value = serde_json::from_slice(&out12).unwrap();
+        let m12 = p12["messages"].as_array().unwrap();
+        assert_eq!(
+            serde_json::to_vec(&m10[..cp_len]).unwrap(),
+            serde_json::to_vec(&m12[..cp_len]).unwrap(),
+            "new demand-page marker must be replayed byte-identically (cache-stable)"
+        );
+    }
+
     /// Same conversation, but every object's keys are emitted in a DIFFERENT wire
     /// order than the checkpoint body. serde_json parses objects into a key-sorted
     /// `Map`, so the structural compaction guard sees the prefix as unchanged and

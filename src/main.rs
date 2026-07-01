@@ -203,7 +203,7 @@ enum ShareAction {
     after_help = "\
 Commands by group:\n\
 \x20 LIFECYCLE    install · uninstall · update · upgrade · on · off · status · doctor · run\n\
-\x20 INSPECT      stats · recall · preview · dashboard\n\
+\x20 INSPECT      stats · recall · preview · dashboard · report\n\
 \x20 SUMMARIZER   summarizer  (setup · status · benchmark · probe)\n\
 \x20 SHARE        share  (enable · disable · stats · benchmark)   — opt-in, content-free\n\
 \x20 MAINTENANCE  sweep (list/all/file/undo) · config (show/edit)\n\
@@ -360,6 +360,28 @@ enum Cmd {
         /// Output path (default: trimwire-report.html in the current directory).
         #[arg(long)]
         out: Option<std::path::PathBuf>,
+    },
+
+    /// Print a pre-filled GitHub issue URL to report a trimwire problem (content-free).
+    ///
+    /// Gathers only tool/runtime versions, OS/arch, and a coarse cache-stability
+    /// signal — never file paths or session content.
+    #[command(display_order = 24)]
+    Report {
+        /// Print only the URL (one line), without the explanation text.
+        /// Useful for scripts or piping into a browser opener.
+        #[arg(long)]
+        url_only: bool,
+        /// Auto-detect anomalies in the most recent session (or the session given
+        /// by --session / stop-hook stdin JSON) and file a GitHub issue if one is
+        /// found. Silent when nothing to do; never returns an error. Designed to
+        /// be run from a global Stop hook.
+        #[arg(long)]
+        auto: bool,
+        /// Session id to inspect (for --auto). Defaults to the stop-hook's
+        /// session_id from stdin, then the most-recent ledger session.
+        #[arg(long)]
+        session: Option<String>,
     },
 
     // ---- SUMMARIZER (display_order 30) -------------------------------------
@@ -573,6 +595,11 @@ fn main() -> Result<()> {
             yes,
         ),
         Cmd::Dashboard { out } => cli::dashboard(out),
+        Cmd::Report {
+            url_only,
+            auto,
+            session,
+        } => cli::report(url_only, auto, session),
 
         // SUMMARIZER
         Cmd::Summarizer { action } => match action {

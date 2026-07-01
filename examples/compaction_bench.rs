@@ -166,7 +166,7 @@ async fn run() -> i32 {
         "summary present in forwarded   : {}",
         serde_json::to_string(&warm_root["messages"])
             .unwrap()
-            .contains("local-model compaction")
+            .contains("[trimwire: summarized turns")
     );
 
     if !pairing_ok {

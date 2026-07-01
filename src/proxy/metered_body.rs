@@ -59,6 +59,13 @@ pub struct RequestInfo {
     pub strategy_bytes: String,
     pub prefix_hash_in: String,
     pub prefix_hash_out: String,
+    /// HTTP response status code from upstream, captured from the response head
+    /// BEFORE the body is consumed. Set at [`MeteredBody::wrap`] construction time
+    /// so it is always available when the ledger row is written. 0 is the "not
+    /// recorded" sentinel used for non-messages paths (but `MeteredBody` is only
+    /// constructed for `/v1/messages`, so 0 here means the status was genuinely 0
+    /// or was not set by the caller — normal usage sets it from `status.as_u16()`).
+    pub response_status: u16,
 }
 
 /// Accumulated response-side state during streaming.
@@ -122,6 +129,7 @@ impl Inner {
             applied_edits_cleared_thinking_turns: m.applied_edits_cleared_thinking_turns,
             applied_edits_cleared_tool_uses: m.applied_edits_cleared_tool_uses,
             applied_edits_cleared_input_tokens: m.applied_edits_cleared_input_tokens,
+            response_status: self.req.response_status,
         };
         self.ledger.record(rec);
     }
@@ -491,6 +499,7 @@ mod tests {
             strategy_bytes: String::new(),
             prefix_hash_in: "h".to_owned(),
             prefix_hash_out: "h".to_owned(),
+            response_status: 0,
         }
     }
 

@@ -71,7 +71,7 @@ async fn run() -> i32 {
     use trimwire::config::{SummarizerConfig, SummarizerLocalConfig, profile_baseline};
 
     // Offline-telemetry subscriber: surfaces the production tracing logs
-    // (`trimwire: local-model compaction installed` with ratio_pct/segments, and
+    // (`trimwire: summarizer compaction installed` with ratio_pct/segments, and
     // `reprune re-checkpoint` with saved_bytes) when replaying a real session with
     // RUST_LOG=trimwire=debug — the instrument that validates accumulator behavior
     // and re-checkpoint economics at scale without a live session.

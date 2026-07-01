@@ -1,6 +1,6 @@
 ---
 name: trimwire
-description: Use when the user asks — inside a Claude Code session — how much context trimwire is saving, for cache/token stats, to find or inspect a past session, to preview what pruning would do, to benchmark/share a summarizer model, or to opt in/out of the community dashboard. It shells the local `trimwire` CLI (safe, local, content-free) and explains the output. Triggers like "how much is trimwire saving?", "is trimwire working?", "trimwire stats", "what would pruning trim here?", "find my session from earlier", "share my benchmark", "opt in to the dashboard".
+description: Use when the user asks — inside a Claude Code session — how much context trimwire is saving, for cache/token stats, to find or inspect a past session, to preview what pruning would do, to benchmark/share a summarizer model, to opt in/out of the community dashboard, OR when something trimwire did looks wrong (content went missing, a re-read loop, a summary looks fabricated) and you want to explain it / file a report. It shells the local `trimwire` CLI (safe, local, content-free) and explains the output. Triggers like "how much is trimwire saving?", "is trimwire working?", "trimwire stats", "what would pruning trim here?", "find my session from earlier", "share my benchmark", "opt in to the dashboard", "something trimwire did looks wrong", "report a trimwire bug".
 ---
 
 # trimwire — in-session visibility
@@ -23,6 +23,7 @@ the user explicitly asks to opt in/out. Network uploads (`share stats` /
 - "Which of my recent sessions was biggest / used the most cache?" / "find that session from earlier" → `trimwire recall [query]`
 - "What would pruning trim on this (or a past) session?" (no wire, no token) → `trimwire preview --last`
 - "Something looks off with trimwire" → `trimwire doctor` (one-shot setup diagnosis)
+- "trimwire trimmed something I needed / file content went missing / this summary looks fabricated" → explain it (see *Recognizing trimwire in-session* below), then offer `trimwire report` to file a content-free issue
 
 ## Commands (safe + local; run via the shell)
 
@@ -42,6 +43,7 @@ plain form when you just want to show the user the human report.
 | Opt in / out of community uploads (persists consent; after `enable`, `share stats` uploads without `--yes` each run) | `trimwire share enable` · `trimwire share disable` |
 | Is the gateway running and serving? | `trimwire status` |
 | One-shot setup diagnosis (config + active profile, gateway health, `ANTHROPIC_BASE_URL` wiring, ledger) | `trimwire doctor` |
+| Print a pre-filled, content-free GitHub issue URL to report a trimwire problem (versions + OS + coarse cache-stability only; no paths/content) — show the user the link, they fill in the description and submit | `trimwire report` · `trimwire report --url-only` |
 
 ## How to interpret the output
 
@@ -55,6 +57,28 @@ plain form when you just want to show the user the human report.
 - **`recall`** gives the session id to pass to `stats --session`.
 - **`preview`** is the safe way to demonstrate the effect with zero risk (no
   network, no token, file untouched).
+
+## Recognizing trimwire in-session
+
+When something looks wrong mid-session, check whether **trimwire** (not the tool, not the user)
+is the cause, then explain it and offer to report it:
+
+- **A `[trimwire: …]` marker** at the start of a tool result or text block is trimwire. It names
+  what was removed (`stale read`, `paged out — Read <path>`, `trimmed N bytes`, `image stripped`,
+  `superseded by a later identical call`, `summarized turns A..B`). The original is still on
+  disk / re-runnable — **re-read the file or re-run the tool to recover the detail.** If the same
+  source keeps getting trimmed, or content clearly still needed was removed, that may be
+  over-trimming — tell the user and run `trimwire report`.
+- **Aged `thinking` blocks are dropped with no marker** (expected, not a bug — don't report).
+  With a configured `sliding_window` denylist, an old tool's `input` is blanked — a large one
+  becomes a `{"_trimwire": "[trimwire: input elided …]"}` breadcrumb, a small one falls back to a
+  bare `{}` (either way it's trimwire, not a tool genuinely called with no arguments).
+- **A `[trimwire: summarized turns …]` block** is the opt-in local-model summarizer; its accept
+  gate is size-only, so it can be **lossy or wrong** — verify any "done"/result claims by
+  re-reading/re-running before relying on them, and offer `trimwire report` if it looks fabricated.
+
+`trimwire report` only ever emits versions + OS/arch + a coarse cache-stability bucket — never file
+paths or session content. Show the user the link; they write the description and submit.
 
 ## Notes
 

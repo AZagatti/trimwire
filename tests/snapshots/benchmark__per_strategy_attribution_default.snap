@@ -39,11 +39,11 @@ expression: attribution_report(&default_install_config())
         "strategy": "failed_input_purge"
       },
       {
-        "bytes": 40,
+        "bytes": 55,
         "strategy": "cross_turn_dedup"
       },
       {
-        "bytes": 1752,
+        "bytes": 1749,
         "strategy": "stale_reads"
       },
       {
@@ -52,7 +52,7 @@ expression: attribution_report(&default_install_config())
       }
     ],
     "in_bytes": 47964,
-    "reduction_pct": 83.0
+    "reduction_pct": 82.9
   },
   "exempt_heavy": {
     "attribution": [],
@@ -96,7 +96,7 @@ expression: attribution_report(&default_install_config())
         "strategy": "failed_input_purge"
       },
       {
-        "bytes": 8,
+        "bytes": 11,
         "strategy": "cross_turn_dedup"
       },
       {
@@ -143,7 +143,7 @@ expression: attribution_report(&default_install_config())
   "resumed_session": {
     "attribution": [
       {
-        "bytes": 48,
+        "bytes": 66,
         "strategy": "cross_turn_dedup"
       },
       {

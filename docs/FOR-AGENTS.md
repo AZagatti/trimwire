@@ -41,6 +41,11 @@ Claude Code's API context on every request.
   when a specific elided detail is needed. Do **not** recommend switching to `gentle` for recall.
 - Trimwire removes only structurally-redundant or window-aged content — never by a semantic guess
   of what the model "needs".
+- Most elisions leave a `[trimwire: …]` cue, but **not all** — aged-out `thinking` blocks are
+  removed silently (no marker), and a small `sliding_window`-blanked input falls back to a bare
+  `{}` (large ones carry a `[trimwire: input elided …]` breadcrumb). So the marker is the common
+  case, not a universal guarantee. (In-session recognition/handling lives in the `/trimwire`
+  skill, not here.)
 
 ## Allowed claims (supported by evidence)
 

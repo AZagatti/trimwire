@@ -516,6 +516,10 @@ async fn handle(
                     strategy_bytes,
                     prefix_hash_in,
                     prefix_hash_out,
+                    // Capture the status from the response HEAD (available before the
+                    // body is consumed). 0 is the "not captured" sentinel per Record,
+                    // but here we always have the real status.
+                    response_status: status.as_u16(),
                 },
                 ledger,
             )
