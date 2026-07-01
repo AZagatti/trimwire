@@ -66,6 +66,11 @@ pub struct RequestInfo {
     /// constructed for `/v1/messages`, so 0 here means the status was genuinely 0
     /// or was not set by the caller — normal usage sets it from `status.as_u16()`).
     pub response_status: u16,
+    /// `true` when trimwire pruned a valid input into an invalid body and rolled
+    /// back to the original bytes this turn (issue #138). Carried from prune time
+    /// to the stream-end ledger write, like `response_status`. Recorded to the
+    /// `rolled_back` ledger column; surfaced by `invalid_prune_rollbacks`.
+    pub rolled_back: bool,
 }
 
 /// Accumulated response-side state during streaming.
@@ -130,6 +135,7 @@ impl Inner {
             applied_edits_cleared_tool_uses: m.applied_edits_cleared_tool_uses,
             applied_edits_cleared_input_tokens: m.applied_edits_cleared_input_tokens,
             response_status: self.req.response_status,
+            rolled_back: self.req.rolled_back,
         };
         self.ledger.record(rec);
     }
@@ -500,6 +506,7 @@ mod tests {
             prefix_hash_in: "h".to_owned(),
             prefix_hash_out: "h".to_owned(),
             response_status: 0,
+            rolled_back: false,
         }
     }
 

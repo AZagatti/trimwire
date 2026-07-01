@@ -1501,6 +1501,7 @@ fn dashboard_writes_html_from_a_populated_ledger() {
         applied_edits_cleared_tool_uses: 0,
         applied_edits_cleared_input_tokens: 0,
         response_status: 0,
+        rolled_back: false,
     };
 
     // Seed two rows through the REAL recorder (fire-and-forget on the tokio

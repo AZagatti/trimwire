@@ -353,7 +353,7 @@ async fn replay_arm(
                 .ok()
                 .and_then(|v| v["messages"].as_array().cloned())
                 .unwrap_or_else(|| upto.to_vec()),
-            BodyOutcome::Unchanged => upto.to_vec(),
+            BodyOutcome::Unchanged | BodyOutcome::RolledBack => upto.to_vec(),
         };
 
         bill_turn(&mut acc, prev.as_deref(), &snap);

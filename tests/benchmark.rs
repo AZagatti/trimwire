@@ -473,7 +473,8 @@ fn fuzz_apply_to_body_never_breaks_invariants() {
         let original = serde_json::to_vec(&body).expect("serialize");
         for cfg in &cfgs {
             match apply_to_body(&original, cfg) {
-                BodyOutcome::Unchanged => {}
+                // Rollback forwards the original (valid by construction) — nothing to assert.
+                BodyOutcome::Unchanged | BodyOutcome::RolledBack => {}
                 BodyOutcome::Mutated { bytes, .. } => {
                     // Safety invariants: stays valid JSON, orphan-free, system intact.
                     // (Body size: strategies only shrink real content, but on a

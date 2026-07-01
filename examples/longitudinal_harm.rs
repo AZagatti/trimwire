@@ -89,7 +89,7 @@ fn messages_of(body: &[u8]) -> Vec<Value> {
 fn model_sees(body: &[u8], cfg: &Config, state: &mut PruneState) -> Vec<Value> {
     match stable_apply_to_body(body, cfg, state, THRESHOLD) {
         BodyOutcome::Mutated { bytes, .. } => messages_of(&bytes),
-        BodyOutcome::Unchanged => messages_of(body),
+        BodyOutcome::Unchanged | BodyOutcome::RolledBack => messages_of(body),
     }
 }
 

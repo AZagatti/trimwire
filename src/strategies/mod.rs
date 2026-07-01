@@ -336,9 +336,11 @@ pub(crate) fn assistant_cutoff(messages: &[Value], keep_recent_turns: usize) -> 
 
 /// Result of applying strategies to a raw request body.
 pub enum BodyOutcome {
-    /// Forward the original bytes verbatim — not JSON, no `messages[]`,
-    /// nothing fired, or a strategy errored (rolled back). Keeping the exact
-    /// original bytes preserves Anthropic's prompt-cache prefix (SPIKE.md §9).
+    /// Forward the original bytes verbatim — not JSON, no `messages[]`, nothing
+    /// fired, or the INPUT body was already malformed (a client-side problem
+    /// trimwire safely declined to touch). Keeping the exact original bytes
+    /// preserves Anthropic's prompt-cache prefix (SPIKE.md §9). This is the
+    /// *blameless* forward-original outcome — never flagged as an anomaly.
     Unchanged,
     /// The body was mutated; carries the re-serialized bytes and per-strategy
     /// stats.
@@ -346,6 +348,15 @@ pub enum BodyOutcome {
         bytes: Vec<u8>,
         fired: Vec<(&'static str, Stats)>,
     },
+    /// trimwire pruned a KNOWN-VALID input into an INVALID body (a strategy
+    /// orphaned a `tool_use`/`tool_result` pair, or the mutated body failed to
+    /// re-serialize) and rolled back to the original bytes. On the wire this is
+    /// identical to [`Self::Unchanged`] — the original body is forwarded — but it is a
+    /// trimwire *bug* worth surfacing (issue #138), so the caller flags the
+    /// request for `report --auto`. Deliberately distinct from `Unchanged`,
+    /// which covers the blameless cases (including a malformed INPUT that
+    /// trimwire correctly declined — that must NOT be blamed on trimwire).
+    RolledBack,
 }
 
 /// Parse `body`, run enabled strategies over `messages[]`, and return whether
@@ -371,14 +382,26 @@ pub fn apply_to_body(body: &[u8], cfg: &Config) -> BodyOutcome {
         let Some(messages) = root.get_mut("messages").and_then(Value::as_array_mut) else {
             return BodyOutcome::Unchanged;
         };
+        // #138 — classify the two rollback causes. Validate the body trimwire
+        // RECEIVED (post-`normalize`, which only ever REPAIRS toward validity)
+        // before mutating it. An already-malformed input (e.g. an orphaned pair
+        // the client sent) is NOT trimwire's fault: decline silently as before
+        // and return the blameless `Unchanged` — never a rollback anomaly, else
+        // we'd false-blame trimwire for a client bug. From here the input is
+        // known-valid, so ANY validation failure inside `run()` is a
+        // trimwire-CAUSED breakage.
+        if PairingIndex::build(messages).validate().is_err() {
+            return BodyOutcome::Unchanged;
+        }
         let fired = match run(messages, cfg) {
             Ok(fired) => fired,
-            // Pre/post validation failed (orphan): forward the ORIGINAL body. Log it
-            // (WARN) — this is a graceful degradation, but a SILENT one was
-            // undiagnosable; `TRIMWIRE_LOG=warn` now surfaces how often it happens.
+            // Input was valid (checked just above) but a strategy orphaned a pair:
+            // trimwire produced an invalid prune. Forward the ORIGINAL body and
+            // FLAG it (issue #138) so `report --auto` can surface the strategy bug.
+            // Still logged at WARN for `TRIMWIRE_LOG=warn`.
             Err(e) => {
-                tracing::warn!(error = %e, "trimwire: pruning rolled back (orphan/validation) — forwarding the original unpruned body");
-                return BodyOutcome::Unchanged;
+                tracing::warn!(error = %e, "trimwire: pruning rolled back (trimwire produced an invalid body from a valid input) — forwarding the original unpruned body");
+                return BodyOutcome::RolledBack;
             }
         };
         // Always-on correctness sanitize (independent of any strategy or profile,
@@ -396,11 +419,12 @@ pub fn apply_to_body(body: &[u8], cfg: &Config) -> BodyOutcome {
 
     match serde_json::to_vec(&root) {
         Ok(bytes) => BodyOutcome::Mutated { bytes, fired },
-        // Re-serializing a Value we just parsed essentially never fails; if it does,
-        // forward the original rather than corrupt the request — but log it.
+        // We mutated a known-valid body then failed to re-serialize it —
+        // vanishingly rare (it round-tripped a parse already), but it IS
+        // trimwire-caused, so flag it like the orphan rollback (#138).
         Err(e) => {
             tracing::warn!(error = %e, "trimwire: re-serialize after pruning failed — forwarding the original body");
-            BodyOutcome::Unchanged
+            BodyOutcome::RolledBack
         }
     }
 }
@@ -458,6 +482,7 @@ mod tests {
                 assert_eq!(msgs[0]["role"], json!("user"));
             }
             BodyOutcome::Unchanged => panic!("enabled normalize must mutate the malformed body"),
+            BodyOutcome::RolledBack => panic!("normalize path must not roll back"),
         }
     }
 
@@ -501,6 +526,7 @@ mod tests {
                 bytes
             }
             BodyOutcome::Unchanged => panic!("expected a mutation"),
+            BodyOutcome::RolledBack => panic!("unexpected rollback"),
         };
         let before: Value = serde_json::from_slice(&body).unwrap();
         let after: Value = serde_json::from_slice(&out).unwrap();
@@ -543,6 +569,36 @@ mod tests {
             apply_to_body(b"this is not json{", &firing_config()),
             BodyOutcome::Unchanged
         ));
+    }
+
+    /// #138 — the (a)/(b) distinction. A body the CLIENT sent malformed (a
+    /// `tool_result` with no matching `tool_use` → `validate()` orphan) must be
+    /// forwarded as the blameless `Unchanged`, NEVER as `RolledBack`: trimwire
+    /// declined to touch a body it didn't break, so it must not be blamed for it.
+    #[test]
+    fn client_malformed_input_is_unchanged_not_rolled_back() {
+        let body = serde_json::to_vec(&json!({
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 1024,
+            "system": "you are helpful",
+            "messages": [
+                {"role": "user", "content": [
+                    // Orphan: no assistant tool_use with id "toolu_ghost" precedes it.
+                    {"type": "tool_result", "tool_use_id": "toolu_ghost",
+                     "content": "x".repeat(9000)}
+                ]},
+            ],
+        }))
+        .unwrap();
+        // Even under an aggressive firing config, the up-front input-validate
+        // declines before any strategy runs.
+        match apply_to_body(&body, &firing_config()) {
+            BodyOutcome::Unchanged => {}
+            BodyOutcome::RolledBack => {
+                panic!("a client-malformed input must NOT be flagged as a trimwire rollback")
+            }
+            BodyOutcome::Mutated { .. } => panic!("must not mutate a malformed input"),
+        }
     }
 
     /// A body with no `messages[]` forwards verbatim.
@@ -622,6 +678,7 @@ mod tests {
                 bytes
             }
             BodyOutcome::Unchanged => panic!("expected both strategies to fire"),
+            BodyOutcome::RolledBack => panic!("unexpected rollback"),
         };
 
         // Forwarded body is orphan-free, and both stub markers are present.
@@ -773,6 +830,7 @@ mod tests {
                 bytes
             }
             BodyOutcome::Unchanged => panic!("expected both strategies to fire"),
+            BodyOutcome::RolledBack => panic!("unexpected rollback"),
         };
         let before: Value = serde_json::from_slice(&body).unwrap();
         let after: Value = serde_json::from_slice(&out).unwrap();
@@ -877,6 +935,7 @@ mod tests {
                 bytes
             }
             BodyOutcome::Unchanged => panic!("expected both strategies to mutate"),
+            BodyOutcome::RolledBack => panic!("unexpected rollback"),
         };
 
         // Idempotent: a second pass over the already-pruned body is a no-op

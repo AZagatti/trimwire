@@ -286,8 +286,9 @@ async fn handle(
     let mut out_body = body_bytes;
     let mut prune_log = String::new();
     // (prefix_hash_in, prefix_hash_out, fired-strategy CSV, per-strategy bytes
-    // CSV) for the ledger, recorded only for the messages endpoint we prune.
-    let mut ledger_entry: Option<(String, String, String, String, Option<String>)> = None;
+    // CSV, model, rolled_back) for the ledger, recorded only for the messages
+    // endpoint we prune. `rolled_back` (#138) flags a trimwire-caused rollback.
+    let mut ledger_entry: Option<(String, String, String, String, Option<String>, bool)> = None;
     let is_messages = method == Method::POST && path_only(&path_and_query) == MESSAGES_PATH;
     // `trimwire off` flips a runtime sentinel (src/bypass.rs) — when it's set we
     // forward the body UNMODIFIED (a true bypass), so `off` sends the agent
@@ -354,7 +355,7 @@ async fn handle(
             }
             _ => strategies::apply_to_body(&out_body, &config),
         };
-        let (strategies, strategy_bytes) = match outcome {
+        let (strategies, strategy_bytes, rolled_back) = match outcome {
             BodyOutcome::Mutated { bytes, fired } => {
                 prune_log = format_fired(&fired);
                 let fired: Vec<_> = fired.iter().filter(|(_, s)| s.stubbed > 0).collect();
@@ -371,9 +372,18 @@ async fn handle(
                     .collect::<Vec<_>>()
                     .join(",");
                 out_body = Bytes::from(bytes);
-                (csv, bytes_csv)
+                (csv, bytes_csv, false)
             }
-            BodyOutcome::Unchanged => (String::new(), String::new()),
+            // Blameless forward-original (no-op / parse-miss / malformed INPUT):
+            // no strategies fired, not a rollback anomaly.
+            BodyOutcome::Unchanged => (String::new(), String::new(), false),
+            // #138: trimwire pruned a valid body into an invalid one and forwarded
+            // the original. No strategies "fired" (out_body stays the input), but
+            // flag the rollback so `report --auto` can surface the strategy bug.
+            BodyOutcome::RolledBack => {
+                prune_log = " rolled-back".to_owned();
+                (String::new(), String::new(), true)
+            }
         };
         let hash_out = ledger::prefix_hash(&out_body);
 
@@ -393,7 +403,14 @@ async fn handle(
             }
         }
 
-        ledger_entry = Some((hash_in, hash_out, strategies, strategy_bytes, model));
+        ledger_entry = Some((
+            hash_in,
+            hash_out,
+            strategies,
+            strategy_bytes,
+            model,
+            rolled_back,
+        ));
     }
     let out_len = out_body.len();
     // B-7: warn when the (post-prune) body nears Anthropic's ~20 MB request-size
@@ -509,36 +526,42 @@ async fn handle(
     }
 
     let ts = unix_secs();
-    let response_body =
-        if let Some((prefix_hash_in, prefix_hash_out, strategies, strategy_bytes, model)) =
-            ledger_entry
-        {
-            // Messages path: use MeteredBody — the ledger write happens at stream-end
-            // (or Drop). No separate fire-and-forget record call here.
-            MeteredBody::wrap(
-                up_body,
-                send_instant,
-                RequestInfo {
-                    ts,
-                    session_id,
-                    model,
-                    in_bytes: in_len as i64,
-                    out_bytes: out_len as i64,
-                    strategies,
-                    strategy_bytes,
-                    prefix_hash_in,
-                    prefix_hash_out,
-                    // Capture the status from the response HEAD (available before the
-                    // body is consumed). 0 is the "not captured" sentinel per Record,
-                    // but here we always have the real status.
-                    response_status: status.as_u16(),
-                },
-                ledger,
-            )
-        } else {
-            // Non-messages path: pure passthrough, no ledger row.
-            passthrough(up_body)
-        };
+    let response_body = if let Some((
+        prefix_hash_in,
+        prefix_hash_out,
+        strategies,
+        strategy_bytes,
+        model,
+        rolled_back,
+    )) = ledger_entry
+    {
+        // Messages path: use MeteredBody — the ledger write happens at stream-end
+        // (or Drop). No separate fire-and-forget record call here.
+        MeteredBody::wrap(
+            up_body,
+            send_instant,
+            RequestInfo {
+                ts,
+                session_id,
+                model,
+                in_bytes: in_len as i64,
+                out_bytes: out_len as i64,
+                strategies,
+                strategy_bytes,
+                prefix_hash_in,
+                prefix_hash_out,
+                // Capture the status from the response HEAD (available before the
+                // body is consumed). 0 is the "not captured" sentinel per Record,
+                // but here we always have the real status.
+                response_status: status.as_u16(),
+                rolled_back,
+            },
+            ledger,
+        )
+    } else {
+        // Non-messages path: pure passthrough, no ledger row.
+        passthrough(up_body)
+    };
 
     let down = down
         .body(response_body)

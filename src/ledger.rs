@@ -74,6 +74,13 @@ pub struct Record {
     /// here means Anthropic rejected the (possibly pruned) body — the
     /// attributable-suspicion signal surfaced by `post_prune_errors`.
     pub response_status: u16,
+    /// `true` when trimwire pruned a KNOWN-VALID input into an INVALID body and
+    /// rolled back to the original bytes (issue #138). This is a trimwire *bug*
+    /// (a strategy/replay orphaned a `tool_use`/`tool_result` pair, or the mutated
+    /// body failed to re-serialize), NOT a client-side malformed input (those are
+    /// declined silently and never set this). Surfaced by `invalid_prune_rollbacks`
+    /// — the generic "trimwire malfunctioned" signal complementing `post_prune_errors`.
+    pub rolled_back: bool,
 }
 
 /// Cheaply-cloneable handle held by the gateway. `None` = degraded (the DB
@@ -314,12 +321,24 @@ impl Ledger {
         } else {
             0
         };
+        // Invalid-prune rollbacks for this session (#138). Column-tolerant: a
+        // READ_ONLY connection can predate the `rolled_back` migration → 0.
+        let invalid_prune_rollbacks: u64 = if column_exists(&conn, "requests", "rolled_back")? {
+            conn.query_row(
+                "SELECT COUNT(*) FROM requests WHERE session_id = ?1 AND rolled_back = 1",
+                [&sid],
+                |row| row.get::<_, i64>(0),
+            )? as u64
+        } else {
+            0
+        };
         Ok(Some(SessionReport {
             session_id: sid,
             started_at,
             ended_at,
             per_model,
             post_prune_errors,
+            invalid_prune_rollbacks,
         }))
     }
 
@@ -506,6 +525,12 @@ pub struct SessionReport {
     /// The per-session analogue of the all-time `Report::post_prune_errors`.
     /// 0 when the `response_status` column is absent (older ledger).
     pub post_prune_errors: u64,
+    /// Requests in this session where trimwire pruned a valid input into an
+    /// invalid body and rolled back (issue #138) — the generic "trimwire
+    /// malfunctioned" signal. The per-session analogue of the all-time
+    /// `Report::invalid_prune_rollbacks`. 0 when the `rolled_back` column is
+    /// absent (older ledger).
+    pub invalid_prune_rollbacks: u64,
 }
 
 /// SHA-256 (hex) of the request **prefix**: the top-level JSON object with the
@@ -587,7 +612,8 @@ fn init_schema(conn: &Connection) -> Result<()> {
             applied_edits_cleared_tool_uses      INTEGER NOT NULL DEFAULT 0,
             applied_edits_cleared_input_tokens   INTEGER NOT NULL DEFAULT 0,
             model           TEXT,
-            response_status INTEGER NOT NULL DEFAULT 0
+            response_status INTEGER NOT NULL DEFAULT 0,
+            rolled_back     INTEGER NOT NULL DEFAULT 0
         ) STRICT;
         CREATE INDEX IF NOT EXISTS idx_requests_ts ON requests(ts);
         -- Opt-in summarizer outcomes — one append-only row per model
@@ -658,6 +684,15 @@ fn add_missing_columns(conn: &Connection) -> Result<()> {
             "ALTER TABLE requests ADD COLUMN response_status INTEGER NOT NULL DEFAULT 0",
         )?;
     }
+    // requests.rolled_back (#138): 1 when trimwire pruned a valid input into an
+    // invalid body and forwarded the original (a trimwire bug). DEFAULT 0 = "no
+    // rollback recorded" — the correct reading for pre-existing rows.
+    let has_rolled_back = column_exists(conn, "requests", "rolled_back")?;
+    if !has_rolled_back {
+        conn.execute_batch(
+            "ALTER TABLE requests ADD COLUMN rolled_back INTEGER NOT NULL DEFAULT 0",
+        )?;
+    }
     Ok(())
 }
 
@@ -677,8 +712,8 @@ fn insert(conn: &Connection, r: &Record) -> rusqlite::Result<()> {
              ttft_us, input_tokens, cache_read_input_tokens, cache_creation_input_tokens,
              output_tokens, applied_edits_cleared_thinking_turns,
              applied_edits_cleared_tool_uses, applied_edits_cleared_input_tokens,
-             response_status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+             response_status, rolled_back)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         rusqlite::params![
             r.ts,
             r.session_id,
@@ -698,6 +733,7 @@ fn insert(conn: &Connection, r: &Record) -> rusqlite::Result<()> {
             r.applied_edits_cleared_tool_uses,
             r.applied_edits_cleared_input_tokens,
             r.response_status as i64,
+            r.rolled_back as i64,
         ],
     )?;
     Ok(())
@@ -812,6 +848,12 @@ pub struct Report {
     /// upstream HTTP ≥400 responses). Superset of `post_prune_errors`.
     /// 0 when the `response_status` column is absent (older ledger).
     pub upstream_http_errors: u64,
+    /// Requests where trimwire pruned a valid input into an invalid body and
+    /// rolled back (issue #138) — the generic "a trimwire strategy produced
+    /// something invalid" signal, complementing `post_prune_errors`. Near-zero
+    /// in practice (strategies are well-tested); a non-zero count is a real bug.
+    /// 0 when the `rolled_back` column is absent (older ledger).
+    pub invalid_prune_rollbacks: u64,
     pub db_path: PathBuf,
 }
 
@@ -1124,6 +1166,18 @@ fn build_report(conn: &Connection, db_path: PathBuf, since: i64, until: i64) -> 
             (0, 0)
         };
 
+    // Invalid-prune rollbacks in-window (#138). Same older-ledger column tolerance.
+    let invalid_prune_rollbacks: u64 = if column_exists(conn, "requests", "rolled_back")? {
+        conn.query_row(
+            "SELECT COUNT(CASE WHEN rolled_back = 1 THEN 1 END)
+                 FROM requests WHERE ts >= ?1 AND ts < ?2",
+            rusqlite::params![since, until],
+            |row| Ok(row.get::<_, i64>(0)? as u64),
+        )?
+    } else {
+        0
+    };
+
     Ok(Report {
         total_requests: total_requests as u64,
         total_in_bytes: total_in_bytes as u64,
@@ -1159,6 +1213,7 @@ fn build_report(conn: &Connection, db_path: PathBuf, since: i64, until: i64) -> 
         upstream_timeouts,
         post_prune_errors,
         upstream_http_errors,
+        invalid_prune_rollbacks,
         db_path,
     })
 }
@@ -1233,6 +1288,7 @@ mod tests {
             upstream_timeouts: 0,
             post_prune_errors: 0,
             upstream_http_errors: 0,
+            invalid_prune_rollbacks: 0,
             db_path: std::path::PathBuf::from(":memory:"),
         };
         assert_eq!(r.bytes_saved(), 400);
@@ -1414,6 +1470,7 @@ mod tests {
             applied_edits_cleared_tool_uses: 0,
             applied_edits_cleared_input_tokens: 0,
             response_status: 0,
+            rolled_back: false,
         }
     }
 
@@ -1646,6 +1703,7 @@ mod tests {
                     applied_edits_cleared_tool_uses: 0,
                     applied_edits_cleared_input_tokens: 0,
                     response_status: 0,
+                    rolled_back: false,
                 }
             };
         // Session s1: two Opus rows + one Haiku row. Then s2 (one Opus row) is
@@ -1872,6 +1930,7 @@ mod tests {
             applied_edits_cleared_tool_uses: 5,
             applied_edits_cleared_input_tokens: 3000,
             response_status: 0,
+            rolled_back: false,
         };
         // Row 2: has TTFT + tokens, no applied_edits.
         let r2 = Record {
@@ -1893,6 +1952,7 @@ mod tests {
             applied_edits_cleared_tool_uses: 0,
             applied_edits_cleared_input_tokens: 0,
             response_status: 0,
+            rolled_back: false,
         };
         // Row 3: no TTFT (ttft_ms=0), no tokens.
         let r3 = Record {
@@ -1914,6 +1974,7 @@ mod tests {
             applied_edits_cleared_tool_uses: 0,
             applied_edits_cleared_input_tokens: 0,
             response_status: 0,
+            rolled_back: false,
         };
         insert(&conn, &r1).unwrap();
         insert(&conn, &r2).unwrap();
@@ -2107,6 +2168,15 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(status, 0, "migrated row must default to 0 (not captured)");
+            // #138: the same migration adds `rolled_back`, defaulting to 0.
+            let rb: i64 = conn
+                .query_row(
+                    "SELECT rolled_back FROM requests WHERE ts = 9000000001",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(rb, 0, "migrated row must default to rolled_back = 0");
         }
     }
 
@@ -2162,5 +2232,100 @@ mod tests {
         assert_eq!(report.total_requests, 1, "request row visible");
         assert_eq!(report.post_prune_errors, 0, "absent column → 0");
         assert_eq!(report.upstream_http_errors, 0, "absent column → 0");
+        // #138: the `rolled_back` column is also absent in this older schema →
+        // the aggregate must tolerate it and read 0, not error.
+        assert_eq!(
+            report.invalid_prune_rollbacks, 0,
+            "absent rolled_back column → 0"
+        );
+    }
+
+    /// #138: `session_report` (the per-session read path) must ALSO tolerate an
+    /// older ledger that predates the `rolled_back` column — its `column_exists`
+    /// guard returns 0 rather than erroring. (The all-time path is covered above;
+    /// this pins the per-session guard the ledger review flagged as uncovered.)
+    #[test]
+    fn session_report_tolerates_requests_missing_rolled_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            // Older schema: no response_status, no rolled_back. A row carrying a
+            // session_id + model + tokens so `session_report` yields Some(..).
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL;
+                 CREATE TABLE requests (
+                     id              INTEGER PRIMARY KEY,
+                     ts              INTEGER NOT NULL,
+                     session_id      TEXT,
+                     in_bytes        INTEGER NOT NULL DEFAULT 0,
+                     out_bytes       INTEGER NOT NULL DEFAULT 0,
+                     strategies      TEXT NOT NULL DEFAULT '',
+                     prefix_hash_in  TEXT NOT NULL DEFAULT '',
+                     prefix_hash_out TEXT NOT NULL DEFAULT '',
+                     strategy_bytes  TEXT NOT NULL DEFAULT '',
+                     ttft_us         INTEGER NOT NULL DEFAULT 0,
+                     input_tokens    INTEGER NOT NULL DEFAULT 0,
+                     cache_read_input_tokens    INTEGER NOT NULL DEFAULT 0,
+                     cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+                     output_tokens   INTEGER NOT NULL DEFAULT 0,
+                     applied_edits_cleared_thinking_turns INTEGER NOT NULL DEFAULT 0,
+                     applied_edits_cleared_tool_uses      INTEGER NOT NULL DEFAULT 0,
+                     applied_edits_cleared_input_tokens   INTEGER NOT NULL DEFAULT 0,
+                     model           TEXT
+                 ) STRICT;
+                 INSERT INTO requests
+                     (ts, session_id, model, in_bytes, out_bytes, strategies,
+                      prefix_hash_in, prefix_hash_out, input_tokens)
+                 VALUES (1000, 'sess-old', 'claude-haiku-4-5', 1000, 600,
+                         'bloat_cap', 'a', 'a', 42);",
+            )
+            .unwrap();
+        }
+        let rep = Ledger::session_report(path.to_str().unwrap(), Some("sess-old"))
+            .unwrap()
+            .expect("session row is present");
+        assert_eq!(
+            rep.invalid_prune_rollbacks, 0,
+            "absent rolled_back column → per-session aggregate reads 0, not error"
+        );
+    }
+
+    /// #138: `rolled_back` rows round-trip through insert → all-time
+    /// `Report::invalid_prune_rollbacks` AND per-session
+    /// `SessionReport::invalid_prune_rollbacks`; non-rolled-back rows don't count.
+    #[test]
+    fn rolled_back_roundtrip_and_aggregate() {
+        let (conn, dir) = temp_ledger();
+        let p = dir.path().join("ledger.db");
+        let p = p.to_str().unwrap();
+
+        // s1: two trimwire-caused rollbacks (strategies empty — a rollback
+        // forwards the original body, so nothing "fired").
+        let mut r1 = rec(1000, "", "a", "a");
+        r1.session_id = Some("s1".to_owned());
+        r1.rolled_back = true;
+        let mut r2 = rec(2000, "", "b", "b");
+        r2.session_id = Some("s1".to_owned());
+        r2.rolled_back = true;
+        // s2: a normal pruned row, no rollback → must NOT count.
+        let mut r3 = rec(3000, "bloat_cap", "c", "c");
+        r3.session_id = Some("s2".to_owned());
+        insert(&conn, &r1).unwrap();
+        insert(&conn, &r2).unwrap();
+        insert(&conn, &r3).unwrap();
+        drop(conn);
+
+        let report = Ledger::report(p).unwrap();
+        assert_eq!(
+            report.invalid_prune_rollbacks, 2,
+            "r1 + r2 rolled back; r3 did not"
+        );
+        assert_eq!(report.total_requests, 3, "all rows recorded regardless");
+
+        let s1 = Ledger::session_report(p, Some("s1")).unwrap().unwrap();
+        assert_eq!(s1.invalid_prune_rollbacks, 2, "both rollbacks are in s1");
+        let s2 = Ledger::session_report(p, Some("s2")).unwrap().unwrap();
+        assert_eq!(s2.invalid_prune_rollbacks, 0, "s2 had no rollback");
     }
 }
