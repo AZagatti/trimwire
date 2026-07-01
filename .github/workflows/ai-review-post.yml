@@ -15,6 +15,12 @@ permissions:
   actions: read        # download the gather artifact
   pull-requests: write # post/update the review comment
 
+# Serialize posts for the same source branch so two runs can't both create the
+# sticky comment (duplicate-comment race).
+concurrency:
+  group: ai-review-post-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
 jobs:
   post:
     if: >-
@@ -51,13 +57,28 @@ jobs:
             const MARKER = '<!-- ai-code-review -->';
             const meta = JSON.parse(fs.readFileSync('artifacts/pr-meta.json', 'utf8'));
             const prNumber = Number(meta.number);
+            if (!Number.isInteger(prNumber) || prNumber < 1) {
+              core.setFailed(`invalid PR number in artifact: ${meta.number}`);
+              return;
+            }
+            // Cross-check the artifact's PR number against the event when present,
+            // so a poisoned artifact can't redirect the comment to another PR.
+            const eventPRs = context.payload.workflow_run.pull_requests || [];
+            if (eventPRs.length > 0 && eventPRs[0].number !== prNumber) {
+              core.setFailed(`PR number mismatch: artifact=${prNumber} event=${eventPRs[0].number}`);
+              return;
+            }
             const body = fs.readFileSync('review.md', 'utf8');
             const { owner, repo } = context.repo;
             const comments = await github.paginate(
               github.rest.issues.listComments,
               { owner, repo, issue_number: prNumber }
             );
-            const existing = comments.find(c => c.body && c.body.includes(MARKER));
+            // Only update OUR bot's comment — a contributor can't pre-post the marker
+            // to hijack the sticky slot.
+            const existing = comments.find(
+              c => c.body && c.body.includes(MARKER) && c.user && c.user.type === 'Bot'
+            );
             if (existing) {
               await github.rest.issues.updateComment(
                 { owner, repo, comment_id: existing.id, body });

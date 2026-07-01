@@ -54,7 +54,7 @@ jobs:
             --arg base   "$BASE_SHA" \
             --arg head   "$HEAD_SHA" \
             --arg repo   "$REPO" \
-            --rawfile body <(gh pr view "$PR" --json body -q .body) \
+            --rawfile body <(gh pr view "$PR" --json body -q '.body // ""') \
             '{number: ($number|tonumber), title: $title, author: $author,
               base_sha: $base, head_sha: $head, repo: $repo, body: $body}' \
             > artifacts/pr-meta.json

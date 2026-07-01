@@ -77,6 +77,9 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ inputs.pr }}
         run: |
+          # Reject anything but a positive integer before it reaches gh api (a
+          # crafted value like `141"` could otherwise pass a flag to gh).
+          [[ "$PR" =~ ^[1-9][0-9]*$ ]] || { echo "::error::PR must be a positive integer"; exit 1; }
           mkdir -p artifacts
           gh api "repos/$REPO/pulls/$PR/files" --paginate > artifacts/pr-files.json
           gh api "repos/$REPO/pulls/$PR" > pr.json
@@ -131,7 +134,10 @@ jobs:
               github.rest.issues.listComments,
               { owner, repo, issue_number: prNumber }
             );
-            const existing = comments.find(c => c.body && c.body.includes(MARKER));
+            // Only update our own bot comment (anti-hijack).
+            const existing = comments.find(
+              c => c.body && c.body.includes(MARKER) && c.user && c.user.type === 'Bot'
+            );
             if (existing) {
               await github.rest.issues.updateComment(
                 { owner, repo, comment_id: existing.id, body });
