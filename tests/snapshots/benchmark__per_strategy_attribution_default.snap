@@ -1,6 +1,5 @@
 ---
 source: tests/benchmark.rs
-assertion_line: 538
 expression: attribution_report(&default_install_config())
 ---
 {
@@ -72,12 +71,12 @@ expression: attribution_report(&default_install_config())
   "long_running": {
     "attribution": [
       {
-        "bytes": 80389,
+        "bytes": 88585,
         "strategy": "bloat_cap"
       }
     ],
     "in_bytes": 133649,
-    "reduction_pct": 60.1
+    "reduction_pct": 66.3
   },
   "mcp_non_playwright": {
     "attribution": [
@@ -147,12 +146,12 @@ expression: attribution_report(&default_install_config())
         "strategy": "cross_turn_dedup"
       },
       {
-        "bytes": 112382,
+        "bytes": 136964,
         "strategy": "bloat_cap"
       }
     ],
     "in_bytes": 186354,
-    "reduction_pct": 65.0
+    "reduction_pct": 78.2
   },
   "stale_input_heavy": {
     "attribution": [

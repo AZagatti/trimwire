@@ -48,8 +48,8 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `coding` | 2.6% → **15.3%** | 0.0% → **0.0%** |
 | `mixed_realistic` | 0.3% → **6.8%** | 0.4% → **0.0%** |
 | `mcp_non_playwright` | 40.1% → **68.4%** | 0.0% → **0.0%** |
-| `long_running` | 17.2% → **43.2%** | 0.0% → **0.0%** |
-| `resumed_session` | 2.5% → **7.0%** | 4.9% → **0.0%** |
+| `long_running` | 17.2% → **51.0%** | 0.0% → **0.0%** |
+| `resumed_session` | 2.5% → **11.3%** | 4.9% → **0.0%** |
 | `browser_heavy` | 71.4% → **98.0%** | 0.0% → **0.0%** |
 | `giant_paste` | 0.2% → **18.3%** | 0.0% → **0.0%** |
 | `stale_input_heavy` | 7.1% → **45.5%** | 0.0% → **0.0%** |
@@ -81,8 +81,8 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `coding` | dedup on the superseded reads, bloat_cap on the old log | 48.0 KB | 8.2 KB | 39.8 KB | 82.9% | pruned |
 | `mixed_realistic` | several strategies each take a slice — the realistic composite | 363.0 KB | 16.8 KB | 346.2 KB | 95.4% | pruned |
 | `mcp_non_playwright` | default: bloat_cap only (denylist is playwright-only); more if tuned | 129.6 KB | 44.9 KB | 84.6 KB | 65.3% | pruned |
-| `long_running` | diverse outputs; only aged oversized logs are capped | 133.6 KB | 53.3 KB | 80.4 KB | 60.1% | pruned |
-| `resumed_session` | the length sweet spot: big size savings AND a real cost win | 186.4 KB | 65.2 KB | 121.1 KB | 65.0% | pruned |
+| `long_running` | diverse outputs; only aged oversized logs are capped | 133.6 KB | 45.1 KB | 88.6 KB | 66.3% | pruned |
+| `resumed_session` | the length sweet spot: big size savings AND a real cost win | 186.4 KB | 40.7 KB | 145.7 KB | 78.2% | pruned |
 | `browser_heavy` | biggest byte win, but the heaviest cache churn — often a wash on cost | 423.2 KB | 63.5 KB | 359.7 KB | 85.0% | pruned |
 | `giant_paste` | extreme single-result bloat_cap; the big-body overhead probe | 508.2 KB | 5.9 KB | 502.3 KB | 98.8% | pruned |
 | `stale_input_heavy` | old successful calls with bulky inputs — stale_input_cap territory | 14.3 KB | 2.2 KB | 12.0 KB | 84.3% | pruned |
@@ -108,8 +108,8 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `coding` | 82.9% | 24.6% |
 | `mixed_realistic` | 95.4% | 78.1% |
 | `mcp_non_playwright` | 65.3% | 0.0% |
-| `long_running` | 60.1% | 0.0% |
-| `resumed_session` | 65.0% | 4.7% |
+| `long_running` | 66.3% | 0.0% |
+| `resumed_session` | 78.2% | 4.7% |
 | `browser_heavy` | 85.0% | 0.0% |
 | `giant_paste` | 98.8% | 0.0% |
 | `stale_input_heavy` | 84.3% | 0.0% |
@@ -144,8 +144,8 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `coding` | 3.0 KB | — | 55 B | 1.7 KB | — | 26.2 KB | — | — | — |
 | `mixed_realistic` | 2.5 KB | — | 11 B | — | — | 42.3 KB | 20.4 KB | — | — |
 | `mcp_non_playwright` | — | — | — | — | — | 84.6 KB | — | — | — |
-| `long_running` | — | — | — | — | — | 80.4 KB | — | — | — |
-| `resumed_session` | — | — | 66 B | — | — | 112.4 KB | — | — | — |
+| `long_running` | — | — | — | — | — | 88.6 KB | — | — | — |
+| `resumed_session` | — | — | 66 B | — | — | 137.0 KB | — | — | — |
 | `browser_heavy` | — | — | — | — | — | 4 B | 16.3 KB | 60.0 KB | — |
 | `giant_paste` | — | — | — | — | — | 502.3 KB | — | — | — |
 | `stale_input_heavy` | — | 12.0 KB | — | — | — | — | — | — | — |
@@ -165,8 +165,8 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `coding` | 100.0% | 74.4% | 89.8% |
 | `mixed_realistic` | 100.0% | 46.2% | 68.5% |
 | `mcp_non_playwright` | 100.0% | 60.8% | 100.0% |
-| `long_running` | 100.0% | 84.0% | 100.0% |
-| `resumed_session` | 100.0% | 87.4% | 96.4% |
+| `long_running` | 100.0% | 74.5% | 100.0% |
+| `resumed_session` | 100.0% | 77.3% | 96.4% |
 | `browser_heavy` | 100.0% | 1.2% | 100.0% |
 | `giant_paste` | 100.0% | 83.3% | 100.0% |
 | `stale_input_heavy` | 100.0% | 54.8% | 100.0% |
@@ -207,8 +207,8 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `coding` | $0.0913 | -0.4% | +15.8% |
 | `mixed_realistic` | $0.5510 | -23.7% | +82.4% |
 | `mcp_non_playwright` | $0.1627 | +34.5% | +0.0% |
-| `long_running` | $0.2378 | -20.0% | +0.0% |
-| `resumed_session` | $0.5701 | -26.0% | +15.4% |
+| `long_running` | $0.2378 | +3.1% | +0.0% |
+| `resumed_session` | $0.5701 | -10.6% | +15.4% |
 | `browser_heavy` | $0.4270 | -21.1% | +0.0% |
 | `giant_paste` | $0.6239 | -23.6% | +0.0% |
 | `stale_input_heavy` | $0.0325 | +11.3% | +0.0% |
@@ -260,8 +260,8 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 | `coding` | $0.0909 → $0.0758 ↓ | 74.4% → **87.3%** |
 | `mixed_realistic` | $0.4205 → $0.3737 ↓ | 46.2% → **81.9%** |
 | `mcp_non_playwright` | $0.2188 → $0.1705 ↓ | 60.8% → **88.9%** |
-| `long_running` | $0.1904 → $0.2325 ↑ | 84.0% → **85.2%** |
-| `resumed_session` | $0.4221 → $0.4107 ↓ | 87.4% → **90.7%** |
+| `long_running` | $0.2451 → $0.2464 ↑ | 74.5% → **82.7%** |
+| `resumed_session` | $0.5099 → $0.4269 ↓ | 77.3% → **86.7%** |
 | `browser_heavy` | $0.3368 → $0.3621 ↑ | 1.2% → **66.7%** |
 | `giant_paste` | $0.4764 → $0.5521 ↑ | 83.3% → **83.3%** |
 | `stale_input_heavy` | $0.0362 → $0.0327 ↓ | 54.8% → **87.6%** |
@@ -277,7 +277,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 > The aging strategies only fire once content passes the recent-turn window,
 > so savings start near zero and climb. Reduction % at each turn:
 
-- `long_running` — t1:0.0%  t3:0.0%  t5:37.4%  t7:36.3%  t9:49.1%  t11:48.1%  t13:54.8%  t15:54.0%  t17:58.2%  t19:57.5%  t21:60.4%
+- `long_running` — t1:0.0%  t3:0.0%  t5:37.4%  t7:36.3%  t9:49.1%  t11:48.1%  t13:54.8%  t15:54.0%  t17:58.2%  t19:61.2%  t21:63.5%
 - `mixed_realistic` — t1:0.0%  t3:7.6%  t5:75.5%  t7:55.8%  t9:74.7%  t11:74.2%  t13:90.6%  t15:95.5%  t17:95.4%
 - `mcp_non_playwright` — t1:0.0%  t2:0.0%  t3:0.0%  t4:40.8%  t5:27.3%  t6:54.4%  t7:40.9%  t8:61.2%  t9:49.1%  t10:65.3%
 
@@ -286,7 +286,7 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 > pruned focus holds steady. That's trimwire keeping the session clean:
 
 - `resumed_session` unpruned focus — t1:100.0%  t7:53.5%  t13:9.7%  t19:31.7%  t25:23.8%  t31:16.0%  t37:13.6%  t43:12.4%  t49:2.5%
-- `resumed_session`  pruned  focus — t1:100.0%  t7:80.7%  t13:26.0%  t19:32.7%  t25:25.0%  t31:36.1%  t37:31.9%  t43:30.0%  t49:7.1%
+- `resumed_session`  pruned  focus — t1:100.0%  t7:80.7%  t13:26.0%  t19:39.0%  t25:33.2%  t31:41.9%  t37:39.1%  t43:41.3%  t49:11.5%
 
 ### …and the cost crossover with session length
 
@@ -302,10 +302,10 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 |--:|--:|--:|--:|
 | 8 | $0.0610 | $0.0596 | -2.3% |
 | 16 | $0.1141 | $0.1047 | -8.2% |
-| 32 | $0.2926 | $0.2673 | -8.6% |
-| 64 | $0.8658 | $0.6029 | -30.4% |
-| 128 | $2.9331 | $1.6135 | -45.0% |
-| 256 | $10.6985 | $4.8596 | -54.6% |
+| 32 | $0.2926 | $0.2896 | -1.0% |
+| 64 | $0.8658 | $0.6891 | -20.4% |
+| 128 | $2.9331 | $1.6673 | -43.2% |
+| 256 | $10.6985 | $4.1587 | -61.1% |
 
 > Read this as the honest bottom line on cost: trimwire's reliable win is
 > **request size / context-window headroom** (always), plus token cost when
@@ -318,22 +318,22 @@ are estimates; timing is host-dependent. See `examples/bench.rs` for caveats.
 
 | Corpus | Body | min | median | mean | p99 | stddev | round spread |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| `pure_chat_floor` | 11.0 KB | 0.016 | 0.018 | 0.021 | 0.068 | 0.014 | 0.017–0.018 ms |
-| `exempt_heavy` | 58.8 KB | 0.119 | 0.144 | 0.165 | 0.393 | 0.066 | 0.140–0.154 ms |
-| `subagent_heavy` | 127.0 KB | 0.278 | 0.340 | 0.381 | 0.738 | 0.105 | 0.331–0.349 ms |
-| `read_heavy` | 85.3 KB | 0.271 | 0.320 | 0.357 | 0.717 | 0.096 | 0.316–0.325 ms |
-| `unique_bash_spam` | 223.6 KB | 0.518 | 0.632 | 0.709 | 1.307 | 0.191 | 0.594–0.761 ms |
-| `at_the_boundary` | 145.1 KB | 0.300 | 0.368 | 0.427 | 0.908 | 0.270 | 0.347–0.401 ms |
-| `repeated_grep` | 31.3 KB | 0.152 | 0.177 | 0.200 | 0.438 | 0.064 | 0.175–0.179 ms |
-| `coding` | 49.5 KB | 0.243 | 0.286 | 0.321 | 0.664 | 0.106 | 0.281–0.294 ms |
-| `mixed_realistic` | 364.5 KB | 1.019 | 1.170 | 1.273 | 2.186 | 0.273 | 1.120–1.227 ms |
-| `mcp_non_playwright` | 131.1 KB | 0.322 | 0.384 | 0.428 | 0.823 | 0.119 | 0.377–0.387 ms |
-| `long_running` | 135.2 KB | 0.413 | 0.502 | 0.569 | 1.092 | 0.333 | 0.492–0.509 ms |
-| `resumed_session` | 187.9 KB | 0.817 | 0.994 | 1.107 | 2.210 | 0.357 | 0.962–1.064 ms |
-| `browser_heavy` | 424.7 KB | 0.837 | 0.965 | 1.031 | 1.771 | 0.214 | 0.930–1.002 ms |
-| `giant_paste` | 509.7 KB | 0.889 | 1.062 | 1.129 | 1.859 | 0.196 | 1.050–1.077 ms |
-| `stale_input_heavy` | 15.8 KB | 0.068 | 0.078 | 0.091 | 0.214 | 0.035 | 0.077–0.081 ms |
-| `thinking_heavy` | 14.0 KB | 0.077 | 0.090 | 0.103 | 0.231 | 0.036 | 0.088–0.094 ms |
+| `pure_chat_floor` | 11.0 KB | 0.016 | 0.018 | 0.020 | 0.042 | 0.008 | 0.018–0.018 ms |
+| `exempt_heavy` | 58.8 KB | 0.118 | 0.151 | 0.176 | 0.420 | 0.094 | 0.139–0.177 ms |
+| `subagent_heavy` | 127.0 KB | 0.286 | 0.346 | 0.400 | 0.830 | 0.166 | 0.328–0.377 ms |
+| `read_heavy` | 85.3 KB | 0.270 | 0.323 | 0.363 | 0.708 | 0.132 | 0.310–0.344 ms |
+| `unique_bash_spam` | 223.6 KB | 0.508 | 0.576 | 0.633 | 1.136 | 0.156 | 0.568–0.585 ms |
+| `at_the_boundary` | 145.1 KB | 0.304 | 0.368 | 0.418 | 0.831 | 0.136 | 0.355–0.390 ms |
+| `repeated_grep` | 31.3 KB | 0.152 | 0.184 | 0.215 | 0.504 | 0.091 | 0.174–0.223 ms |
+| `coding` | 49.5 KB | 0.248 | 0.292 | 0.328 | 0.678 | 0.092 | 0.284–0.305 ms |
+| `mixed_realistic` | 364.5 KB | 1.023 | 1.240 | 1.365 | 2.752 | 0.439 | 1.163–1.306 ms |
+| `mcp_non_playwright` | 131.1 KB | 0.319 | 0.377 | 0.421 | 0.804 | 0.111 | 0.370–0.395 ms |
+| `long_running` | 135.2 KB | 0.414 | 0.488 | 0.545 | 1.131 | 0.171 | 0.476–0.517 ms |
+| `resumed_session` | 187.9 KB | 0.809 | 0.934 | 1.022 | 1.880 | 0.229 | 0.912–0.966 ms |
+| `browser_heavy` | 424.7 KB | 0.839 | 0.948 | 1.014 | 1.685 | 0.192 | 0.919–0.994 ms |
+| `giant_paste` | 509.7 KB | 0.916 | 1.115 | 1.257 | 2.897 | 0.403 | 1.046–1.315 ms |
+| `stale_input_heavy` | 15.8 KB | 0.067 | 0.078 | 0.088 | 0.202 | 0.028 | 0.076–0.080 ms |
+| `thinking_heavy` | 14.0 KB | 0.078 | 0.089 | 0.102 | 0.230 | 0.037 | 0.087–0.092 ms |
 
 > Milliseconds for the whole transform (parse → prune → re-serialize), 5
 > rounds × {2000 | 200 for the big body} iterations after warm-up. Off the
