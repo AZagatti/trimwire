@@ -595,7 +595,11 @@ fn main() -> Result<()> {
             yes,
         ),
         Cmd::Dashboard { out } => cli::dashboard(out),
-        Cmd::Report { url_only, auto, session } => cli::report(url_only, auto, session),
+        Cmd::Report {
+            url_only,
+            auto,
+            session,
+        } => cli::report(url_only, auto, session),
 
         // SUMMARIZER
         Cmd::Summarizer { action } => match action {

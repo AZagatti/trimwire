@@ -11,7 +11,9 @@
 //! `strategies::run`'s single final validate (SPIKE.md §5).
 //!
 //! Stub format:
-//! - `tool_use.input` → `{}`
+//! - `tool_use.input` → a recognizable `[trimwire: input elided …]` breadcrumb
+//!   (or `{}` when that wouldn't shrink a tiny input; only an existing input key
+//!   is ever stubbed — never added)
 //! - `tool_result.content` → the configured stub string
 //!
 //! Faithful port of `tests/phase0/strategies.py::apply_sliding_window`; the
@@ -289,7 +291,11 @@ mod tests {
         }
         apply(&mut msgs, &cfg(&["Bash"], 4)).unwrap();
         let blanked = &msgs[0]["content"][0]["input"];
-        assert_ne!(*blanked, json!({}), "large input should carry a breadcrumb, not a silent {{}}");
+        assert_ne!(
+            *blanked,
+            json!({}),
+            "large input should carry a breadcrumb, not a silent {{}}"
+        );
         assert!(
             serde_json::to_string(blanked)
                 .unwrap()
@@ -300,7 +306,11 @@ mod tests {
         // Idempotent: a second pass leaves the breadcrumb untouched.
         let before = serde_json::to_vec(&msgs).unwrap();
         apply(&mut msgs, &cfg(&["Bash"], 4)).unwrap();
-        assert_eq!(serde_json::to_vec(&msgs).unwrap(), before, "breadcrumb is idempotent");
+        assert_eq!(
+            serde_json::to_vec(&msgs).unwrap(),
+            before,
+            "breadcrumb is idempotent"
+        );
     }
 
     /// A denylisted tool that is also exempt is skipped.

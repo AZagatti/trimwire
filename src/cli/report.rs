@@ -122,9 +122,7 @@ pub(crate) fn issue_body(
     cache_line: Option<&str>,
     anomaly: Option<&str>,
 ) -> String {
-    let cache_section = cache_line
-        .map(|l| format!("\n- {l}"))
-        .unwrap_or_default();
+    let cache_section = cache_line.map(|l| format!("\n- {l}")).unwrap_or_default();
     let anomaly_section = anomaly
         .map(|a| format!("\n\n## Auto-detected anomaly\n{a}"))
         .unwrap_or_default();
@@ -187,8 +185,16 @@ fn percent_encode(s: &str) -> String {
             }
             _ => {
                 out.push('%');
-                out.push(char::from_digit((b >> 4) as u32, 16).unwrap().to_ascii_uppercase());
-                out.push(char::from_digit((b & 0xf) as u32, 16).unwrap().to_ascii_uppercase());
+                out.push(
+                    char::from_digit((b >> 4) as u32, 16)
+                        .unwrap()
+                        .to_ascii_uppercase(),
+                );
+                out.push(
+                    char::from_digit((b & 0xf) as u32, 16)
+                        .unwrap()
+                        .to_ascii_uppercase(),
+                );
             }
         }
     }
@@ -443,7 +449,16 @@ mod tests {
 
     #[test]
     fn build_issue_url_starts_with_github_base() {
-        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None, "trimwire: unexpected behaviour", None);
+        let url = build_issue_url(
+            "0.3.16",
+            "1.0.0",
+            "rustc 1.85",
+            "linux",
+            "x86_64",
+            None,
+            "trimwire: unexpected behaviour",
+            None,
+        );
         assert!(
             url.starts_with("https://github.com/AZagatti/trimwire/issues/new?"),
             "URL must start with the GitHub base; got: {url}"
@@ -452,7 +467,16 @@ mod tests {
 
     #[test]
     fn build_issue_url_contains_required_params() {
-        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None, "trimwire: unexpected behaviour", None);
+        let url = build_issue_url(
+            "0.3.16",
+            "1.0.0",
+            "rustc 1.85",
+            "linux",
+            "x86_64",
+            None,
+            "trimwire: unexpected behaviour",
+            None,
+        );
         assert!(
             url.contains("template=bug_report.md"),
             "URL must contain template param; got: {url}"
@@ -465,8 +489,16 @@ mod tests {
 
     #[test]
     fn build_issue_url_decoded_body_contains_trimwire_version() {
-        let url =
-            build_issue_url("0.3.16", "claude 1.0", "rustc 1.85", "linux", "x86_64", None, "trimwire: unexpected behaviour", None);
+        let url = build_issue_url(
+            "0.3.16",
+            "claude 1.0",
+            "rustc 1.85",
+            "linux",
+            "x86_64",
+            None,
+            "trimwire: unexpected behaviour",
+            None,
+        );
         // The body is percent-encoded in the URL; check the decoded body directly.
         let body_marker = percent_encode("trimwire version: 0.3.16");
         assert!(
@@ -520,7 +552,16 @@ mod tests {
 
     #[test]
     fn build_issue_url_without_cache_line_omits_stability() {
-        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None, "trimwire: unexpected behaviour", None);
+        let url = build_issue_url(
+            "0.3.16",
+            "1.0.0",
+            "rustc 1.85",
+            "linux",
+            "x86_64",
+            None,
+            "trimwire: unexpected behaviour",
+            None,
+        );
         assert!(
             !url.contains("cache%20stability"),
             "URL without a cache_line must not mention cache stability; got: {url}"
@@ -574,7 +615,15 @@ mod tests {
 
     #[test]
     fn issue_body_contains_env_fields() {
-        let body = issue_body("0.4.0", "claude 2.0", "rustc 1.85", "linux", "x86_64", None, None);
+        let body = issue_body(
+            "0.4.0",
+            "claude 2.0",
+            "rustc 1.85",
+            "linux",
+            "x86_64",
+            None,
+            None,
+        );
         assert!(body.contains("trimwire version: 0.4.0"));
         assert!(body.contains("Claude Code version: claude 2.0"));
         assert!(body.contains("Rust toolchain: rustc 1.85"));
@@ -598,7 +647,15 @@ mod tests {
 
     #[test]
     fn issue_body_without_anomaly_omits_section() {
-        let body = issue_body("0.4.0", "claude 2.0", "rustc 1.85", "linux", "x86_64", None, None);
+        let body = issue_body(
+            "0.4.0",
+            "claude 2.0",
+            "rustc 1.85",
+            "linux",
+            "x86_64",
+            None,
+            None,
+        );
         assert!(!body.contains("Auto-detected anomaly"));
     }
 
@@ -614,7 +671,10 @@ mod tests {
             Some("post-prune HTTP >=400 on 1 request(s) this session"),
         );
         // No file system paths — no `.rs` extensions, no absolute path segments.
-        assert!(!body.contains(".rs"), "body must not contain .rs extensions");
+        assert!(
+            !body.contains(".rs"),
+            "body must not contain .rs extensions"
+        );
         assert!(
             !body.contains("/home/"),
             "body must not contain filesystem paths"
@@ -629,8 +689,25 @@ mod tests {
     fn issue_body_no_anomaly_matches_original_body_format() {
         // The body produced by issue_body with anomaly=None must be identical to
         // what build_issue_url embeds (backwards-compat with existing URL tests).
-        let body = issue_body("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None, None);
-        let url = build_issue_url("0.3.16", "1.0.0", "rustc 1.85", "linux", "x86_64", None, "trimwire: unexpected behaviour", None);
+        let body = issue_body(
+            "0.3.16",
+            "1.0.0",
+            "rustc 1.85",
+            "linux",
+            "x86_64",
+            None,
+            None,
+        );
+        let url = build_issue_url(
+            "0.3.16",
+            "1.0.0",
+            "rustc 1.85",
+            "linux",
+            "x86_64",
+            None,
+            "trimwire: unexpected behaviour",
+            None,
+        );
         let encoded_trimwire_ver = percent_encode("trimwire version: 0.3.16");
         assert!(
             url.contains(&encoded_trimwire_ver),
@@ -674,7 +751,10 @@ mod tests {
     fn already_filed_false_when_fingerprint_not_present() {
         let dir = tempfile::tempdir().unwrap();
         record_filed(dir.path(), "other_session:post_prune_errors").unwrap();
-        assert!(!already_filed(dir.path(), "target_session:post_prune_errors"));
+        assert!(!already_filed(
+            dir.path(),
+            "target_session:post_prune_errors"
+        ));
     }
 
     #[test]

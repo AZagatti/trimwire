@@ -1224,8 +1224,7 @@ mod tests {
         let b12 = body_with_reads(12);
         let out12 = bytes_of(&stable_apply_to_body(&b12, &cfg, &mut state, 8), &b12);
         assert_eq!(
-            state.checkpoint_len,
-            cp_len,
+            state.checkpoint_len, cp_len,
             "no re-checkpoint within threshold"
         );
 

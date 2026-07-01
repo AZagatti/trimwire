@@ -1672,7 +1672,10 @@ mod tests {
         assert!((opus.cache_hit_pct() - 46.875).abs() < 1e-9);
 
         // post_prune_errors: no 400+pruned rows in this test → 0 for all sessions.
-        assert_eq!(rep.post_prune_errors, 0, "no 4xx rows → 0 per-session errors");
+        assert_eq!(
+            rep.post_prune_errors, 0,
+            "no 4xx rows → 0 per-session errors"
+        );
 
         // None → "last" resolves to s2 by insert order (MAX(id)), not MAX(ts).
         let last = Ledger::session_report(p, None).unwrap().unwrap();
