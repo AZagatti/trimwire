@@ -93,14 +93,20 @@ MARKER = "<!-- ai-code-review -->"
 ARTIFACTS = Path(os.environ.get("ARTIFACTS_DIR", "artifacts"))
 PROMPT_DIR = Path(__file__).resolve().parent.parent / ".github" / "ai-review"
 
-# Diff budgeting — keep the prompt cheap and bounded.
-MAX_PATCH_CHARS = 3500      # per file
-MAX_TOTAL_CHARS = 18000     # whole diff sent to a model
+# Diff budgeting. Sized from real repo PRs (measured): substantial PRs are 60-180 KB
+# of reviewable diff, so the old 18 KB cap gutted them. 256 KB (~64K tokens input)
+# fits EVERY repo PR fully, including the largest, and sits well under every panel/
+# aggregator model's context window (smallest is ~128K tok; Gemini/DeepSeek are 1M).
+# It's a CEILING, not a fixed cost: normal PRs (~<90 KB) are unaffected (~$0.03); only
+# a rare max-size PR pays ~$0.12. Oversized files/PRs still truncate gracefully.
+MAX_PATCH_CHARS = 24000     # per file (a whole file's diff comfortably fits)
+MAX_TOTAL_CHARS = 256000    # whole diff sent to a model (~256 KB; fits the largest repo PR)
 SKIP_RE = re.compile(
     r"(\.lock$|Cargo\.lock|package-lock\.json|pnpm-lock\.yaml|\.min\.(js|css)$"
     r"|/dist/|node_modules/|\.snap$|\.svg$|\.png$|CHANGELOG\.md$)"
 )
-REQUEST_TIMEOUT = 120
+REQUEST_TIMEOUT = 180   # headroom for large diffs (a 256 KB PR ~= 64K tok input can
+                        # take a reviewer 60-90s); the CI job timeout is 10 min
 MAX_RETRIES = 3
 
 
@@ -210,12 +216,18 @@ def build_diff(files: list[dict]) -> tuple[str, int, int]:
     keep.sort(key=lambda f: f.get("additions", 0), reverse=True)
     out, used = [], 0
     for i, f in enumerate(keep):
-        patch = f["patch"][:MAX_PATCH_CHARS]
+        patch = f["patch"]
+        if len(patch) > MAX_PATCH_CHARS:
+            # Cut at a LINE boundary and mark it, so a model reads this as "not
+            # shown" — never as broken/incomplete code. Mid-character slicing here
+            # caused false "truncated code = compilation failure" findings.
+            patch = patch[:MAX_PATCH_CHARS].rsplit("\n", 1)[0]
+            patch += "\n… [this file's diff was truncated for length — NOT a code defect] …"
         chunk = (f"### {f['filename']} "
                  f"(+{f.get('additions', 0)}/-{f.get('deletions', 0)})\n"
                  f"```diff\n{patch}\n```\n")
         if used + len(chunk) > MAX_TOTAL_CHARS:
-            out.append(f"\n_[{len(keep) - i} more changed files omitted — budget]_\n")
+            out.append(f"\n_[{len(keep) - i} more changed files omitted — diff budget, NOT a defect]_\n")
             break
         out.append(chunk)
         used += len(chunk)

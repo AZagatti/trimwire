@@ -75,4 +75,8 @@ Return ONLY a JSON object (no prose, no markdown fences):
 (A project rule may direct a class of issue to a specific severity — follow it.)
 
 If the diff is truncated or large, prioritize security-sensitive and core code and say
-in `summary` that coverage was partial.
+in `summary` that coverage was partial. A diff may be **budget-truncated** — you may see
+markers like `[truncated for length — NOT a code defect]` or `[N more files omitted]`.
+These mark content that was *not shown to you*; they are **never** a code defect. Do NOT
+report truncation/omission/"incomplete code"/"compilation failure" as a finding — you are
+simply not seeing the rest.
