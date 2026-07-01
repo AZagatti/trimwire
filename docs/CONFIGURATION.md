@@ -121,6 +121,23 @@ MCP output) it salvages the bulky text blocks in place (same head/tail trim),
 keeping structure, small blocks, and images; a pure non-text/image array over
 threshold is replaced by a single size marker.
 
+**Subagent (`Task`/`Agent`) results are age-gated on a wider window** (not exempt
+at every age). A subagent's findings/blocker list is consumed across many follow-up
+turns, so it stays exempt while within `subagent_keep_recent_turns` (default 8, vs
+the tight global `keep_recent_turns`), then head+tail-salvaged like any old result —
+top findings + conclusion kept, the dense middle trimmed. Add `Task`/`Agent` back to
+`exempt_tools` to restore the legacy all-ages exemption (this is what the `gentle`
+profile does). Authoring results (Write/Edit/MultiEdit) stay all-ages exempt.
+
+**`Read` gets its own, wider recent window** (`exempt_recent_only_keep_turns`, default
+4 in the `default` profile). A medium file read (4–16 KB) is protected by `stale_reads`
+for 4 turns but was head+tail-trimmed by `bloat_cap` after only 2 — so its middle
+vanished at age 3 while the model might still reference it. Matching this to
+`stale_reads`' 4-turn window closes that gap (a recoverable trim — the file is
+re-readable — so the tradeoff is read-heavy savings, not correctness). The effective
+window is `max(exempt_recent_only_keep_turns, keep_recent_turns)`; `0` falls back to the
+global window. Bash/MCP results keep the tight global window (savings preserved).
+
 ```toml
 [strategies.bloat_cap]
 enabled = true
@@ -128,8 +145,10 @@ threshold_bytes   = 16384   # struct default; the `default` profile sets this to
 head_bytes        = 2048    # bytes kept from the start
 tail_bytes        = 2048    # bytes kept from the end
 keep_recent_turns = 4       # struct default; the `default` profile sets this to 2
-exempt_tools      = ["Edit", "Write", "MultiEdit", "Task", "Agent"]  # never trimmed at ANY age (authoring + subagent; Task and Agent are both subagent-launch names)
+exempt_tools      = ["Edit", "Write", "MultiEdit"]  # never trimmed at ANY age (authoring — eliding them corrupts sessions)
+subagent_keep_recent_turns = 8        # Task/Agent results exempt within this WIDER window, then head+tail-salvaged once old
 exempt_recent_only_tools = ["Read"]   # exempt only while RECENT; an OLD large Read IS trimmed (the "Read coverage gap" fix)
+exempt_recent_only_keep_turns = 4     # Read's own recent window (>= keep_recent_turns); the `default` profile sets 4; 0 = fall back to keep_recent_turns
 # --- opt-in levers (all default 0 / empty = OFF; zero behaviour change unless set) ---
 catastrophic_bytes = 0          # if >0, also caps a RECENT result this large (it can't
                                 # fit the context window anyway, so it would brick the
@@ -158,19 +177,19 @@ keep_recent_turns = 4   # struct default; the `default` profile sets this to 2
 # the shipped `default` value — verb-class globs matching browser automation
 # (`*browser_act*`, NOT a bare `*act*`, which would also match extract/interact/redact):
 denylist_tools = ["*screenshot*", "*navigate*", "*click*", "*browser_act*", "Grep"]
-exempt_tools   = ["Read", "Edit", "Write", "MultiEdit", "Task", "Agent"]  # never stubbed, even if denylisted
+exempt_tools   = ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Task", "Agent"]  # never stubbed, even if denylisted
 # stub = "[trimwire: elided, older than sliding window]"
 ```
 
 ### `[strategies.image_strip]` — on by default
 
-Replace base64 image payloads (e.g. screenshots) older than the K most-recent
-matching results with a marker.
+Replace base64 image payloads (e.g. screenshots, accessibility/DOM/heap snapshots)
+older than the K most-recent matching results with a marker.
 
 ```toml
 [strategies.image_strip]
 enabled = true
-applies_to_tools  = ["*screenshot*", "*snapshot*"]
+applies_to_tools  = ["*screenshot*", "*snapshot*"]   # screenshots + snapshot/heapsnapshot/DOM image blobs
 keep_recent_count = 3   # struct default; the `default` profile sets this to 1
 # stub = "[trimwire: image stripped]"
 ```
@@ -180,13 +199,29 @@ keep_recent_count = 3   # struct default; the `default` profile sets this to 1
 Caps the bulky *input* of an old **successful** tool call (the failed-input
 counterpart is `failed_input_purge`). Protects the most recent turns.
 
+**Authoring tools (Write/Edit/MultiEdit/NotebookEdit) are age-gated with a
+recoverable marker**, not permanently exempt. Their authored body is kept verbatim
+while recent — within the wider `authoring_keep_recent_turns` window (default 6 vs.
+2 for ordinary inputs) — so content the model is actively editing is never touched.
+Once it ages past that window it is replaced with `[trimwire: wrote <path> (<N>B) —
+read the file to restore]` instead of the generic size marker: the call succeeded,
+so the content is on disk and the model re-reads to recover it. A *failed* authored
+call's body is never touched here (it never hit disk — that floor stays in
+`failed_input_purge`).
+
+**Subagent (`Task`/`Agent`) prompts are reduced once old and successful** — no
+default exemption. After a subagent call succeeds its result captures the outcome,
+so the verbatim sub-task prompt is dead weight; the short `description` is kept and
+only the bulky `prompt` is elided to a size marker. (A *failed* subagent call keeps
+its exemption in `failed_input_purge`, where a retry may re-emit the prompt.) Add a
+tool name back to `exempt_tools` if you want to keep its input verbatim.
+
 ```toml
 [strategies.stale_input_cap]
 enabled = true
-keep_recent_turns = 2            # turns protected from capping
-# shipped default — authoring/sub-agent tools are never capped (Write/Edit/MultiEdit/
-# NotebookEdit are ALSO a hard floor; Task and Agent are only protected via this list):
-exempt_tools = ["Task", "Agent", "Write", "Edit", "MultiEdit", "NotebookEdit"]  # tool names (globs) never capped
+keep_recent_turns = 2            # ordinary inputs (Bash stdin, MCP args, subagent prompts)
+authoring_keep_recent_turns = 6  # authored bodies — wider; recoverable "read the file" marker once old
+exempt_tools = []                # nothing exempt by default; add a tool to protect its input
 ```
 
 ### `[strategies.stale_reads]` — on in `default`, off in `gentle`

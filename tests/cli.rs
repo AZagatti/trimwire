@@ -1815,6 +1815,17 @@ impl FakeGitHub {
             while !stop2.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((mut s, _)) => {
+                        // The listener is non-blocking (so `accept` can poll the
+                        // `stop` flag). On macOS/BSD the accepted socket INHERITS
+                        // that non-blocking flag, which makes the `set_read_timeout`
+                        // below a no-op and lets the first `read()` return
+                        // `WouldBlock` before the request bytes arrive — routing on
+                        // an empty request and 404-ing. That is the macOS-only,
+                        // intermittent CI flake (#131). Force the stream back to
+                        // blocking so the read timeout actually applies. (Linux
+                        // already clears the flag on `accept`, so this is a no-op
+                        // there.)
+                        let _ = s.set_nonblocking(false);
                         // Read the request until the end of headers (GET requests
                         // carry no body). A single `read()` is NOT enough: on macOS
                         // the request line + headers can arrive across multiple TCP

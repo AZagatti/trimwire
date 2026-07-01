@@ -68,11 +68,15 @@ fn tool_call(id: &str, name: &str, input: Value) -> Value {
 /// A session exercising the two cache-safe levers now ON in `default`
 /// (`stale_input_cap`, `stale_reads`). It plants:
 /// - `NEEDLE_READ_LIVE` — a Read never superseded → must ALWAYS survive.
-/// - `NEEDLE_PATH` / `NEEDLE_WRITE_BODY` — the `file_path` AND the bulky
-///   `new_string` of an old successful Write → must ALWAYS survive. Authored file
-///   content is EXEMPT from stale_input_cap (eliding it corrupted real sessions —
-///   the model reproduced the elision marker as file content). This is the
-///   corruption-regression gate.
+/// - `NEEDLE_PATH` — the `file_path` of an OLD successful Write → a small
+///   structural field that must ALWAYS survive (so the model still knows which file).
+/// - `NEEDLE_WRITE_BODY` — the bulky `new_string` of that OLD Write. Authored bodies
+///   are now AGE-GATED (#122): once old they are reduced to a RECOVERABLE "read the
+///   file" marker in `default` (the content is on disk) and kept verbatim in `gentle`
+///   (stale_input_cap off). The recoverable-marker behavior is asserted in
+///   `input_and_read_levers_fire_in_default_and_are_off_in_gentle`; the §13A
+///   loop-corruption guard (RECENT authored content stays verbatim) lives in
+///   `recent_authored_content_survives_in_every_profile`.
 /// - `NEEDLE_BULK` — the bulky `stdin` of an old successful Bash call (a
 ///   NON-authoring input) → elided by stale_input_cap in `default`, intact in `gentle`.
 /// - `NEEDLE_READ_STALE` — a Read later superseded by a Write of the same path
@@ -101,9 +105,9 @@ fn session_with_input_and_read_needles() -> Vec<Value> {
          — padded so the elision marker is strictly smaller and the shrink guard fires.",
     ));
 
-    // An old SUCCESSFUL Write: file_path (NEEDLE_PATH) AND the bulky new_string
-    // (NEEDLE_WRITE_BODY) must BOTH survive — Write is exempt from stale_input_cap
-    // (authored content must never be elided, or the model reproduces the marker).
+    // An OLD SUCCESSFUL Write: file_path (NEEDLE_PATH) is structural → always kept;
+    // the bulky new_string (NEEDLE_WRITE_BODY) is age-gated → reduced to a RECOVERABLE
+    // marker in `default` (content is on disk), kept verbatim in `gentle`.
     m.push(tool_call(
         "w_bulk",
         "Write",
@@ -190,13 +194,8 @@ fn no_profile_drops_a_live_read_or_a_structural_input_field() {
         );
         assert!(
             survives("NEEDLE_PATH", &msgs),
-            "profile `{profile}` dropped the `file_path` of an old successful Write."
-        );
-        assert!(
-            survives("NEEDLE_WRITE_BODY", &msgs),
-            "profile `{profile}` elided an old Write's authored content (new_string) — \
-             file-authoring tools MUST be exempt from stale_input_cap, or the model \
-             reproduces the elision marker as file content (real corruption regression)."
+            "profile `{profile}` dropped the `file_path` of an old successful Write \
+             (the structural field is kept verbatim even when the body is age-gated)."
         );
         assert!(
             survives("NEEDLE_RECENT", &msgs),
@@ -216,7 +215,7 @@ fn input_and_read_levers_fire_in_default_and_are_off_in_gentle() {
     strategies::run(&mut gentle_msgs, &profile_baseline("gentle")).unwrap();
 
     // stale_input_cap: bulky old NON-authoring input (Bash stdin) elided in
-    // default, intact in gentle. (Write/Edit content is exempt — tested above.)
+    // default, intact in gentle.
     assert!(
         !survives("NEEDLE_BULK", &def_msgs),
         "stale_input_cap did not fire in `default` — old Bash stdin bulk should be elided"
@@ -224,6 +223,25 @@ fn input_and_read_levers_fire_in_default_and_are_off_in_gentle() {
     assert!(
         survives("NEEDLE_BULK", &gentle_msgs),
         "`gentle` must NOT enable stale_input_cap — bulky input should stay intact"
+    );
+    // stale_input_cap authoring age-gate (#122): the OLD Write's authored body is
+    // reduced in default but to a RECOVERABLE marker (names the file + "read"), NOT
+    // the generic one and NOT a silent drop; kept verbatim in gentle.
+    let def_blob = serde_json::to_string(&def_msgs).unwrap();
+    assert!(
+        !survives("NEEDLE_WRITE_BODY", &def_msgs),
+        "old authored body should be reduced in `default`"
+    );
+    // The authored body must get the RECOVERABLE marker (verb + path + re-read), NOT
+    // the generic `input elided` form (which legitimately appears for the Bash stdin).
+    assert!(
+        def_blob.contains("wrote /src/gen_NEEDLE_PATH.rs")
+            && def_blob.contains("read the file to restore"),
+        "the authored body must become a recoverable marker naming the file + re-read"
+    );
+    assert!(
+        survives("NEEDLE_WRITE_BODY", &gentle_msgs),
+        "`gentle` must NOT enable stale_input_cap — authored body should stay verbatim"
     );
     // stale_reads: superseded read elided in default, intact in gentle.
     assert!(
@@ -361,8 +379,12 @@ fn session_with_superseded_authored_content() -> Vec<Value> {
         json!({"file_path": "/src/perf.rs", "old_string": "x", "new_string": "y"}),
     ));
     m.push(result("e_auth", "edited /src/perf.rs"));
-    // Age everything past keep_recent (aggressive `default` keeps only 2).
-    for i in 0..6 {
+    // Keep the create→read→edit flow INSIDE the authoring window (default 6) so the
+    // authored Write body is still RECENT: this is the §13A loop guard — recent
+    // authored content the model is actively editing must never be reduced. (Old
+    // authored content IS reduced, to a recoverable marker — tested separately.)
+    // The superseded Read result still ages past stale_reads' window (4) here.
+    for i in 0..2 {
         let id = format!("t{i}");
         m.push(assistant(&id, "Bash", &format!("echo {i}")));
         m.push(result(&id, &format!("out {i}")));
@@ -372,19 +394,21 @@ fn session_with_superseded_authored_content() -> Vec<Value> {
     m
 }
 
-/// THE GATE (§13A): no profile may elide authored Write/Edit/MultiEdit content,
-/// even when a later op on the same path supersedes it. Authored content is the
-/// model's only faithful copy of what it wrote; eliding it makes the model
-/// reproduce the elision marker as the file body (real corruption).
+/// THE GATE (§13A loop guard): no profile may elide RECENT authored content — even
+/// when a later op on the same path supersedes it. While the model is actively
+/// editing a file (within the authoring window), its authored body is its only
+/// faithful copy; eliding it makes the model rebuild on content it can't see and
+/// reproduce the elision marker as the file body (real corruption). `stale_reads`
+/// never touches Write inputs, and `stale_input_cap` protects them while recent.
 #[test]
-fn no_profile_elides_superseded_authored_content() {
+fn recent_authored_content_survives_in_every_profile() {
     for profile in PROFILES {
         let cfg = profile_baseline(profile);
         let mut msgs = session_with_superseded_authored_content();
         strategies::run(&mut msgs, &cfg).expect("strategies must not orphan");
         assert!(
             survives("NEEDLE_AUTHORED", &msgs),
-            "profile `{profile}` elided an authored Write body that a later op \
+            "profile `{profile}` elided a RECENT authored Write body that a later op \
              superseded — the model loses its only copy of the file content it is \
              actively editing and reproduces the elision marker as the file body \
              (§13A corruption regression)."

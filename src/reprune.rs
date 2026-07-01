@@ -1446,7 +1446,7 @@ mod tests {
         c.strategies.bloat_cap.head_bytes = 512;
         c.strategies.bloat_cap.tail_bytes = 512;
         c.strategies.bloat_cap.keep_recent_turns = 2;
-        c.strategies.bloat_cap.exempt_tools = ["Edit", "Write", "MultiEdit", "Task"]
+        c.strategies.bloat_cap.exempt_tools = ["Edit", "Write", "MultiEdit", "Task", "Agent"]
             .iter()
             .map(|s| (*s).to_owned())
             .collect();

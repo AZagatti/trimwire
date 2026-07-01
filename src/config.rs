@@ -214,10 +214,25 @@ pub struct FailedInputPurgeConfig {
 pub struct StaleInputCapConfig {
     /// When false this strategy is a no-op (default).
     pub enabled: bool,
-    /// Only reduce successful-call inputs older than this many assistant turns.
+    /// Only reduce NON-authoring successful-call inputs older than this many
+    /// assistant turns (Bash stdin/heredocs, MCP args).
     pub keep_recent_turns: usize,
-    /// Tool-name patterns never reduced (supports `*`). Defaults to `["Task"]`
-    /// because Task inputs carry sub-agent prompts the model still needs.
+    /// Authoring-tool (Write/Edit/MultiEdit/NotebookEdit) inputs get their OWN,
+    /// wider window: their authored body is only reduced once it ages past this many
+    /// assistant turns, AND it is then replaced with a RECOVERABLE marker (which names
+    /// the file and says "read to restore") rather than the generic size marker —
+    /// because the content is on disk. Wider than `keep_recent_turns` because
+    /// edit-iterations (write, verify-read, patch-edit) span more turns than ordinary
+    /// inputs, and the cost of trimming content the model is still building on is a
+    /// loop/corruption (§13A), not just a re-read. Min 1 (clamped). A FAILED authored
+    /// call is never reduced here at any age (its content never hit disk — that floor
+    /// lives in `failed_input_purge`).
+    pub authoring_keep_recent_turns: usize,
+    /// Tool-name patterns never reduced (supports `*`). EMPTY by default (#125):
+    /// an old SUCCESSFUL subagent (`Task`/`Agent`) prompt is no longer load-bearing
+    /// (the `tool_result` captured the outcome), so it is shape-reduced like any other
+    /// non-authoring input. Authoring tools are age-gated above, not exempt. The
+    /// FAILED-call subagent exemption lives in `failed_input_purge` (retry loop-safety).
     pub exempt_tools: Vec<String>,
 }
 
@@ -234,8 +249,11 @@ pub struct BloatCapConfig {
     /// model is never deprived of a result it's actively using).
     pub keep_recent_turns: usize,
     /// Tool-name patterns never trimmed at ANY age (supports `*`). For the
-    /// file-AUTHORING tools (Write/Edit/MultiEdit) + Task, whose results are
-    /// genuinely load-bearing — eliding them corrupts real sessions (§13A).
+    /// file-AUTHORING tools (Write/Edit/MultiEdit), whose results are genuinely
+    /// load-bearing — eliding them corrupts real sessions (§13A). The
+    /// subagent tools (`Task`/`Agent`) are NOT here by default: they are age-gated on
+    /// the wider `subagent_keep_recent_turns` window instead (#124). Re-add `Task`/
+    /// `Agent` here to restore the legacy all-ages subagent-result exemption.
     pub exempt_tools: Vec<String>,
     /// Tool-name patterns exempt ONLY while RECENT (within `keep_recent_turns`);
     /// once OLD, their oversized results ARE trimmed to head+tail+signal. `Read`
@@ -248,6 +266,33 @@ pub struct BloatCapConfig {
     /// needs the old content. Empty = the legacy behaviour (recent-only exemption
     /// off). Supports `*`.
     pub exempt_recent_only_tools: Vec<String>,
+    /// Recent-window (in assistant turns) for the `exempt_recent_only_tools` tier
+    /// (i.e. `Read`), distinct from the global `keep_recent_turns` (#121). The
+    /// EFFECTIVE window is `max(this, keep_recent_turns)`, so a recent-only-exempt
+    /// tool is never LESS protected than an ordinary result; set this HIGHER than
+    /// `keep_recent_turns` to protect old Reads for longer. Why: `stale_reads`
+    /// protects a non-superseded Read for its own `keep_recent_turns` (4) before
+    /// demand-paging it, but only if it exceeds `page_min_bytes` (16 KB). A 4–16 KB
+    /// non-superseded Read falls in the gap — inside stale_reads' 4-turn window but
+    /// past bloat_cap's tight global window — so bloat_cap head+tail-trims its middle
+    /// at age 3 while the model may still reference it. Matching this to stale_reads'
+    /// window (4) closes that gap. The tradeoff is read-heavy savings (protecting the
+    /// 2–4 age band leaves more old Read bulk on the wire); it's a recoverable trim
+    /// (head+tail kept + the file is re-readable), so the cost is savings, not
+    /// correctness. 0 = fall back to `keep_recent_turns` (legacy: no separate window).
+    pub exempt_recent_only_keep_turns: usize,
+    /// Recent-window (in assistant turns) for SUBAGENT results (`Task`/`Agent`),
+    /// distinct from the global `keep_recent_turns` (#124). A subagent `tool_result`
+    /// is a findings/blocker list the parent agent refers back to for many turns, so
+    /// it stays exempt on this WIDER window; once it ages past it, the oversized
+    /// result is head+tail-salvaged (top findings + conclusion kept, the dense middle
+    /// trimmed) like any old result — NOT the §13A all-ages floor (that is
+    /// authoring content). Generous default (8) so a subagent's findings survive the
+    /// follow-up turns that consume them. Set < `keep_recent_turns` and trimwire warns
+    /// (it would trim subagent results SOONER than ordinary ones — backwards). To turn
+    /// the age-gate OFF entirely and restore the legacy all-ages exemption, add
+    /// `Task`/`Agent` back to `exempt_tools`. Min 1 (clamped, like the sibling windows).
+    pub subagent_keep_recent_turns: usize,
     /// POC (opt-in, default 0 = OFF): also cap a RECENT `tool_result` — one that
     /// `keep_recent_turns` would normally exempt — if it ALONE exceeds this many
     /// bytes. Justified only at a *catastrophic* threshold where the result can't
@@ -388,28 +433,25 @@ impl Default for StaleInputCapConfig {
         Self {
             enabled: false,
             keep_recent_turns: 4,
-            // Exempt the file-AUTHORING tools (Write/Edit/MultiEdit) and Task —
-            // mirrors bloat_cap/sliding_window ("load-bearing"). CRITICAL: eliding a
-            // Write/Edit `new_string` corrupts real sessions — the model rebuilds on
-            // content it can no longer see and reproduces the elision MARKER as the
-            // file body (observed live: a Go file written as "[trimwire: NB input
-            // elided]", breaking the build). Task carries sub-agent prompts. We only
-            // elide bulk from NON-authoring inputs (Bash stdin/heredocs, MCP args).
-            // NotebookEdit authors cell source (`new_source`) — same class. These four
-            // authoring tools are ALSO an unconditional hard floor (strategies::
-            // AUTHORING_TOOLS); listing them here keeps the visible config honest.
-            // `Task`+`Agent` = subagent tools (name drifted across CC versions); both listed.
-            exempt_tools: [
-                "Task",
-                "Agent",
-                "Write",
-                "Edit",
-                "MultiEdit",
-                "NotebookEdit",
-            ]
-            .iter()
-            .map(|s| (*s).to_owned())
-            .collect(),
+            // Authoring tools get a wider default window than ordinary inputs: their
+            // authored body stays verbatim while the agent is actively iterating on
+            // the file, and is only reduced (to a RECOVERABLE "read the file" marker)
+            // once genuinely old. 6 > the read window (4) because edit-iterations span
+            // more turns. Recent authored content is NEVER touched — that's what keeps
+            // §13A (model reproducing the marker as the file body) from recurring.
+            authoring_keep_recent_turns: 6,
+            // EMPTY by default (#125). An OLD, SUCCESSFUL subagent (Task/Agent) call's
+            // input is the sub-task prompt — once the call succeeded the `tool_result`
+            // captures the outcome, so the verbatim prompt is dead weight, not load-
+            // bearing. So it now goes through the generic shape-preserving reduction:
+            // the small scalar fields (`description`) stay (KEEP_VALUE_MAX=512 keeps
+            // short prompts), only the bulky `prompt` (>512B) is elided to a content-
+            // free size marker. The subagent never re-emits its own prompt on a SUCCESS,
+            // so there is no §13A-style corruption risk (that risk is authored file
+            // bodies, which are still age-gated above). FAILED subagent calls keep their
+            // Task/Agent exemption in `failed_input_purge` — a retry may re-emit the
+            // prompt (loop-safety) and the result there is an error, not the outcome.
+            exempt_tools: Vec::new(),
         }
     }
 }
@@ -422,21 +464,28 @@ impl Default for BloatCapConfig {
             head_bytes: 2_048,
             tail_bytes: 2_048,
             keep_recent_turns: 4,
-            // File-AUTHORING + SUBAGENT results are load-bearing — never trim them at
-            // any age (eliding them corrupts real sessions, §13A). `Task` AND `Agent`
-            // are both subagent-launch tool names (the name drifted Task→Agent across
-            // Claude Code versions); list both so subagent findings (blocker lists,
-            // per-file analysis) aren't middle-trimmed. `Read` is NOT here: it's
-            // age-gated below (exempt while recent, trimmed once old) so large OLD file
-            // reads — the dominant untrimmed mass in read-heavy sessions — finally get
-            // capped (the "Read coverage gap" the live canaries exposed).
-            exempt_tools: ["Edit", "Write", "MultiEdit", "Task", "Agent"]
+            // File-AUTHORING results are load-bearing — never trim them at any age
+            // (eliding them corrupts real sessions, §13A). `Read` is NOT here: it's
+            // age-gated (exempt while recent, trimmed once old) so large OLD file reads
+            // — the dominant untrimmed mass in read-heavy sessions — finally get capped
+            // (the "Read coverage gap"). `Task`/`Agent` are NOT here either (#124):
+            // subagent RESULTS are age-gated on the WIDER `subagent_keep_recent_turns`
+            // window below — load-bearing for many turns, but trimmable (head+tail
+            // salvage) once genuinely old. Re-add them here for the all-ages exemption.
+            exempt_tools: ["Edit", "Write", "MultiEdit"]
                 .iter()
                 .map(|s| (*s).to_owned())
                 .collect(),
             // Read: exempt while RECENT (a just-read file may be in active use),
             // trimmed to head+tail once OLD (the model re-reads on demand).
             exempt_recent_only_tools: vec!["Read".to_owned()],
+            // 0 = the Read recent-window falls back to keep_recent_turns (legacy). The
+            // `default` profile widens it to 4 to close the 4–16 KB Read gap (#121).
+            exempt_recent_only_keep_turns: 0,
+            // Subagent (Task/Agent) results: exempt for a GENEROUS window (8 turns —
+            // findings/blocker lists are consumed across many follow-up turns), then
+            // head+tail-salvaged once old (#124). Wider than the global keep_recent.
+            subagent_keep_recent_turns: 8,
             catastrophic_bytes: 0, // POC: OFF by default (recent results untouched)
             stub_age_turns: 0,     // POC: OFF by default (very-old keep head+tail)
             protected_file_patterns: Vec::new(), // POC: OFF by default (no path protected)
@@ -872,6 +921,14 @@ pub fn profile_baseline(name: &str) -> Config {
             s.bloat_cap.enabled = true;
             s.bloat_cap.threshold_bytes = 32_768;
             s.bloat_cap.keep_recent_turns = 6;
+            // gentle = gentlest touch: keep subagent (Task/Agent) RESULTS fully exempt
+            // at every age (restore the legacy all-ages exemption that the default
+            // profile now drops in favour of the #124 age-gate). gentle never trims
+            // subagent findings — that aggressive lever is for `default` only.
+            s.bloat_cap.exempt_tools = ["Edit", "Write", "MultiEdit", "Task", "Agent"]
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect();
             // thinking_strip ON in gentle too (2026-06-05). Without it gentle saved ≈0%
             // on real sessions (real tool output rarely exceeds bloat_cap's 32KB, and
             // exact-dup/error calls are rare). thinking_strip only drops OLD reasoning —
@@ -895,10 +952,19 @@ pub fn profile_baseline(name: &str) -> Config {
             s.bloat_cap.enabled = true;
             s.bloat_cap.threshold_bytes = 4_096;
             s.bloat_cap.keep_recent_turns = 2;
+            // #121: give Read (the recent-only-exempt tier) a wider window (4) than the
+            // tight global one (2), matching stale_reads.keep_recent_turns — so a 4–16 KB
+            // non-superseded Read isn't head+tail-trimmed at age 3 while still referenced.
+            // Bash/MCP results keep the tight 2-turn window (savings preserved).
+            s.bloat_cap.exempt_recent_only_keep_turns = 4;
             // Reduce OLD successful tool_use inputs (cache-safe content-overwrite;
             // reprune-replayable). Tight window matches the aggressive profile.
             s.stale_input_cap.enabled = true;
             s.stale_input_cap.keep_recent_turns = 2;
+            // Authoring bodies get a wider window (6) and a recoverable "read the
+            // file" marker — old authored content is dead weight (it's on disk), but
+            // recent authored content must stay verbatim to avoid the §13A loop.
+            s.stale_input_cap.authoring_keep_recent_turns = 6;
             // Elide file Read *results* superseded by a later Write/Edit/re-Read of
             // the same path (cache-safe overwrite). Authored Write/Edit inputs are
             // never collapsed — eliding them corrupted real sessions (§13A).
@@ -1242,6 +1308,43 @@ impl Config {
             }
         }
 
+        // A backwards authoring window (authored bodies aging out FASTER than ordinary
+        // inputs) inverts the §13A intent: authored content should be protected LONGER,
+        // not shorter, since trimming content the model is still actively editing is the
+        // corruption/loop risk. The recoverable marker only partly mitigates it. Warn.
+        {
+            let s = &cfg.strategies.stale_input_cap;
+            if s.enabled && s.authoring_keep_recent_turns < s.keep_recent_turns {
+                eprintln!(
+                    "[trimwire] warning: stale_input_cap.authoring_keep_recent_turns ({}) < \
+                     keep_recent_turns ({}) — authored file content will age out FASTER than \
+                     ordinary inputs, which is backwards (authored bodies should be protected \
+                     longer). Consider raising authoring_keep_recent_turns.",
+                    s.authoring_keep_recent_turns, s.keep_recent_turns
+                );
+            }
+        }
+
+        // A backwards subagent window (subagent RESULTS aging out FASTER than ordinary
+        // results) is the inverse of the intent: a subagent's findings/blocker list is
+        // referred back to for MANY turns, so it should be protected LONGER than an
+        // ordinary result, not shorter. Warn (it would head+tail a findings list before
+        // a throwaway Bash dump).
+        {
+            let b = &cfg.strategies.bloat_cap;
+            if b.enabled && b.subagent_keep_recent_turns < b.keep_recent_turns {
+                eprintln!(
+                    "[trimwire] warning: bloat_cap.subagent_keep_recent_turns ({}) < \
+                     keep_recent_turns ({}) — subagent (Task/Agent) results will age out FASTER \
+                     than ordinary results, which is backwards (a subagent's findings are \
+                     consumed across many follow-up turns). Consider raising \
+                     subagent_keep_recent_turns, or add Task/Agent to bloat_cap.exempt_tools \
+                     for the all-ages exemption.",
+                    b.subagent_keep_recent_turns, b.keep_recent_turns
+                );
+            }
+        }
+
         Ok(cfg)
     }
 }
@@ -1438,6 +1541,25 @@ mod tests {
         // Cache-safe extra levers: stale_input_cap + stale_reads ON in default.
         assert!(default.strategies.stale_input_cap.enabled);
         assert_eq!(default.strategies.stale_input_cap.keep_recent_turns, 2);
+        assert_eq!(
+            default
+                .strategies
+                .stale_input_cap
+                .authoring_keep_recent_turns,
+            6,
+            "default must keep authored bodies verbatim for 6 turns (§13A guard, wider \
+             than keep_recent_turns=2); dropping this to 2 would silently remove the \
+             recent-authored protection"
+        );
+        // #125: subagent INPUTS (Task/Agent) are no longer exempt here — an old
+        // SUCCESSFUL subagent prompt is reducible (its result captured the outcome).
+        // The FAILED-call exemption stays in failed_input_purge, asserted above.
+        assert!(
+            default.strategies.stale_input_cap.exempt_tools.is_empty(),
+            "default stale_input_cap must NOT exempt any tool (#125: old successful \
+             Task/Agent prompts are shape-reduced; failed-call exemption is in \
+             failed_input_purge)"
+        );
         assert!(default.strategies.stale_reads.enabled);
         // Phase 3C: demand-page threshold lowered 32KB→16KB for recoverability (route
         // old single-view 16-32KB Reads through demand-page, not silent bloat_cap trim).
@@ -1452,9 +1574,10 @@ mod tests {
             "default demand-page must keep recent reads protected (keep_recent=4)"
         );
         assert!(default.reprune.enabled);
-        // "Read coverage gap" fix: Read is AGE-GATED (exempt only while recent),
-        // authoring tools stay exempt at every age, and the byte-based re-checkpoint
-        // is on. These are the load-bearing invariants of the fix — pin them.
+        // "Read coverage gap" fix: Read is AGE-GATED (exempt only while recent) in
+        // bloat_cap, authoring tools stay exempt at every age IN BLOAT_CAP (they are
+        // age-gated with a recoverable marker in stale_input_cap — #122), and the
+        // byte-based re-checkpoint is on. Pin these load-bearing bloat_cap invariants.
         assert!(
             default
                 .strategies
@@ -1471,10 +1594,14 @@ mod tests {
                 .contains(&"Read".to_owned()),
             "default must NOT exempt Read at every age (it is age-gated)"
         );
-        // `Agent` joins `Task`: both are subagent-launch tool names (the name drifted
-        // Task→Agent across CC versions) — subagent results must stay exempt so their
-        // findings aren't middle-trimmed (NONREAD-BLOAT-MANUAL-INSPECTION-2026-06-18).
-        for t in ["Edit", "Write", "MultiEdit", "Task", "Agent"] {
+        // #121: Read gets a WIDER recent window (4) than the tight global keep_recent (2),
+        // matching stale_reads so a 4–16 KB non-superseded Read isn't trimmed at age 3.
+        assert_eq!(
+            default.strategies.bloat_cap.exempt_recent_only_keep_turns, 4,
+            "default must widen the Read window to 4 (close the 4–16 KB Read gap, #121)"
+        );
+        // Authoring results stay all-ages exempt (load-bearing §13A floor).
+        for t in ["Edit", "Write", "MultiEdit"] {
             assert!(
                 default
                     .strategies
@@ -1484,6 +1611,24 @@ mod tests {
                 "default must keep {t} exempt at every age (load-bearing)"
             );
         }
+        // #124: subagent results (Task/Agent) are NO LONGER all-ages exempt — they are
+        // age-gated on the wider `subagent_keep_recent_turns` window (default 8) so
+        // genuinely-old findings get head+tail-salvaged. Pin both: not in exempt_tools,
+        // and the window is the generous 8.
+        for t in ["Task", "Agent"] {
+            assert!(
+                !default
+                    .strategies
+                    .bloat_cap
+                    .exempt_tools
+                    .contains(&t.to_owned()),
+                "default must NOT keep {t} exempt at every age (#124: age-gated instead)"
+            );
+        }
+        assert_eq!(
+            default.strategies.bloat_cap.subagent_keep_recent_turns, 8,
+            "default must age-gate subagent results on the generous 8-turn window (#124)"
+        );
         assert_eq!(
             default.reprune.recheckpoint_result_bytes, 131_072,
             "default must enable the byte-based re-checkpoint at 128 KB"
@@ -1545,6 +1690,19 @@ mod tests {
             gentle.strategies.bloat_cap.keep_recent_turns, 6,
             "gentle bloat_cap keep_recent must be large (6)"
         );
+        // #124: gentle is the gentlest profile — it keeps subagent (Task/Agent) results
+        // FULLY exempt at every age (the legacy all-ages exemption), unlike `default`
+        // which age-gates them. gentle never trims subagent findings.
+        for t in ["Task", "Agent"] {
+            assert!(
+                gentle
+                    .strategies
+                    .bloat_cap
+                    .exempt_tools
+                    .contains(&t.to_owned()),
+                "gentle must keep {t} all-ages exempt in bloat_cap (gentlest touch)"
+            );
+        }
         // thinking_strip ON in gentle (2026-06-05) with a CONSERVATIVE window — it's the
         // only lever that gave gentle real savings on real sessions; drops only OLD
         // reasoning, cache-stable + API-safe. keep_recent=8 (vs default's 4).

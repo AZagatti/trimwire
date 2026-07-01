@@ -119,12 +119,12 @@ expression: attribution_report(&default_install_config())
   "read_heavy": {
     "attribution": [
       {
-        "bytes": 27461,
+        "bytes": 19615,
         "strategy": "bloat_cap"
       }
     ],
     "in_bytes": 83771,
-    "reduction_pct": 32.8
+    "reduction_pct": 23.4
   },
   "repeated_grep": {
     "attribution": [
@@ -163,6 +163,16 @@ expression: attribution_report(&default_install_config())
     ],
     "in_bytes": 14275,
     "reduction_pct": 84.3
+  },
+  "subagent_heavy": {
+    "attribution": [
+      {
+        "bytes": 17841,
+        "strategy": "bloat_cap"
+      }
+    ],
+    "in_bytes": 125525,
+    "reduction_pct": 14.2
   },
   "thinking_heavy": {
     "attribution": [

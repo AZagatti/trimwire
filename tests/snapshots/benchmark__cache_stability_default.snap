@@ -13,10 +13,11 @@ expression: "Value::Object(report)"
   "mcp_non_playwright": 60.788,
   "mixed_realistic": 46.191,
   "pure_chat_floor": 100.0,
-  "read_heavy": 46.602,
+  "read_heavy": 53.665,
   "repeated_grep": 23.902,
   "resumed_session": 87.441,
   "stale_input_heavy": 54.772,
+  "subagent_heavy": 76.188,
   "thinking_heavy": 49.828,
   "unique_bash_spam": 36.67
 }
