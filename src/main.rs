@@ -246,10 +246,17 @@ enum Cmd {
     #[command(display_order = 12)]
     On,
 
-    /// Stop the gateway service. Your shell still exports ANTHROPIC_BASE_URL, so
-    /// Claude calls fail until you `on` again or `unset ANTHROPIC_BASE_URL`.
+    /// Turn off pruning. By default this is a true bypass: the gateway keeps
+    /// serving but forwards every request unmodified to Anthropic, so Claude Code
+    /// keeps working with no env/rc changes. `trimwire on` resumes pruning.
     #[command(display_order = 13)]
-    Off,
+    Off {
+        /// Hard-stop the gateway process instead of bypassing. Frees the port,
+        /// but your shell still exports ANTHROPIC_BASE_URL, so Claude calls fail
+        /// until you `trimwire on` again.
+        #[arg(long)]
+        stop: bool,
+    },
 
     /// Show whether the gateway is running and serving.
     #[command(display_order = 14)]
@@ -495,6 +502,11 @@ elvish  — source inline from rc.elv:\n\
         /// never message content). Same as TRIMWIRE_AUDIT=<file>.
         #[arg(long, value_name = "FILE")]
         audit: Option<String>,
+        /// Run THIS session without trimwire: skip the gateway and point `claude`
+        /// straight at Anthropic (no pruning), while the global gateway keeps
+        /// serving everyone else.
+        #[arg(long)]
+        bypass: bool,
     },
 
     /// Claude Code hook: warn in-session when trimwire is configured but not
@@ -557,7 +569,7 @@ fn main() -> Result<()> {
         Cmd::Install { boot } => cli::install(boot),
         Cmd::Uninstall => cli::uninstall(),
         Cmd::On => cli::on(),
-        Cmd::Off => cli::off(),
+        Cmd::Off { stop } => cli::off(stop),
         Cmd::Status => cli::status(),
         Cmd::Doctor { strict } => cli::doctor(strict),
 
@@ -699,7 +711,11 @@ fn main() -> Result<()> {
             upstream,
             audit,
         } => cli::serve(listen, upstream, audit),
-        Cmd::Run { args, audit } => cli::run(&args, audit),
+        Cmd::Run {
+            args,
+            audit,
+            bypass,
+        } => cli::run(&args, audit, bypass),
         Cmd::Hook => cli::hook(),
         Cmd::Update {
             dry_run,

@@ -51,8 +51,9 @@ with "NOT verified", so use the per-method update instead. macOS/Windows and
 cargo/manual installs always use the per-method update. See
 [`docs/SECURITY-MODEL.md`](https://github.com/AZagatti/trimwire/blob/main/docs/SECURITY-MODEL.md)
 for how releases are signed and verified.
-After a manual update, restart with `trimwire off && trimwire on` (or open a new
-shell) so the new binary serves.
+After a manual update, restart with `trimwire off --stop && trimwire on` (or open
+a new shell) so the new binary serves. (Plain `trimwire off` only bypasses — it
+keeps the old process running — so use `--stop` here to actually restart it.)
 
 ## Is trimwire safe to use with my Claude subscription? (Terms of Service)
 
@@ -200,11 +201,12 @@ so a connection that arrives while the worker is restarting is **queued, not
 refused**. Claude Code is never stranded with a connection error. And on any
 internal error or a request it can't safely prune, trimwire forwards your
 original bytes unchanged. The worst case is "no pruning this turn," never a
-broken request. To send Claude Code straight back to Anthropic, `unset
-ANTHROPIC_BASE_URL` (or open a fresh shell after `trimwire uninstall`). Note
-`trimwire off` only stops the gateway — your shell still exports
-`ANTHROPIC_BASE_URL`, so Claude calls fail until you `trimwire on` again or unset
-it.
+broken request. To turn off pruning without stopping anything, run `trimwire
+off` — it puts the gateway in **bypass** (forwards unmodified straight to
+Anthropic), so `ANTHROPIC_BASE_URL` stays valid and Claude Code keeps working in
+every shell; `trimwire on` resumes pruning. For a single session, `trimwire run
+--bypass` sends just that `claude` straight to Anthropic while the gateway keeps
+serving everyone else.
 
 ## Do the `[trimwire: …]` markers confuse Claude?
 

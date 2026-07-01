@@ -457,8 +457,11 @@ pub fn on() -> Result<()> {
     }
 }
 
-/// Stop the gateway. With socket activation this also stops accepting — `off`
-/// is the explicit kill switch (pair with unsetting `ANTHROPIC_BASE_URL`).
+/// Hard-stop the gateway (the process + socket). With socket activation this
+/// also stops accepting. This backs `trimwire off --stop` only — the default
+/// `trimwire off` is a bypass that keeps the gateway serving (see
+/// `crate::bypass` and `cli::off`), so this is the power-user kill switch, not
+/// the everyday "turn off pruning" path.
 pub fn off() -> Result<()> {
     match detect() {
         Manager::Systemd => run("systemctl", &["--user", "stop", UNIT_SOCKET, UNIT_SERVICE]),
@@ -493,6 +496,17 @@ pub fn status(addr: SocketAddr) -> Result<()> {
     let serving = listening && healthz_ok(addr);
     println!("listening on {addr}: {}", yesno(listening));
     println!("serving (/healthz): {}", yesno(serving));
+    // Pruning state: `trimwire off` (default) keeps the gateway serving but flips
+    // a bypass sentinel so requests forward unmodified. Surface it so a serving
+    // gateway that isn't pruning doesn't look like a silent failure.
+    println!(
+        "pruning: {}",
+        if trimwire::bypass::is_active() {
+            "OFF (bypass — forwarding unmodified; `trimwire on` to resume)"
+        } else {
+            "on"
+        }
+    );
     if !listening {
         // First-time users: `trimwire on` fails (with a soft exit) until `install`
         // has set up the service — point them there first, and at `doctor` to tell
