@@ -10,22 +10,23 @@ on:
   workflow_dispatch:
     inputs:
       pr:
-        description: "PR number to review"
+        description: "PR number to review (e.g. 141)"
         required: true
-      # Type any OpenRouter model ids — one key reaches Opus/GPT-5.5/Gemini/DeepSeek/
-      # etc. Leave a slot blank to use fewer models. Defaults are a solid cheap panel;
-      # override for a heavy review, e.g. anthropic/claude-opus-4.8, openai/gpt-5.5.
+      # Type full OpenRouter ids (provider/model) — one key reaches everything. Leave a
+      # slot blank to use fewer models. Defaults = a solid cheap panel; for a heavy
+      # review use e.g. anthropic/claude-opus-4.8, openai/gpt-5.5, google/gemini-3.5-flash.
+      # A bad id fails the run in ~1s (see the "Validate model ids" step).
       model_1:
-        description: "Panel model 1 (OpenRouter id)"
+        description: "Panel model 1 — full OpenRouter id, e.g. anthropic/claude-opus-4.8"
         default: "google/gemini-3.5-flash"
       model_2:
-        description: "Panel model 2 (OpenRouter id, blank to skip)"
+        description: "Panel model 2 — OpenRouter id, e.g. openai/gpt-5.5 (blank to skip)"
         default: "deepseek/deepseek-v4-pro"
       model_3:
-        description: "Panel model 3 (OpenRouter id, blank to skip)"
+        description: "Panel model 3 — OpenRouter id (blank to skip)"
         default: "nex-agi/nex-n2-pro"
       aggregator:
-        description: "Aggregator model (OpenRouter id)"
+        description: "Aggregator — full OpenRouter id, e.g. google/gemini-3.5-flash"
         default: "google/gemini-3.5-flash"
 
 permissions:
