@@ -38,7 +38,10 @@ aggregator are configured at the top of [`scripts/ai_review.py`](../scripts/ai_r
 (or overridden with the `AI_REVIEW_PANEL` / `AI_REVIEW_AGGREGATOR` env vars).
 
 **Default (standard) panel** — GLM-5-Turbo (z.ai) + Gemini-3.5-Flash + Nex-N2-Pro
-(OpenRouter), aggregated by Gemini-3.5-Flash. Three model lineages, ~$0.006/PR.
+(OpenRouter), aggregated by Gemini-3.5-Flash. Three model lineages. GLM-5-Turbo is
+free on the z.ai subscription; the two OpenRouter legs plus the aggregator run
+~$0.02–0.04/PR at current Gemini-3.5-Flash pricing (after OpenRouter's implicit
+prompt caching on the stable system prefix).
 
 **Heavy review** (manual workflow) — type whichever OpenRouter models you want into
 the three panel slots + aggregator (e.g. Opus 4.8, GPT-5.5, Gemini-3.5-Flash). All

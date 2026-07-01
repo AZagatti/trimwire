@@ -49,6 +49,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           HEAD=$(jq -r '.head_sha // ""' artifacts/pr-meta.json)
           [ -n "$HEAD" ] || exit 0
           # Fold this PR head's check-run conclusions into a signal the reviewer reads
@@ -77,11 +78,19 @@ jobs:
               core.setFailed(`invalid PR number in artifact: ${meta.number}`);
               return;
             }
-            // Cross-check the artifact's PR number against the event when present,
-            // so a poisoned artifact can't redirect the comment to another PR.
-            const eventPRs = context.payload.workflow_run.pull_requests || [];
-            if (eventPRs.length > 0 && eventPRs[0].number !== prNumber) {
-              core.setFailed(`PR number mismatch: artifact=${prNumber} event=${eventPRs[0].number}`);
+            // Cross-check the artifact's PR number against a server-authoritative
+            // lookup by head SHA. workflow_run.pull_requests is always EMPTY for
+            // fork PRs, so it can't be trusted here — associate via the commit
+            // instead (works for forks too), so a poisoned artifact can't redirect
+            // the comment to a different PR.
+            const headSha = context.payload.workflow_run.head_sha;
+            const assoc = await github.paginate(
+              github.rest.repos.listPullRequestsAssociatedWithCommit,
+              { ...context.repo, commit_sha: headSha }
+            );
+            if (assoc.length > 0 && !assoc.some(pr => pr.number === prNumber)) {
+              core.setFailed(
+                `PR number mismatch: artifact=${prNumber} not among SHA-associated PRs [${assoc.map(p => p.number).join(', ')}]`);
               return;
             }
             const body = fs.readFileSync('review.md', 'utf8');

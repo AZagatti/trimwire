@@ -3,8 +3,6 @@
 # codify one — it appends the rule and opens a PR. Rules are never auto-committed to
 # the default branch (rule text goes into the model prompt, so a merge gate blocks
 # rule-injection). workflow_dispatch requires write access, so the trigger is trusted.
-#
-# TODO(before merge): pin actions by SHA (repo policy).
 name: AI Review - Rules
 
 on:

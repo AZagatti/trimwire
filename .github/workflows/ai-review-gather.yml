@@ -44,9 +44,13 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
           mkdir -p artifacts
           gh api "repos/$REPO/pulls/$PR/files" --paginate \
             > artifacts/pr-files.json
+          # Capture the body to a file first so a gh failure fails the step,
+          # instead of process-substituting a silent empty body into the artifact.
+          gh pr view "$PR" --json body -q '.body // ""' > artifacts/pr-body.txt
           jq -n \
             --arg number "$PR" \
             --arg title  "$TITLE" \
@@ -54,7 +58,7 @@ jobs:
             --arg base   "$BASE_SHA" \
             --arg head   "$HEAD_SHA" \
             --arg repo   "$REPO" \
-            --rawfile body <(gh pr view "$PR" --json body -q '.body // ""') \
+            --rawfile body artifacts/pr-body.txt \
             '{number: ($number|tonumber), title: $title, author: $author,
               base_sha: $base, head_sha: $head, repo: $repo, body: $body}' \
             > artifacts/pr-meta.json
