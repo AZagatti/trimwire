@@ -21,6 +21,7 @@ AI_REVIEW_AGGREGATOR env vars (JSON). Keys come from env (see PROVIDERS).
 from __future__ import annotations
 
 import concurrent.futures as cf
+import fnmatch
 import json
 import os
 import re
@@ -29,6 +30,11 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+try:
+    import tomllib  # py3.11+ (GitHub runners are 3.12)
+except ModuleNotFoundError:  # pragma: no cover
+    tomllib = None
 
 # --- Panel configuration -----------------------------------------------------
 # Each entry: name (display), provider (key in PROVIDERS), model (provider id).
@@ -216,12 +222,71 @@ def build_diff(files: list[dict]) -> tuple[str, int, int]:
 
 
 def neutralize(text: str) -> str:
-    """Defang the most blatant prompt-injection phrasing inside the diff."""
+    """Defang blatant prompt-injection phrasing (defense-in-depth only — the real
+    defense is the <diff> XML isolation + REVIEWER.md framing)."""
     return re.sub(
-        r"(?i)(ignore|disregard|override)\s+(all\s+)?(previous|prior|above)\s+"
-        r"(instructions|prompts?)",
+        r"(?i)(ignore|disregard|override|forget|from now on|henceforth)\s+"
+        r"(all\s+)?(previous|prior|above|earlier|the)?\s*"
+        r"(instructions?|prompts?|rules?|system|context|guidelines?)",
         "[redacted-injection]", text,
     )
+
+
+def _strip_reasoning(obj):
+    """Drop the model's private `_reasoning` scratch field before display/aggregation."""
+    if isinstance(obj, dict):
+        obj.pop("_reasoning", None)
+        for v in obj.values():
+            _strip_reasoning(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            _strip_reasoning(v)
+    return obj
+
+
+RULES_DIR = Path(__file__).resolve().parent.parent / ".review-rules"
+MAX_RULES_CHARS = 6000
+
+
+def _strip_frontmatter(text: str) -> str:
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            return text[end + 4:].strip()
+    return text.strip()
+
+
+def load_project_context(changed_files: list[str]) -> tuple[str, str]:
+    """(persona, rules_block) from .review-rules for the changed files: base rules
+    always load, category rules load when their globs match, and the highest-priority
+    match sets the shared persona. Fails soft if the manifest/tomllib is unavailable."""
+    default = "senior software engineer reviewing a trimwire pull request"
+    manifest = RULES_DIR / "_manifest.toml"
+    if not tomllib or not manifest.exists():
+        return default, ""
+    try:
+        cfg = tomllib.loads(manifest.read_text())
+    except Exception:  # noqa: BLE001
+        return default, ""
+
+    def hit(globs) -> bool:
+        return any(fnmatch.fnmatch(f, g) or fnmatch.fnmatch(Path(f).name, g)
+                   for f in changed_files for g in globs)
+
+    matched = [(c.get("priority", 99), name, c) for name, c in cfg.items()
+               if name != "base" and isinstance(c, dict) and hit(c.get("globs", []))]
+    matched.sort(key=lambda t: (t[0], t[1]))
+    persona = matched[0][2].get("persona", default) if matched else default
+
+    parts = []
+    for name in ["base"] + [m[1] for m in matched]:
+        p = RULES_DIR / f"{name}.md"
+        if p.exists():
+            parts.append(f"### {name}\n{_strip_frontmatter(p.read_text())}")
+    body = "\n\n".join(parts)[:MAX_RULES_CHARS]
+    block = (f"## Project rules (.review-rules — trusted project context for the "
+             f"changed files)\n<project_rules>\n{body}\n</project_rules>") if body else ""
+    return persona, block
 
 
 # --- Review ------------------------------------------------------------------
@@ -235,7 +300,7 @@ def run_panel(system: str, user: str) -> list[dict]:
     def one(member: dict) -> dict:
         try:
             raw = chat(member["provider"], member["model"], system, user)
-            review = parse_json(raw)
+            review = _strip_reasoning(parse_json(raw))
             return {**member, "ok": True, "review": review}
         except Exception as exc:  # noqa: BLE001 — record, never crash the run
             return {**member, "ok": False, "error": str(exc)}
@@ -256,7 +321,7 @@ def aggregate(meta: dict, panel_results: list[dict]) -> dict:
         "panel_reviews": reviews,
     }, indent=2)
     raw = chat(AGGREGATOR["provider"], AGGREGATOR["model"], system, user, max_tokens=3500)
-    return parse_json(raw)
+    return _strip_reasoning(parse_json(raw))
 
 
 # --- Rendering ---------------------------------------------------------------
@@ -390,7 +455,12 @@ def main() -> int:
         print("no reviewable files; wrote skip comment")
         return 0
 
-    system = read_prompt("REVIEWER.md", _DEFAULT_REVIEWER)
+    # Path-aware persona + injected project rules (.review-rules) for the changed files.
+    persona, rules_block = load_project_context([f.get("filename", "") for f in files])
+    print(f"persona: {persona}")
+    system = f"You are a {persona}.\n\n" + read_prompt("REVIEWER.md", _DEFAULT_REVIEWER)
+    if rules_block:
+        system += f"\n\n{rules_block}"
     pr_body = neutralize(meta.get("body") or "(none)")[:2000]
     # Untrusted PR-controlled content is isolated in XML tags (models treat these
     # as data boundaries); the title is attacker-controlled too, so neutralize it.
@@ -430,6 +500,12 @@ def main() -> int:
 
     Path("review.md").write_text(render(meta, agg, panel_results, kept, total),
                                  encoding="utf-8")
+    # Surface any AI-proposed rule updates for the (human-gated) maintenance workflow.
+    suggestions = agg.get("rule_suggestions") if isinstance(agg, dict) else None
+    if isinstance(suggestions, list) and suggestions:
+        Path("rule-suggestions.json").write_text(
+            json.dumps(suggestions, indent=2), encoding="utf-8")
+        print(f"wrote {len(suggestions)} rule suggestion(s)")
     print("wrote review.md")
     return 0
 
