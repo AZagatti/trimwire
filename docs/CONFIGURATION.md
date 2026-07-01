@@ -154,13 +154,24 @@ catastrophic_bytes = 0          # if >0, also caps a RECENT result this large (i
                                 # fit the context window anyway, so it would brick the
                                 # session). Set it WELL ABOVE threshold_bytes. Uses a
                                 # generous head/tail floor and a distinct marker.
-stub_age_turns     = 0          # if > keep_recent_turns, results older than this are
-                                # FULLY stubbed (not head+tail). Must exceed
-                                # keep_recent_turns or it has no effect. String content
-                                # only; trades old-result fidelity for size.
+stub_age_turns     = 16         # the `default` profile sets this to 16 (struct default 0).
+                                # A string result older than this is FULLY stubbed to a
+                                # marker (not head+tail). Must exceed keep_recent_turns or
+                                # it has no effect. String content only. See the note below.
 protected_file_patterns = []    # globs of file paths never trimmed (mirror the same
                                 # globs in [strategies.stale_reads] for full protection)
 ```
+
+**The age ladder (`stub_age_turns`, on at 16 in `default`).** Once a string result is
+older than `stub_age_turns` assistant turns, it's replaced by a bare
+`[trimwire: aged-out result N bytes]` marker instead of a head+tail trim — it keeps the
+size marker but loses the head/tail glimpse *and* the salvaged error/warning signal
+lines. This is a concentrated win on **long** result-heavy sessions (the ones past 16
+turns, where trimwire's value is highest) and has **zero effect on short sessions**. The
+tradeoff is fidelity on very-old results: a `Read` is re-readable, but an old Bash/MCP
+output stubbed this way is gone. 16 (rather than a tighter value) deliberately keeps the
+12–16 turn band as head+tail so a still-referenced recent-ish error survives. Set it to
+`0` to disable (very-old results then keep their head+tail). `gentle` leaves it off.
 
 ### `[strategies.sliding_window]` — most aggressive, browser-only by default
 

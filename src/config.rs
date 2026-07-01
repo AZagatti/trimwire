@@ -957,6 +957,16 @@ pub fn profile_baseline(name: &str) -> Config {
             // non-superseded Read isn't head+tail-trimmed at age 3 while still referenced.
             // Bash/MCP results keep the tight 2-turn window (savings preserved).
             s.bloat_cap.exempt_recent_only_keep_turns = 4;
+            // #126: the "age ladder" — a string result older than 16 assistant turns is
+            // FULLY stubbed to a marker instead of head+tail-trimmed (it keeps the marker
+            // but loses the head/tail glimpse + salvaged signal lines). Concentrated win
+            // on LONG result-heavy sessions where trimwire's value is highest (bench:
+            // resumed_session +13.3pp, long_running +6.2pp), ZERO effect on short sessions
+            // (they never reach 16 turns). 16 (not 12) keeps the 12–16 turn band as
+            // head+tail so a still-referenced old error/warning survives — a fidelity vs
+            // savings balance. Guarded by stub_age_turns > keep_recent_turns (16 > 2).
+            // SCOPE: string content only; array/structured results still take head+tail.
+            s.bloat_cap.stub_age_turns = 16;
             // Reduce OLD successful tool_use inputs (cache-safe content-overwrite;
             // reprune-replayable). Tight window matches the aggressive profile.
             s.stale_input_cap.enabled = true;
@@ -1599,6 +1609,27 @@ mod tests {
         assert_eq!(
             default.strategies.bloat_cap.exempt_recent_only_keep_turns, 4,
             "default must widen the Read window to 4 (close the 4–16 KB Read gap, #121)"
+        );
+        // #126: the age ladder is ON at 16 in default — very-old (>16 turn) string
+        // results are fully stubbed (marker only), a long-session savings win. Must
+        // stay > keep_recent_turns (2) or the guard treats it as OFF.
+        assert_eq!(
+            default.strategies.bloat_cap.stub_age_turns, 16,
+            "default must enable the stub_age ladder at 16 (#126)"
+        );
+        assert!(
+            default.strategies.bloat_cap.stub_age_turns
+                > default.strategies.bloat_cap.keep_recent_turns,
+            "stub_age_turns must exceed keep_recent_turns or the guard disables it"
+        );
+        // gentle keeps the age ladder OFF (conservative — very-old results keep head/tail).
+        assert_eq!(
+            profile_baseline("gentle")
+                .strategies
+                .bloat_cap
+                .stub_age_turns,
+            0,
+            "gentle must NOT enable the stub_age ladder (gentlest touch)"
         );
         // Authoring results stay all-ages exempt (load-bearing §13A floor).
         for t in ["Edit", "Write", "MultiEdit"] {
