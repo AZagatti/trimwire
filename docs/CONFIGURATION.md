@@ -129,6 +129,15 @@ top findings + conclusion kept, the dense middle trimmed. Add `Task`/`Agent` bac
 `exempt_tools` to restore the legacy all-ages exemption (this is what the `gentle`
 profile does). Authoring results (Write/Edit/MultiEdit) stay all-ages exempt.
 
+**`Read` gets its own, wider recent window** (`exempt_recent_only_keep_turns`, default
+4 in the `default` profile). A medium file read (4–16 KB) is protected by `stale_reads`
+for 4 turns but was head+tail-trimmed by `bloat_cap` after only 2 — so its middle
+vanished at age 3 while the model might still reference it. Matching this to
+`stale_reads`' 4-turn window closes that gap (a recoverable trim — the file is
+re-readable — so the tradeoff is read-heavy savings, not correctness). The effective
+window is `max(exempt_recent_only_keep_turns, keep_recent_turns)`; `0` falls back to the
+global window. Bash/MCP results keep the tight global window (savings preserved).
+
 ```toml
 [strategies.bloat_cap]
 enabled = true
@@ -139,6 +148,7 @@ keep_recent_turns = 4       # struct default; the `default` profile sets this to
 exempt_tools      = ["Edit", "Write", "MultiEdit"]  # never trimmed at ANY age (authoring — eliding them corrupts sessions)
 subagent_keep_recent_turns = 8        # Task/Agent results exempt within this WIDER window, then head+tail-salvaged once old
 exempt_recent_only_tools = ["Read"]   # exempt only while RECENT; an OLD large Read IS trimmed (the "Read coverage gap" fix)
+exempt_recent_only_keep_turns = 4     # Read's own recent window (>= keep_recent_turns); the `default` profile sets 4; 0 = fall back to keep_recent_turns
 # --- opt-in levers (all default 0 / empty = OFF; zero behaviour change unless set) ---
 catastrophic_bytes = 0          # if >0, also caps a RECENT result this large (it can't
                                 # fit the context window anyway, so it would brick the

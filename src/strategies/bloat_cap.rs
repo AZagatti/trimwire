@@ -59,6 +59,18 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &BloatCapConfig) -> Res
     // ages past this cutoff. Clamped to >=1 (a configured 0 would let the cutoff reach
     // the most-recent completed turn). `None` ⇒ no turn is old enough → all exempt.
     let subagent_cutoff = assistant_cutoff(messages, cfg.subagent_keep_recent_turns.max(1));
+    // #121: the `exempt_recent_only_tools` tier (Read) gets its OWN recent window,
+    // distinct from the tight global one. EFFECTIVE window = max(this, keep_recent_turns)
+    // so a recent-only-exempt tool is never LESS protected than an ordinary result;
+    // 0 falls back to keep_recent_turns (legacy). Closes the 4–16 KB Read gap: a
+    // non-superseded Read inside stale_reads' window but past bloat_cap's tight window
+    // was head+tail-trimmed at age 3. `None` ⇒ history shorter than the window.
+    let recent_only_cutoff = assistant_cutoff(
+        messages,
+        cfg.exempt_recent_only_keep_turns
+            .max(cfg.keep_recent_turns)
+            .max(1),
+    );
 
     // Read-only pass: collect edits — either a string trim or an array elision.
     // Each edit is (location, new_content_value).
@@ -120,7 +132,13 @@ pub(crate) fn apply_counted(messages: &mut [Value], cfg: &BloatCapConfig) -> Res
                 if matches_any(&cfg.exempt_tools, name) {
                     continue;
                 }
-                if recent && matches_any(&cfg.exempt_recent_only_tools, name) {
+                // #121: recent-only-exempt tools (Read) use their OWN, possibly wider
+                // window (`recent_only_cutoff`), NOT the tight global `recent`. A Read in
+                // the global-old-but-read-recent band (e.g. age 3 with a 4-turn Read
+                // window) stays protected here. `None` ⇒ all still recent ⇒ protected.
+                if recent_only_cutoff.is_none_or(|c| mi > c)
+                    && matches_any(&cfg.exempt_recent_only_tools, name)
+                {
                     continue;
                 }
                 // #124: subagent (Task/Agent) RESULTS are exempt while within the WIDER
@@ -344,6 +362,9 @@ mod tests {
             keep_recent_turns: keep,
             exempt_tools: exempt.iter().map(|s| (*s).to_owned()).collect(),
             exempt_recent_only_tools: Vec::new(), // off unless a test opts in
+            // 0 → the Read recent-window falls back to keep_recent_turns (legacy); the
+            // #121 tests set this explicitly to exercise the wider window.
+            exempt_recent_only_keep_turns: 0,
             // Default the subagent window to `keep` so the generic tests (which use
             // non-subagent tools) are unaffected; subagent-specific tests set it.
             subagent_keep_recent_turns: keep,
@@ -498,6 +519,7 @@ mod tests {
             keep_recent_turns: 2,
             exempt_tools: vec![],
             exempt_recent_only_tools: vec![],
+            exempt_recent_only_keep_turns: 0,
             subagent_keep_recent_turns: 2,
             catastrophic_bytes: 0,
             stub_age_turns: stub_age,
@@ -1092,6 +1114,104 @@ mod tests {
         let second = apply(&mut msgs, &age_gate_cfg(50, 2)).unwrap();
         assert_eq!(second.stubbed, 0, "idempotent — already trimmed");
         PairingIndex::build(&msgs).validate().unwrap();
+    }
+
+    // ---- #121: Read-specific recent window (exempt_recent_only_keep_turns) ----
+
+    /// Config with the Read tier + an explicit Read window, tight global keep.
+    fn read_window_cfg(keep: usize, read_window: usize) -> BloatCapConfig {
+        let mut c = cfg(4_096, keep, &["Edit", "Write", "MultiEdit"]);
+        c.exempt_recent_only_tools = vec!["Read".to_owned()];
+        c.exempt_recent_only_keep_turns = read_window;
+        c
+    }
+
+    #[test]
+    fn read_window_wider_than_global_protects_the_gap_band() {
+        // #121: keep_recent_turns=2 but the Read window=4. A Read OLD by the global
+        // window but within the wider Read window (the 2–4 "gap band") stays protected;
+        // the wider window trims strictly FEWER old reads than the legacy fall-back.
+        let mut wide = named_session(&["Read"; 10], 8_000);
+        let wide_stats = apply(&mut wide, &read_window_cfg(2, 4)).unwrap();
+
+        // Legacy: window 0 → falls back to keep_recent_turns=2.
+        let mut narrow = named_session(&["Read"; 10], 8_000);
+        let narrow_stats = apply(&mut narrow, &read_window_cfg(2, 0)).unwrap();
+
+        // 10 reads, result lags its use by one msg → N-keep-1 trimmed: narrow (keep 2)
+        // trims 7, wide (effective keep 4) trims 5. The gap band (turns 5,6) is spared.
+        assert_eq!(narrow_stats.stubbed, 7, "legacy tight window trims 7");
+        assert_eq!(wide_stats.stubbed, 5, "wide Read window trims only 5");
+        assert!(
+            wide_stats.stubbed < narrow_stats.stubbed,
+            "wider Read window protects the 2–4 gap band"
+        );
+        // The read at turn 5 (result at msg index 17) is OLD by keep=2 but within the
+        // 4-turn Read window → intact under the wide window, trimmed under the narrow.
+        assert_eq!(
+            wide[17]["content"][0]["content"].as_str().unwrap().len(),
+            8_000,
+            "gap-band Read kept intact by the wider window"
+        );
+        assert!(
+            narrow[17]["content"][0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("[trimwire: trimmed"),
+            "same Read IS trimmed under the legacy tight window"
+        );
+        PairingIndex::build(&wide).validate().unwrap();
+    }
+
+    #[test]
+    fn read_window_never_below_global_keep() {
+        // The effective window is max(exempt_recent_only_keep_turns, keep_recent_turns):
+        // a Read-window BELOW the global keep must NOT reduce Read protection. keep=6,
+        // read_window=2 → Reads protected for 6 (the global), not 2.
+        let mut msgs = named_session(&["Read"; 10], 8_000);
+        let stats = apply(&mut msgs, &read_window_cfg(6, 2)).unwrap();
+        // effective keep 6 → 10-6-1 = 3 trimmed.
+        assert_eq!(
+            stats.stubbed, 3,
+            "effective window is max(2,6)=6, so only 3 oldest reads trim"
+        );
+        PairingIndex::build(&msgs).validate().unwrap();
+    }
+
+    #[test]
+    fn read_window_protects_gap_band_even_with_catastrophic_enabled() {
+        // The Read window protects a gap-band Read regardless of the opt-in catastrophic
+        // cap: a globally-old-but-Read-recent Read takes the normal path (catastrophic
+        // only applies to globally-RECENT results) and is then protected by the Read
+        // exempt check. Enabling catastrophic_bytes must not change that.
+        let mut msgs = named_session(&["Read"; 10], 8_000);
+        let mut c = read_window_cfg(2, 4);
+        c.catastrophic_bytes = 4_000; // low enough to fire on 8 KB reads IF they were eligible
+        let stats = apply(&mut msgs, &c).unwrap();
+        // Same 5 trimmed as without catastrophic (turns 0..4); the gap band stays intact.
+        assert_eq!(
+            stats.stubbed, 5,
+            "catastrophic cap must not defeat the Read window protection"
+        );
+        assert_eq!(
+            msgs[17]["content"][0]["content"].as_str().unwrap().len(),
+            8_000,
+            "gap-band Read still intact with catastrophic enabled"
+        );
+        PairingIndex::build(&msgs).validate().unwrap();
+    }
+
+    #[test]
+    fn read_window_does_not_widen_non_read_tools() {
+        // The wider window applies ONLY to the exempt_recent_only tier (Read). Bash
+        // results still age out on the tight global keep — savings preserved.
+        let mut msgs = named_session(&["Bash"; 10], 8_000);
+        let stats = apply(&mut msgs, &read_window_cfg(2, 4)).unwrap();
+        // Bash is not in exempt_recent_only_tools → global keep 2 → 7 trimmed.
+        assert_eq!(
+            stats.stubbed, 7,
+            "non-Read results keep the tight global window (Read widening doesn't leak)"
+        );
     }
 
     #[test]
