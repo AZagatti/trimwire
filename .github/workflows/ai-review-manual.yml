@@ -1,0 +1,116 @@
+# Manual, on-demand review — from the Actions UI, enter a PR number and the exact
+# models you want (any OpenRouter ids), then run. Handy for big/high-stakes PRs where
+# you want to throw heavier models (Opus 4.8, GPT-5.5, …) at the diff.
+# Because workflow_dispatch requires write access, the trigger is inherently trusted
+# (only maintainers can run it), so — unlike the auto flow — this is a single job that
+# gathers + reviews + posts.
+name: AI Review - Manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to review"
+        required: true
+      # Type any OpenRouter model ids — one key reaches Opus/GPT-5.5/Gemini/DeepSeek/
+      # etc. Leave a slot blank to use fewer models. Defaults are a solid cheap panel;
+      # override for a heavy review, e.g. anthropic/claude-opus-4.8, openai/gpt-5.5.
+      model_1:
+        description: "Panel model 1 (OpenRouter id)"
+        default: "google/gemini-3.5-flash"
+      model_2:
+        description: "Panel model 2 (OpenRouter id, blank to skip)"
+        default: "deepseek/deepseek-v4-pro"
+      model_3:
+        description: "Panel model 3 (OpenRouter id, blank to skip)"
+        default: "nex-agi/nex-n2-pro"
+      aggregator:
+        description: "Aggregator model (OpenRouter id)"
+        default: "google/gemini-3.5-flash"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ai-review-manual-${{ inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout base repo
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 1
+
+      - name: Fetch PR diff + metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+        run: |
+          mkdir -p artifacts
+          gh api "repos/$REPO/pulls/$PR/files" --paginate > artifacts/pr-files.json
+          gh api "repos/$REPO/pulls/$PR" > pr.json
+          jq -n \
+            --arg number "$PR" \
+            --arg title  "$(jq -r '.title' pr.json)" \
+            --arg author "$(jq -r '.user.login' pr.json)" \
+            --arg base   "$(jq -r '.base.sha' pr.json)" \
+            --arg head   "$(jq -r '.head.sha' pr.json)" \
+            --arg repo   "$REPO" \
+            --rawfile body <(jq -r '.body // ""' pr.json) \
+            '{number: ($number|tonumber), title: $title, author: $author,
+              base_sha: $base, head_sha: $head, repo: $repo, body: $body}' \
+            > artifacts/pr-meta.json
+
+      - name: Build panel from inputs
+        env:
+          M1: ${{ inputs.model_1 }}
+          M2: ${{ inputs.model_2 }}
+          M3: ${{ inputs.model_3 }}
+          AGG: ${{ inputs.aggregator }}
+        run: |
+          # Non-empty model slots become the panel (all provider=openrouter). jq
+          # builds the JSON safely — inputs are never interpolated into a shell command.
+          panel=$(jq -cn --arg m1 "$M1" --arg m2 "$M2" --arg m3 "$M3" '
+            [$m1, $m2, $m3] | map(select(. != ""))
+            | map({name: ., provider: "openrouter", model: .})')
+          agg=$(jq -cn --arg a "$AGG" '{name: $a, provider: "openrouter", model: $a}')
+          {
+            printf 'AI_REVIEW_PANEL=%s\n' "$panel"
+            printf 'AI_REVIEW_AGGREGATOR=%s\n' "$agg"
+          } >> "$GITHUB_ENV"
+
+      - name: Run review
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ARTIFACTS_DIR: artifacts
+        run: python3 scripts/ai_review.py
+
+      - name: Post sticky comment
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- ai-code-review -->';
+            const meta = JSON.parse(fs.readFileSync('artifacts/pr-meta.json', 'utf8'));
+            const prNumber = Number(meta.number);
+            const body = fs.readFileSync('review.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number: prNumber }
+            );
+            const existing = comments.find(c => c.body && c.body.includes(MARKER));
+            if (existing) {
+              await github.rest.issues.updateComment(
+                { owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment(
+                { owner, repo, issue_number: prNumber, body });
+            }

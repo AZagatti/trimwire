@@ -17,10 +17,18 @@ concurrency:
 
 jobs:
   gather:
-    # Skip bots and opt-out PRs.
+    # Anti-spam / cost control:
+    #  - drafts are skipped (review when marked ready)
+    #  - bots and 'skip-ai-review'-labelled PRs are skipped
+    #  - only trusted authors auto-run (owner/member/collaborator/returning
+    #    contributor). First-time / outside authors don't burn LLM spend here —
+    #    a maintainer reviews them via the manual workflow (or GitHub's built-in
+    #    fork-PR approval gate lets an approved one through the normal flow).
     if: >-
+      github.event.pull_request.draft == false &&
       !endsWith(github.event.pull_request.user.login, '[bot]') &&
-      !contains(github.event.pull_request.labels.*.name, 'skip-ai-review')
+      !contains(github.event.pull_request.labels.*.name, 'skip-ai-review') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
