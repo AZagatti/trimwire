@@ -170,7 +170,7 @@ matching results with a marker.
 ```toml
 [strategies.image_strip]
 enabled = true
-applies_to_tools  = ["*screenshot*"]
+applies_to_tools  = ["*screenshot*", "*snapshot*"]
 keep_recent_count = 3   # struct default; the `default` profile sets this to 1
 # stub = "[trimwire: image stripped]"
 ```
@@ -220,7 +220,7 @@ exempt_tools = []
 protected_file_patterns = []     # opt-in (default empty = off): globs of file paths that
                                  # are never superseded-elided OR demand-paged. Mirror the
                                  # same globs in [strategies.bloat_cap] for full protection.
-# stub = "[trimwire: stale read…]"
+# stub = "[trimwire: stale read — superseded by a newer view later]"
 ```
 
 ### `[strategies.thinking_strip]` — on in BOTH profiles (struct default off)
@@ -481,6 +481,25 @@ price" failure can't go unnoticed even if you don't watch the statusline:
 ```json
 { "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "trimwire hook" } ] } ] } }
 ```
+
+### Auto-report hook (opt-in, files a content-free issue on a detected anomaly)
+
+Wire `trimwire report --auto` as a **`Stop`** hook. At the end of each session it
+checks that session for a trimwire anomaly (currently: an HTTP ≥400 response on a
+turn where pruning fired — i.e. a prune that may have broken the request) and, if
+found and not already filed, opens a **content-free** GitHub issue via `gh`
+(versions + OS + a coarse cache-stability bucket only — no paths or session
+content), deduped in `<ledger-dir>/filed-issues`. It is **silent when clean**,
+never fails a session (a hung `gh` call is bounded to 15 s), and falls back to
+printing a pre-filled report URL if `gh` isn't available. Requires the `gh` CLI
+authenticated with issue-write access.
+
+```json
+{ "hooks": { "Stop": [ { "hooks": [ { "type": "command", "command": "trimwire report --auto 2>/dev/null || true" } ] } ] } }
+```
+
+Run `trimwire report` (no `--auto`) any time to print a pre-filled issue URL you
+submit yourself.
 
 ## Runtime environment variables (not config-file keys)
 

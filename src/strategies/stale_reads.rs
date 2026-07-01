@@ -387,7 +387,7 @@ mod tests {
         StaleReadsConfig {
             enabled: true,
             exempt_tools: exempt.iter().map(|s| (*s).to_owned()).collect(),
-            stub: "[trimwire: stale read — file changed or re-read later]".to_owned(),
+            stub: "[trimwire: stale read — superseded by a newer view later]".to_owned(),
             page_min_bytes: 0,
             // keep_recent_turns = 1 so the SHORT supersession fixtures below (2–3
             // assistant turns) still age their oldest read past the recency gate
@@ -410,7 +410,7 @@ mod tests {
         StaleReadsConfig {
             enabled: true,
             exempt_tools: Vec::new(),
-            stub: "[trimwire: stale read — file changed or re-read later]".to_owned(),
+            stub: "[trimwire: stale read — superseded by a newer view later]".to_owned(),
             page_min_bytes: min,
             keep_recent_turns: keep,
             protected_file_patterns: Vec::new(),
