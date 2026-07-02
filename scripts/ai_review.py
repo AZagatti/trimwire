@@ -38,18 +38,22 @@ except ModuleNotFoundError:  # pragma: no cover
     tomllib = None
 
 # --- Panel configuration -----------------------------------------------------
-# Each entry: name (display), provider (key in PROVIDERS), model (provider id).
-# Picks from the review dogfood (internal/ai-review-bench/RESULTS.md). Two strong
-# models already SATURATE recall — Gemini-3.5-Flash and GLM-5.2 each hit 100% on
-# every planted-bug class — so the 3rd model is for consensus confidence + resilience,
-# not coverage. Nex-N2-Pro is the cheapest 100%-recall option and a distinct (Qwen)
-# lineage; its one weakness (an occasional non-JSON reply, ~6%) is exactly what a
-# panel absorbs — the aggregator just uses whichever members returned. GLM-5.2 anchor
-# is free via z.ai. GLM anchor = GLM-5-Turbo: at N=3 on both easy AND hard cases it
-# beat GLM-5.2 on every axis (quality, 0 FP incl. not crying wolf on a clean trap) and
-# is ~2.3-4.6x faster (18-27s vs 45-61s) — and panel latency ≈ slowest member, so the
-# GLM leg's speed matters. (GLM-4.7 scored slightly higher quality but at 83s is too
-# slow to anchor.) 3 lineages: z.ai / Google / Qwen. Swap freely — only edit point.
+# Each entry: name, provider, model, and `reasoning` (provider-specific knob passed to
+# chat: OpenRouter `reasoning:{effort|enabled}`, z.ai `thinking:{type}`). Chosen for
+# COMPLEMENTARITY on real PRs (internal/ai-review-bench), not raw scores — the three
+# catch different real issues, at each model's real-code-optimal reasoning level:
+#   • DeepSeek-V3.2 @off  — thoroughness anchor: tests, missing-error-handling,
+#       consistency, Content-Length. Broadest + fastest (~22s) on real code, and it
+#       reliably flags architectural/layer rules the others gloss. (V4-Pro/Flash were
+#       LESS reliable as reviewers — they truncated on big diffs — so V3.2, not V4.)
+#   • GPT-5-mini @medium — security-breadth anchor: token-in-DOM, unauth endpoints,
+#       auth-header parsing, dependency hygiene. Broad + reliable, cheap.
+#   • GLM-5.2 @fast (thinking off) — architecture/config: async-blocking, listener
+#       teardown, cross-file config issues. Free via the z.ai subscription.
+# 3 lineages (DeepSeek / OpenAI / z.ai). Levels matter: a model's *default* reasoning
+# varies (Gemini defaults off; others heavy) and `high` made small models truncate —
+# these levels were tuned on real PRs. For deep security/crypto review of a sensitive
+# PR, use the manual workflow to add a heavier model (e.g. GPT-5.5). Only edit point.
 def _env_json(name: str, default):
     """Parse a JSON env override; fall back to the default on missing/invalid JSON
     instead of crashing at import (the manual workflow feeds these via inputs)."""
@@ -64,17 +68,28 @@ def _env_json(name: str, default):
 
 
 PANEL = _env_json("AI_REVIEW_PANEL", [
-    {"name": "GLM-5-Turbo",      "provider": "zai",        "model": "glm-5-turbo"},
-    {"name": "Gemini-3.5-Flash", "provider": "openrouter", "model": "google/gemini-3.5-flash"},
-    {"name": "Nex-N2-Pro",       "provider": "openrouter", "model": "nex-agi/nex-n2-pro"},
+    # `params` is merged verbatim into the chat payload (provider-specific reasoning knob)
+    {"name": "DeepSeek-V3.2", "provider": "openrouter", "model": "deepseek/deepseek-v3.2",
+     "params": {"reasoning": {"enabled": False}}},
+    {"name": "GPT-5-mini",   "provider": "openrouter", "model": "openai/gpt-5-mini",
+     "params": {"reasoning": {"effort": "medium"}}},
+    {"name": "GLM-5.2",      "provider": "zai",        "model": "glm-5.2",
+     "params": {"thinking": {"type": "disabled"}}},
 ])
 
-# The aggregator synthesizes the panel's reviews into the final comment, so it's
-# the single point of failure — use the most reliable model. Gemini-3.5-Flash had
-# 0% errors + top quality in the dogfood, vs GLM-5.2's z.ai rate-limit risk.
+# The aggregator merges the panel's reviews into the final comment — the single point
+# of failure, so RELIABILITY on real content wins. The aggregator dogfood favoured
+# DeepSeek-V4-Flash on small synthetic bundles, but on real, detailed panel reviews it
+# malformed its JSON and the run fell back to a single-model review (end-to-end test on
+# a real PR caught this — synthetic bench ≠ real). Gemini-3.5-Flash is reliable here:
+# the input is small (~3 reviews, not a 44 KB diff, so it avoids the large-input
+# malformation), it's a DIFFERENT lineage than every panel member (Google vs
+# DeepSeek/OpenAI/z.ai), and parse_json's salvage is a backstop. `medium` reasoning is
+# Gemini's real-code-reliable level (its default is off; high truncates).
 AGGREGATOR = _env_json(
     "AI_REVIEW_AGGREGATOR",
-    {"name": "Gemini-3.5-Flash", "provider": "openrouter", "model": "google/gemini-3.5-flash"})
+    {"name": "Gemini-3.5-Flash", "provider": "openrouter", "model": "google/gemini-3.5-flash",
+     "params": {"reasoning": {"effort": "medium"}}})
 
 PROVIDERS = {
     # z.ai GLM coding-plan, OpenAI-compatible. Confirm the base URL for your plan
@@ -116,8 +131,12 @@ def _key(provider: str) -> str | None:
 
 
 def chat(provider: str, model: str, system: str, user: str,
-         max_tokens: int = 4000) -> str:
-    """One OpenAI-style chat-completions call. Returns the message content."""
+         max_tokens: int = 4000, extra: dict | None = None) -> str:
+    """One OpenAI-style chat-completions call. Returns the message content.
+    `extra` merges provider-specific knobs into the payload — the panel uses it to set
+    each member's reasoning level (OpenRouter `reasoning:{effort|enabled}`, z.ai
+    `thinking:{type}`), since a model's *default* reasoning varies wildly (Gemini
+    defaults off, others heavy) and the level materially changes review quality."""
     base = PROVIDERS[provider]["base_url"].rstrip("/")
     key = _key(provider)
     if not key:
@@ -132,6 +151,8 @@ def chat(provider: str, model: str, system: str, user: str,
         ],
         "response_format": {"type": "json_object"},
     }
+    if extra:
+        payload.update(extra)
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
@@ -412,7 +433,8 @@ def run_panel(system: str, user: str) -> list[dict]:
         try:
             # 8000: headroom so reasoning models don't truncate mid-JSON on large PRs
             # (salvage in parse_json is the backstop if they still run over).
-            raw = chat(member["provider"], member["model"], system, user, max_tokens=8000)
+            raw = chat(member["provider"], member["model"], system, user,
+                       max_tokens=8000, extra=member.get("params"))
             review = _strip_reasoning(parse_json(raw))
             return {**member, "ok": True, "review": review}
         except Exception as exc:  # noqa: BLE001 — record, never crash the run
@@ -433,7 +455,8 @@ def aggregate(meta: dict, panel_results: list[dict]) -> dict:
         "pr_number": meta.get("number"),
         "panel_reviews": reviews,
     }, indent=2)
-    raw = chat(AGGREGATOR["provider"], AGGREGATOR["model"], system, user, max_tokens=6000)
+    raw = chat(AGGREGATOR["provider"], AGGREGATOR["model"], system, user,
+               max_tokens=6000, extra=AGGREGATOR.get("params"))
     return _strip_reasoning(parse_json(raw))
 
 
