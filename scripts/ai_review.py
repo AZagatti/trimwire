@@ -116,13 +116,15 @@ PROVIDERS = {
     },
 }
 
-# Validate the (possibly env-overridden) panel/aggregator now that PROVIDERS exists —
-# fail fast with a clear message instead of a KeyError deep in the run.
-if not isinstance(PANEL, list) or not PANEL:
-    raise SystemExit("AI_REVIEW_PANEL must be a non-empty JSON array of members")
-for _member in PANEL:
-    _validate_member(_member, "AI_REVIEW_PANEL member")
-_validate_member(AGGREGATOR, "AI_REVIEW_AGGREGATOR")
+def _validate_config() -> None:
+    """Validate the (possibly env-overridden) panel/aggregator. Called from main(), NOT
+    at import time, so importing the module (tests, other tooling) never exits the
+    process — it just fails fast with a clear message when the script actually runs."""
+    if not isinstance(PANEL, list) or not PANEL:
+        raise SystemExit("AI_REVIEW_PANEL must be a non-empty JSON array of members")
+    for member in PANEL:
+        _validate_member(member, "AI_REVIEW_PANEL member")
+    _validate_member(AGGREGATOR, "AI_REVIEW_AGGREGATOR")
 
 MARKER = "<!-- ai-code-review -->"
 ARTIFACTS = Path(os.environ.get("ARTIFACTS_DIR", "artifacts"))
@@ -611,6 +613,7 @@ finding has consensus>=2."""
 
 # --- Main --------------------------------------------------------------------
 def main() -> int:
+    _validate_config()
     meta = json.loads((ARTIFACTS / "pr-meta.json").read_text())
     files = json.loads((ARTIFACTS / "pr-files.json").read_text())
 

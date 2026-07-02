@@ -121,5 +121,19 @@ class TestBuildDiff(unittest.TestCase):
         self.assertNotIn("Cargo.lock", text)
 
 
+class TestConfigValidation(unittest.TestCase):
+    # importing ai_review at the top of this file already proves import doesn't exit
+    def test_default_config_is_valid(self):
+        R._validate_config()  # default PANEL/AGGREGATOR must not raise
+
+    def test_rejects_unknown_provider(self):
+        with self.assertRaises(SystemExit):
+            R._validate_member({"name": "x", "provider": "nope", "model": "y"}, "t")
+
+    def test_rejects_missing_keys(self):
+        with self.assertRaises(SystemExit):
+            R._validate_member({"name": "x"}, "t")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
