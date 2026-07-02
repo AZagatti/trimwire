@@ -172,36 +172,80 @@ def chat(provider: str, model: str, system: str, user: str,
     raise RuntimeError(f"{provider}/{model} failed after {MAX_RETRIES} tries: {last}")
 
 
+def _iter_json_objects(text: str):
+    """Yield every brace-balanced {...} substring, STRING-AWARE (braces inside string
+    literals are ignored — the old version miscounted when a finding's detail contained
+    a brace). Scans from each '{', so it also finds nested finding objects, which lets
+    parse_json salvage individual findings out of a truncated/malformed response."""
+    n = len(text)
+    i = 0
+    while i < n:
+        if text[i] == "{":
+            depth = 0
+            instr = esc = False
+            j = i
+            while j < n:
+                ch = text[j]
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    instr = not instr
+                elif not instr:
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            yield text[i:j + 1]
+                            break
+                j += 1
+        i += 1
+
+
 def _first_json_object(text: str) -> str:
-    """Extract the first complete brace-balanced {...} (beats a greedy regex that
-    over-matches when a model emits prose or a second example object)."""
-    depth, start = 0, None
-    for i, ch in enumerate(text):
-        if ch == "{":
-            if start is None:
-                start = i
-            depth += 1
-        elif ch == "}" and start is not None:
-            depth -= 1
-            if depth == 0:
-                return text[start:i + 1]
+    for obj in _iter_json_objects(text):
+        return obj
     raise ValueError("no complete JSON object found")
 
 
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
 def parse_json(text: str) -> dict:
-    """Tolerant extraction of a single JSON object; rejects non-objects (a model
-    that returns a bare array would otherwise crash downstream .get() calls)."""
+    """Extract the review object, tolerantly. Happy path: json.loads. Fallbacks:
+    first complete brace-balanced object; then SALVAGE — recover the individual finding
+    objects (title+severity) from a truncated or malformed response, so one stray
+    control char or a length cutoff never discards the whole review. Real large-PR
+    reviews hit this: models truncate mid-JSON or emit an unescaped char."""
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\n", "", text)
         text = re.sub(r"\n```$", "", text).strip()
-    try:
-        obj = json.loads(text)
-    except json.JSONDecodeError:
-        obj = json.loads(_first_json_object(text))
-    if not isinstance(obj, dict):
-        raise ValueError(f"expected JSON object, got {type(obj).__name__}")
-    return obj
+    for candidate in (text, None):
+        try:
+            src = candidate if candidate is not None else _first_json_object(text)
+            obj = json.loads(src)
+            if isinstance(obj, dict) and ("findings" in obj or "verdict" in obj):
+                return obj
+        except Exception:  # noqa: BLE001
+            continue
+    # salvage: pull complete finding objects out of a broken/truncated response
+    findings = []
+    for frag in _iter_json_objects(text):
+        try:
+            o = json.loads(_CTRL_RE.sub(" ", frag))
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(o, dict) and "title" in o and "severity" in o:
+            findings.append(o)
+    if findings:
+        m = re.search(r'"verdict"\s*:\s*"(\w+)"', text)
+        return {"verdict": m.group(1) if m else "comment",
+                "summary": "(recovered from a truncated/malformed model response)",
+                "findings": findings, "_salvaged": True}
+    raise ValueError("expected JSON object; could not parse or salvage findings")
 
 
 # --- Diff assembly -----------------------------------------------------------
@@ -366,7 +410,9 @@ def run_panel(system: str, user: str) -> list[dict]:
     """Call every panel model concurrently. Each result: name/model/ok/review."""
     def one(member: dict) -> dict:
         try:
-            raw = chat(member["provider"], member["model"], system, user)
+            # 8000: headroom so reasoning models don't truncate mid-JSON on large PRs
+            # (salvage in parse_json is the backstop if they still run over).
+            raw = chat(member["provider"], member["model"], system, user, max_tokens=8000)
             review = _strip_reasoning(parse_json(raw))
             return {**member, "ok": True, "review": review}
         except Exception as exc:  # noqa: BLE001 — record, never crash the run
@@ -387,7 +433,7 @@ def aggregate(meta: dict, panel_results: list[dict]) -> dict:
         "pr_number": meta.get("number"),
         "panel_reviews": reviews,
     }, indent=2)
-    raw = chat(AGGREGATOR["provider"], AGGREGATOR["model"], system, user, max_tokens=3500)
+    raw = chat(AGGREGATOR["provider"], AGGREGATOR["model"], system, user, max_tokens=6000)
     return _strip_reasoning(parse_json(raw))
 
 
