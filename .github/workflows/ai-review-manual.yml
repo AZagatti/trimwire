@@ -108,9 +108,12 @@ jobs:
             [$m1, $m2, $m3] | map(select(. != ""))
             | map({name: ., provider: "openrouter", model: .})')
           agg=$(jq -cn --arg a "$AGG" '{name: $a, provider: "openrouter", model: $a}')
+          # Write via heredoc delimiters (GitHub's recommended form) so a value can
+          # never inject extra env vars — defense-in-depth even though jq -c emits a
+          # single line and the ids are already catalog-validated above.
           {
-            printf 'AI_REVIEW_PANEL=%s\n' "$panel"
-            printf 'AI_REVIEW_AGGREGATOR=%s\n' "$agg"
+            printf 'AI_REVIEW_PANEL<<__TW_EOF__\n%s\n__TW_EOF__\n' "$panel"
+            printf 'AI_REVIEW_AGGREGATOR<<__TW_EOF__\n%s\n__TW_EOF__\n' "$agg"
           } >> "$GITHUB_ENV"
 
       - name: Run review

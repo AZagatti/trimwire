@@ -54,7 +54,7 @@ except ModuleNotFoundError:  # pragma: no cover
 # varies (Gemini defaults off; others heavy) and `high` made small models truncate —
 # these levels were tuned on real PRs. For deep security/crypto review of a sensitive
 # PR, use the manual workflow to add a heavier model (e.g. GPT-5.5). Only edit point.
-def _env_json(name: str, default):
+def _env_json(name: str, default: object) -> object:
     """Parse a JSON env override; fall back to the default on missing/invalid JSON
     instead of crashing at import (the manual workflow feeds these via inputs)."""
     raw = os.environ.get(name)
@@ -91,6 +91,17 @@ AGGREGATOR = _env_json(
     {"name": "Gemini-3.5-Flash", "provider": "openrouter", "model": "google/gemini-3.5-flash",
      "params": {"reasoning": {"effort": "medium"}}})
 
+
+def _validate_member(m: object, where: str) -> dict:
+    """Fail fast with a clear message on a malformed panel/aggregator override
+    (env-supplied JSON) instead of a bare KeyError deep in the run."""
+    if not isinstance(m, dict) or not all(k in m for k in ("name", "provider", "model")):
+        raise SystemExit(f"{where} must be an object with name/provider/model, got: {m!r}")
+    if m["provider"] not in PROVIDERS:
+        raise SystemExit(f"{where}: unknown provider {m['provider']!r} "
+                         f"(known: {', '.join(PROVIDERS)})")
+    return m
+
 PROVIDERS = {
     # z.ai GLM coding-plan, OpenAI-compatible. Confirm the base URL for your plan
     # (coding plan = .../api/coding/paas/v4; open platform = .../api/paas/v4).
@@ -103,6 +114,14 @@ PROVIDERS = {
         "key_env": "OPENROUTER_API_KEY",
     },
 }
+
+# Validate the (possibly env-overridden) panel/aggregator now that PROVIDERS exists —
+# fail fast with a clear message instead of a KeyError deep in the run.
+if not isinstance(PANEL, list) or not PANEL:
+    raise SystemExit("AI_REVIEW_PANEL must be a non-empty JSON array of members")
+for _member in PANEL:
+    _validate_member(_member, "AI_REVIEW_PANEL member")
+_validate_member(AGGREGATOR, "AI_REVIEW_AGGREGATOR")
 
 MARKER = "<!-- ai-code-review -->"
 ARTIFACTS = Path(os.environ.get("ARTIFACTS_DIR", "artifacts"))
@@ -250,14 +269,14 @@ def parse_json(text: str) -> dict:
             obj = json.loads(src)
             if isinstance(obj, dict) and ("findings" in obj or "verdict" in obj):
                 return obj
-        except Exception:  # noqa: BLE001
+        except (json.JSONDecodeError, ValueError):
             continue
     # salvage: pull complete finding objects out of a broken/truncated response
     findings = []
     for frag in _iter_json_objects(text):
         try:
             o = json.loads(_CTRL_RE.sub(" ", frag))
-        except Exception:  # noqa: BLE001
+        except (json.JSONDecodeError, ValueError):
             continue
         if isinstance(o, dict) and "title" in o and "severity" in o:
             findings.append(o)
@@ -310,7 +329,7 @@ def neutralize(text: str) -> str:
     )
 
 
-def _strip_reasoning(obj):
+def _strip_reasoning(obj: object) -> object:
     """Drop the model's private `_reasoning` scratch field before display/aggregation."""
     if isinstance(obj, dict):
         obj.pop("_reasoning", None)
@@ -481,7 +500,7 @@ _TRUNC = ("\n\n_[review truncated to fit GitHub's comment size limit — "
           "see the Actions log for the full output]_")
 
 
-def _md_safe(s) -> str:
+def _md_safe(s: object) -> str:
     """Neutralize model output before embedding it in the comment: prevent
     </details> from breaking the layout, forging the sticky marker, or rendering
     live (phishing) links from attacker-influenced text."""
