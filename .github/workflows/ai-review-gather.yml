@@ -51,7 +51,9 @@ jobs:
             > artifacts/pr-files.json
           # Capture the body to a file first so a gh failure fails the step,
           # instead of process-substituting a silent empty body into the artifact.
-          gh pr view "$PR" --json body -q '.body // ""' > artifacts/pr-body.txt
+          # --repo is required: this job doesn't check out the repo, so gh can't infer
+          # it from local git (gh pr view without --repo -> "not a git repository").
+          gh pr view "$PR" --repo "$REPO" --json body -q '.body // ""' > artifacts/pr-body.txt
           jq -n \
             --arg number "$PR" \
             --arg title  "$TITLE" \

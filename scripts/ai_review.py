@@ -178,7 +178,9 @@ def chat(provider: str, model: str, system: str, user: str,
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
-        # OpenRouter attribution (ignored by other providers):
+        # OpenRouter's attribution headers (ignored by other providers). `HTTP-Referer`
+        # is intentional and required by OpenRouter — NOT the standard `Referer`; do not
+        # rename it.
         "HTTP-Referer": "https://github.com/AZagatti/trimwire",
         "X-Title": "trimwire ai-review",
     }
@@ -460,7 +462,8 @@ def run_panel(system: str, user: str) -> list[dict]:
             review = _strip_reasoning(parse_json(raw))
             return {**member, "ok": True, "review": review}
         except Exception as exc:  # noqa: BLE001 — record, never crash the run
-            return {**member, "ok": False, "error": str(exc)}
+            # include the exception type for easier CI-log triage of flaky failures
+            return {**member, "ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     with cf.ThreadPoolExecutor(max_workers=max(1, len(PANEL))) as ex:
         return list(ex.map(one, PANEL))
