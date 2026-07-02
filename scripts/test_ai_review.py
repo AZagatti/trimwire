@@ -85,5 +85,41 @@ class TestIterJsonObjects(unittest.TestCase):
             R._first_json_object("no object here")
 
 
+class TestMdSafe(unittest.TestCase):
+    """_md_safe guards the rendered comment against layout-break / markdown injection
+    from attacker-influenced model output — security-relevant, so it gets tests."""
+    def test_escapes_details_and_marker(self):
+        s = R._md_safe("evil </details> and <!-- forge marker -->")
+        self.assertNotIn("</details>", s)
+        self.assertNotIn("<!--", s)
+
+    def test_defangs_links(self):
+        s = R._md_safe("see [click me](https://evil.example)")
+        self.assertNotIn("](https", s)  # zero-width space inserted between ] and (
+
+    def test_non_string_coerced(self):
+        self.assertEqual(R._md_safe(None), "None")
+        self.assertEqual(R._md_safe(42), "42")
+
+
+class TestBuildDiff(unittest.TestCase):
+    def test_truncates_large_patch_with_marker(self):
+        files = [{"filename": "src/a.rs", "patch": "line\n" * 20000, "additions": 1}]
+        text, kept, total = R.build_diff(files)
+        self.assertIn("NOT a code defect", text)  # graceful truncation marker
+        self.assertEqual((kept, total), (1, 1))
+
+    def test_skips_lockfiles_and_removed(self):
+        files = [
+            {"filename": "Cargo.lock", "patch": "huge", "additions": 5},
+            {"filename": "src/b.rs", "patch": "@@ real code", "status": "modified"},
+            {"filename": "src/c.rs", "patch": "@@ gone", "status": "removed"},
+        ]
+        text, kept, total = R.build_diff(files)
+        self.assertEqual((kept, total), (1, 3))       # only src/b.rs survives
+        self.assertIn("src/b.rs", text)
+        self.assertNotIn("Cargo.lock", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

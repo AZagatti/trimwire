@@ -30,6 +30,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
 from pathlib import Path
 
 try:
@@ -212,7 +213,7 @@ def chat(provider: str, model: str, system: str, user: str,
     raise RuntimeError(f"{provider}/{model} failed after {MAX_RETRIES} tries: {last}")
 
 
-def _iter_json_objects(text: str):
+def _iter_json_objects(text: str) -> Iterator[str]:
     """Yield every brace-balanced {...} substring, STRING-AWARE (braces inside string
     literals are ignored — the old version miscounted when a finding's detail contained
     a brace). Scans from each '{', so it also finds nested finding objects, which lets

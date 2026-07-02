@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read   # gh api .../pulls/{n}/files + gh pr view need this (else 403)
 
 concurrency:
   group: ai-review-${{ github.event.pull_request.number }}
