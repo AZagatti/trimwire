@@ -31,10 +31,11 @@ or override at runtime with the `AI_REVIEW_PANEL` / `AI_REVIEW_AGGREGATOR` env
 vars (JSON). Each member is `{name, provider, model}`; providers and their base
 URLs / key env vars live in `PROVIDERS`.
 
-Defaults (confirmed by the N=3 review dogfood in `internal/ai-review-bench/`,
-which ranks models on *review* quality — not summarizer fidelity, a different
-skill): **panel** = GLM-5.2 (free z.ai anchor) + Gemini-3.5-Flash + DeepSeek-V4-Flash
-(3 lineages); **aggregator** = Gemini-3.5-Flash (most reliable + top quality). ~$0.005/PR.
+Defaults (chosen for COMPLEMENTARITY on real PRs — see `internal/ai-review-bench/`;
+each member catches different real issues, at its real-code-optimal reasoning level):
+**panel** = DeepSeek-V3.2 @off (thoroughness/tests) + GPT-5-mini @medium (security
+breadth) + GLM-5.2 @fast (architecture/config, free z.ai) — 3 lineages;
+**aggregator** = Gemini-3.5-Flash @medium. ~$0.005/PR.
 
 ## Prompts
 

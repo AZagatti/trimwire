@@ -37,11 +37,10 @@ consensus-scores, and ranks the findings into one comment. Panel members and the
 aggregator are configured at the top of [`scripts/ai_review.py`](../scripts/ai_review.py)
 (or overridden with the `AI_REVIEW_PANEL` / `AI_REVIEW_AGGREGATOR` env vars).
 
-**Default (standard) panel** — GLM-5-Turbo (z.ai) + Gemini-3.5-Flash + Nex-N2-Pro
-(OpenRouter), aggregated by Gemini-3.5-Flash. Three model lineages. GLM-5-Turbo is
-free on the z.ai subscription; the two OpenRouter legs plus the aggregator run
-~$0.02–0.04/PR at current Gemini-3.5-Flash pricing (after OpenRouter's implicit
-prompt caching on the stable system prefix).
+**Default (standard) panel** — DeepSeek-V3.2 + GPT-5-mini + GLM-5.2, aggregated by
+Gemini-3.5-Flash. Three lineages (DeepSeek / OpenAI / z.ai). Each member runs at its
+real-code-optimal reasoning level (DeepSeek-V3.2 off, GPT-5-mini medium, GLM-5.2
+thinking off). GLM-5.2 is free on the z.ai subscription, so a review runs ~$0.005/PR.
 
 **Heavy review** (manual workflow) — type whichever OpenRouter models you want into
 the three panel slots + aggregator (e.g. Opus 4.8, GPT-5.5, Gemini-3.5-Flash). All
@@ -58,11 +57,16 @@ each candidate review them with the production prompt, and grades the output wit
 blinded LLM judge on: bug recall, false-positive rate, injection resistance, and
 latency. Highlights:
 
-- Two strong models already **saturate recall** on typical bugs, so the third panel
-  slot is for consensus confidence, not coverage.
+- **Complementarity beats raw scores**: the three panel members are picked so each
+  catches issues the others miss (validated on real PRs — DeepSeek-V3.2 for
+  thoroughness/tests, GPT-5-mini for security breadth, GLM-5.2 for architecture/config),
+  not for topping a leaderboard individually.
+- **Synthetic ≠ real**: models that top the planted-bug corpus can produce malformed
+  JSON or over-review on large real diffs, so the final picks were validated on real
+  PRs at each model's real-code-optimal **reasoning level** (a model's default reasoning
+  varies wildly and materially changes review quality).
 - **Latency matters**: panel calls run concurrently, so per-PR latency ≈ the slowest
-  member. GLM-5-Turbo anchors because it matches heavier GLM models on quality at a
-  fraction of the time.
+  member — reasoning levels are tuned to stay reliable without over-thinking.
 - Coder-specialist and summarizer-optimized models consistently under-review — they
   were tested and dropped.
 

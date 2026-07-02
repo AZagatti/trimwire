@@ -55,6 +55,7 @@ jobs:
           M3: ${{ inputs.model_3 }}
           AGG: ${{ inputs.aggregator }}
         run: |
+          set -euo pipefail
           # Free catalog check (no inference spend) — a bad id fails the job in ~1s
           # with a clear annotation, instead of silently dropping the model.
           ids=$(curl -sf https://openrouter.ai/api/v1/models \
@@ -77,6 +78,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ inputs.pr }}
         run: |
+          set -euo pipefail
           # Reject anything but a positive integer before it reaches gh api (a
           # crafted value like `141"` could otherwise pass a flag to gh).
           [[ "$PR" =~ ^[1-9][0-9]*$ ]] || { echo "::error::PR must be a positive integer"; exit 1; }
@@ -102,6 +104,7 @@ jobs:
           M3: ${{ inputs.model_3 }}
           AGG: ${{ inputs.aggregator }}
         run: |
+          set -euo pipefail
           # Non-empty model slots become the panel (all provider=openrouter). jq
           # builds the JSON safely — inputs are never interpolated into a shell command.
           panel=$(jq -cn --arg m1 "$M1" --arg m2 "$M2" --arg m3 "$M3" '
