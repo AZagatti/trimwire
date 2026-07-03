@@ -174,5 +174,32 @@ class TestPersonas(unittest.TestCase):
         self.assertIn("onclick", txt)    # not on:click
 
 
+class TestCiSignals(unittest.TestCase):
+    def _with_artifacts(self, files):
+        import tempfile
+        import pathlib
+        d = pathlib.Path(tempfile.mkdtemp())
+        for name, txt in files.items():
+            (d / name).write_text(txt)
+        old = R.ARTIFACTS
+        R.ARTIFACTS = d
+        try:
+            return R.read_ci_signals()
+        finally:
+            R.ARTIFACTS = old
+
+    def test_injects_conclusions_and_failure_logs(self):
+        out = self._with_artifacts({
+            "ci-signals.txt": "clippy: failure\ntests: success",
+            "ci-failure-logs.txt": "error[E0308] --> src/x.rs:42",
+        })
+        self.assertIn("clippy: failure", out)
+        self.assertIn("E0308", out)          # failure log line injected
+        self.assertIn("untrusted", out)      # security note present
+
+    def test_empty_when_no_ci_artifacts(self):
+        self.assertEqual(self._with_artifacts({}), "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
