@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING**: bump to `0.4.0` to make explicit the public-API additions to `SummarizerProviderConfig` and `StaleInputCapConfig`. Earlier releases had silently added public fields to these structs — a SemVer break at an unchanged `0.3.16`, now caught by a new `cargo-semver-checks` CI gate (PR-vs-base). A major bump is the correct fix; `#[non_exhaustive]` was considered but rejected — it breaks struct-literal construction in this crate's own `examples/` and integration tests (separate crates → `E0639`).
+- **BREAKING**: `SummarizerProviderConfig` and `StaleInputCapConfig` are now `#[non_exhaustive]`. Earlier releases had silently added public fields to these structs — a SemVer break at an unchanged `0.3.16` (caught by a new `cargo-semver-checks` CI gate). Bumping to `0.4.0` makes the public-API change explicit; `#[non_exhaustive]` lets future config fields be added without another breaking release.
 
 ## [0.3.16](https://github.com/AZagatti/trimwire/compare/v0.3.15...v0.3.16) - 2026-06-24
 
