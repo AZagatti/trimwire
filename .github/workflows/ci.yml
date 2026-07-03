@@ -80,13 +80,13 @@ jobs:
       - name: cargo package (verify the crates.io `include` list builds)
         run: cargo package --locked
 
-      # Prebuilt actionlint via the same SHA-pinned installer used for the other tools,
-      # instead of curl|bash from a mutable upstream tag (supply-chain hardening).
-      - uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
-        with:
-          tool: actionlint
       - name: actionlint (workflow lint)
-        run: actionlint
+        # Pin the installer script to an immutable commit SHA (== tag v1.7.12) instead
+        # of the mutable tag, so curl|bash can't run changed content. (taiki-e/install-
+        # action doesn't package actionlint, so the upstream script is the way in.)
+        run: |
+          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash)
+          ./actionlint
 
       - name: shellcheck installer scripts
         run: |
