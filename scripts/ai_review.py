@@ -756,6 +756,12 @@ def main() -> int:
 
     Path("review.md").write_text(render(meta, agg, panel_results, kept, total),
                                  encoding="utf-8")
+    # Structured findings so the post workflow can place INLINE review comments (file:line)
+    # with committable ```suggestion blocks. review.md stays the fallback sticky comment.
+    inline = [{k: f.get(k) for k in ("severity", "file", "line", "title", "detail", "suggestion")}
+              for f in (agg.get("findings") or []) if isinstance(f, dict) and f.get("file")]
+    Path("findings.json").write_text(json.dumps(inline, indent=2), encoding="utf-8")
+    print(f"wrote findings.json ({len(inline)} inline-eligible)")
     # Surface any AI-proposed rule updates for the (human-gated) maintenance workflow.
     suggestions = agg.get("rule_suggestions") if isinstance(agg, dict) else None
     if isinstance(suggestions, list) and suggestions:
