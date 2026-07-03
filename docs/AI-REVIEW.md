@@ -30,45 +30,49 @@ slots + an aggregator, any OpenRouter ids). Because dispatching requires write a
 it's trusted and runs as a single job. Use it to throw heavier models at a big PR —
 e.g. `anthropic/claude-opus-4.8`, `openai/gpt-5.5`, `google/gemini-3.5-flash`.
 
-## The panel
+## The panel — routed personas
 
-Each model reviews the diff independently; an **aggregator** merges, deduplicates,
-consensus-scores, and ranks the findings into one comment. Panel members and the
-aggregator are configured at the top of [`scripts/ai_review.py`](../scripts/ai_review.py)
-(or overridden with the `AI_REVIEW_PANEL` / `AI_REVIEW_AGGREGATOR` env vars).
+Rather than three generalist reviewers, the diff is routed to **specialist personas** —
+checklist modules (SENTINEL/logic, WARDEN/security, CHRONICLER/contracts, FERRUS/Rust
+`unsafe`, PYTHIA/Python, GATEKEEPER/GHA-security, VANGUARD/frontend, ARGUS/accessibility,
+PACER/web-vitals, SENTRY/supply-chain, SCRIBE/docs, SCOUT/test-quality). A deterministic
+router (file globs) picks the relevant personas per PR and **composes them by model-lane**
+— one call per model. Cost therefore scales with the PR: a docs-only change is one call,
+a cross-stack change ~5. Findings are then **deduplicated deterministically** (by
+`file:line` + title) — no paid LLM aggregator, no recall leak.
 
-**Default (standard) panel** — DeepSeek-V3.2 + GPT-5-mini + GLM-5.2, aggregated by
-Gemini-3.5-Flash. Three lineages (DeepSeek / OpenAI / z.ai). Each member runs at its
-real-code-optimal reasoning level (DeepSeek-V3.2 off, GPT-5-mini medium, GLM-5.2
-thinking off). GLM-5.2 is free on the z.ai subscription, so a review runs ~$0.005/PR.
+Personas + their assigned models live in
+[`scripts/ai_review_personas.py`](../scripts/ai_review_personas.py); the legacy
+3-generalist panel + LLM aggregator is still available via `AI_REVIEW_LEGACY_PANEL=1`.
 
-**Heavy review** (manual workflow) — type whichever OpenRouter models you want into
-the three panel slots + aggregator (e.g. Opus 4.8, GPT-5.5, Gemini-3.5-Flash). All
-reachable via the one OpenRouter key, so no extra secrets. Use it for large or
-high-stakes PRs where the extra cost is worth a stronger read.
+**Default assignments** — GLM-5.2 (free on z.ai) for the logic/baseline personas
+(SENTINEL/SCOUT/GATEKEEPER/FERRUS), Qwen3-Coder-30B (~$0.0019/call) for ARGUS/PACER/SENTRY,
+DeepSeek-V4-Flash (~$0.0021) for PYTHIA/VANGUARD, DeepSeek-V3.2 for CHRONICLER/SCRIBE, and
+GPT-5-mini only for WARDEN. A review runs **<$0.02/PR**.
 
-## How the models were chosen
+**Heavy review** (manual workflow) — throw stronger OpenRouter models at a big PR via the
+dispatch inputs; all reachable through the one OpenRouter key.
 
-Picks came from an offline **dogfood** that ranks candidates on *review quality*, not
-on general benchmarks or summarization ability (those are different skills — a great
-summarizer or coding model is often a mediocre reviewer). The harness plants known
-bugs (plus clean controls and a prompt-injection trap) in realistic Rust diffs, has
-each candidate review them with the production prompt, and grades the output with a
-blinded LLM judge on: bug recall, false-positive rate, injection resistance, and
-latency. Highlights:
+## How the personas & models were chosen
 
-- **Complementarity beats raw scores**: the three panel members are picked so each
-  catches issues the others miss (validated on real PRs — DeepSeek-V3.2 for
-  thoroughness/tests, GPT-5-mini for security breadth, GLM-5.2 for architecture/config),
-  not for topping a leaderboard individually.
-- **Synthetic ≠ real**: models that top the planted-bug corpus can produce malformed
-  JSON or over-review on large real diffs, so the final picks were validated on real
-  PRs at each model's real-code-optimal **reasoning level** (a model's default reasoning
-  varies wildly and materially changes review quality).
-- **Latency matters**: panel calls run concurrently, so per-PR latency ≈ the slowest
-  member — reasoning levels are tuned to stay reliable without over-thinking.
-- Coder-specialist and summarizer-optimized models consistently under-review — they
-  were tested and dropped.
+Personas are **standards-grounded checklists** (CWE Top 25, WCAG 2.2, Rust API Guidelines,
+GitHub Actions hardening, web.dev Core Web Vitals). Model→persona fit was picked by a
+**67-case real-fix-PR classification** — each case a distinct merged fix-PR with a known
+defect — scored by a blinded LLM judge on recall, then stress-tested on a **holistic bench**
+(the full panel over whole ambiguous PRs, scored for recall *and* false-positives).
+Highlights:
+
+- **The checklist beats the model on most personas**: given a concrete checklist, a
+  near-free model matches an expensive one — tuning the accessibility checklist lifted a
+  $0.0019 model from 0.60 to 1.00 recall and replaced GPT-5-mini. The knowledge lives in
+  the checklist, so the model can be cheap.
+- **Synthetic ≠ real, and honestly so**: isolated planted-bug recall (~80–100%) massively
+  overstates real-PR recall. On whole ambiguous PRs the panel catches **~27%** of subtle
+  issues at ~19% noise. So this reviewer is **advisory** — a cheap second pair of eyes that
+  stays quiet and defers to CI. **Completeness belongs to deterministic tools** (clippy,
+  `cargo-semver-checks`, `tsc`, ruff) + a green-CI gate, not the LLM.
+- **Reasoning level matters**: each model runs at its validated level (a model's default
+  reasoning varies wildly and changes review quality).
 
 ## Cost & anti-spam
 
