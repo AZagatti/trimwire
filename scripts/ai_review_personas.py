@@ -22,6 +22,9 @@ Actions hardening, web.dev CWV, Diátaxis). Specific advisory IDs were intention
 
 from __future__ import annotations
 
+import fnmatch
+import re
+
 # --- Model lanes -------------------------------------------------------------
 # provider/model/params mirror scripts/ai_review.py chat() expectations.
 LANES: dict[str, dict] = {
@@ -267,7 +270,6 @@ MODULES: list[dict] = [
 ]
 
 # --- Router ------------------------------------------------------------------
-import fnmatch
 
 # Extensions that count as reviewable *code* (vs pure docs/config). Gates `needs_code` modules.
 CODE_EXTS = (".rs", ".py", ".ts", ".tsx", ".js", ".mjs", ".svelte", ".astro")
@@ -323,12 +325,11 @@ if __name__ == "__main__":
 
 
 # --- Deterministic finding aggregation (no model call) ---
-import re as _re
 SEV_RANK = {"security": 0, "bug": 1, "inconsistent": 2, "test": 3, "suggestion": 4, "question": 5}
 
 
 def _norm(t: str) -> str:
-    return _re.sub(r"\W+", " ", (t or "").lower()).strip()[:70]
+    return re.sub(r"\W+", " ", (t or "").lower()).strip()[:70]
 
 
 def aggregate(findings: list[dict]) -> tuple[list[dict], dict]:

@@ -156,6 +156,20 @@ jobs:
       - name: parity fixtures are current
         run: make phase0-verify
 
+  ai-review-checks:
+    name: AI-review lint + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
+      # Deterministic gate for the review engine's own Python (the completeness layer:
+      # the LLM reviewer is advisory, these checks are non-negotiable).
+      - name: ruff (AI-review scripts)
+        run: uvx ruff check scripts/ai_review.py scripts/ai_review_personas.py scripts/test_ai_review.py
+      - name: AI-review unit tests (stdlib)
+        run: python3 scripts/test_ai_review.py
+
   cross-platform:
     name: cross-platform build
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
