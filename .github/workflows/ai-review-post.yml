@@ -123,6 +123,14 @@ jobs:
               // One-click committable fix: a ```suggestion block replaces the commented line.
               if (typeof f.replacement === 'string' && f.replacement.trim())
                 b += '\n\n```suggestion\n' + f.replacement.replace(/\s+$/, '') + '\n```';
+              // Hidden marker so the weekly accepted/FP tracker can attribute this comment
+              // to its persona(s) later (invisible in rendered markdown). Sanitize to keep
+              // it a single well-formed marker a finding can't spoof.
+              const personas = Array.isArray(f.personas)
+                ? f.personas.filter(p => /^[A-Z0-9_]+$/.test(p)).join(',') : '';
+              const consensus = Number.isInteger(f.consensus) ? f.consensus : '';
+              if (personas)
+                b += `\n\n<!-- ai-review-meta personas=${personas} consensus=${consensus} -->`;
               comments.push({ path: f.file, line, side: 'RIGHT', body: b });
             }
             if (comments.length === 0) { core.info('no findings on diff lines; sticky comment only'); return; }

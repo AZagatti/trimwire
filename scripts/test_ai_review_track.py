@@ -94,5 +94,51 @@ class TestRenderSummary(unittest.TestCase):
         self.assertIn("no data yet", T.render_summary_md({}))
 
 
+class TestParseMeta(unittest.TestCase):
+    def test_parses_personas_and_consensus(self):
+        meta = T.parse_meta("nice finding\n<!-- ai-review-meta personas=WARDEN,SENTINEL consensus=2 -->")
+        self.assertEqual(meta["personas"], ["WARDEN", "SENTINEL"])
+        self.assertEqual(meta["consensus"], 2)
+
+    def test_no_marker_returns_none(self):
+        self.assertIsNone(T.parse_meta("just a normal comment"))
+
+    def test_missing_consensus_is_none(self):
+        meta = T.parse_meta("<!-- ai-review-meta personas=X -->")
+        self.assertEqual(meta["personas"], ["X"])
+        self.assertIsNone(meta["consensus"])
+
+
+class TestMine(unittest.TestCase):
+    def _comments(self):
+        return [
+            {"id": 1, "user": {"type": "Bot"}, "in_reply_to_id": None,
+             "path": "src/a.rs", "line": 10, "pull_request_url": "https://api.gh/repos/o/r/pulls/141",
+             "body": "bug here <!-- ai-review-meta personas=WARDEN consensus=1 -->",
+             "reactions": {"-1": 1}},
+            {"id": 2, "user": {"type": "User"}, "in_reply_to_id": 1, "body": "false positive, ignore"},
+            {"id": 3, "user": {"type": "Bot"}, "in_reply_to_id": None,
+             "path": "src/b.rs", "line": 5, "pull_request_url": "https://api.gh/repos/o/r/pulls/141",
+             "body": "no marker here"},                          # not tracked (no marker)
+            {"id": 4, "user": {"type": "User"}, "in_reply_to_id": None, "body": "human comment"},
+        ]
+
+    def test_keeps_only_marked_bot_roots(self):
+        recs = T.mine(self._comments())
+        self.assertEqual(len(recs), 1)
+        r = recs[0]
+        self.assertEqual(r["personas"], ["WARDEN"])
+        self.assertEqual(r["pr"], "141")
+        self.assertEqual(r["file"], "src/a.rs")
+        self.assertEqual(r["replies"], ["false positive, ignore"])
+
+    def test_mined_record_classifies_rejected(self):
+        recs = T.finalize(T.mine(self._comments()))
+        self.assertEqual(recs[0]["status"], "rejected")   # -1 reaction + reject reply
+
+    def test_ignores_malformed(self):
+        self.assertEqual(T.mine(["x", None, {"user": {"type": "Bot"}, "body": "no marker"}]), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

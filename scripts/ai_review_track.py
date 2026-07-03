@@ -6,10 +6,10 @@ rolls the results up per persona, so checklist tuning can target the noisy perso
 Persistence (a dedicated `ai-review-data` branch) and the gh-api mining live in the
 workflow; THIS module is pure + fully unit-tested — no network, stdlib only.
 
-CLI:  python3 scripts/ai_review_track.py <records.json> <out_summary.md>
-  records.json: list of {personas:[...], reactions:{...}, replies:[...], ...}
-  -> writes the per-persona summary markdown to <out_summary.md>
-  -> prints the finalized records (each with a "status") as JSON to stdout
+CLI (two phases the weekly workflow chains):
+  mine <comments.json> <records.json>       # gh-api review comments -> tracker records
+  summarize <records.json> <out_summary.md> # records -> per-persona acceptance table
+Both transforms are pure + tested; only the gh-api fetch + branch push live in the workflow.
 """
 import json
 import re
@@ -27,6 +27,57 @@ _ACCEPT_RE = re.compile(
 # GitHub reaction content keys (from a comment's `reactions` summary object).
 _NEG_REACTIONS = ("-1", "confused")
 _POS_REACTIONS = ("+1", "heart", "hooray", "rocket")
+
+# Hidden marker the post workflow appends to each inline comment so persona attribution
+# travels WITH the comment (no separate per-PR findings storage needed). _md_safe defangs
+# `<!--` in model output, so a finding can't forge this.
+_META_RE = re.compile(r"<!--\s*ai-review-meta\s+(.*?)-->", re.S)
+
+
+def parse_meta(body: str) -> dict | None:
+    """Extract {personas, consensus} from a comment's hidden ai-review-meta marker."""
+    m = _META_RE.search(body or "")
+    if not m:
+        return None
+    attrs = dict(re.findall(r"(\w+)=(\S+)", m.group(1)))
+    personas = [p for p in attrs.get("personas", "").split(",") if p]
+    consensus = int(attrs["consensus"]) if attrs.get("consensus", "").isdigit() else None
+    return {"personas": personas, "consensus": consensus}
+
+
+def _pr_from_url(url: str) -> str | None:
+    m = re.search(r"/pulls/(\d+)", url or "")
+    return m.group(1) if m else None
+
+
+def mine(comments: list) -> list:
+    """Transform a repo's PR review comments (gh api pulls/comments) into tracker records:
+    keep the bot's ROOT comments carrying our meta marker, attach their reactions and any
+    threaded replies (joined by in_reply_to_id)."""
+    replies_by_parent: dict = {}
+    for c in comments:
+        if isinstance(c, dict) and c.get("in_reply_to_id"):
+            replies_by_parent.setdefault(c["in_reply_to_id"], []).append(c.get("body", ""))
+    records = []
+    for c in comments:
+        if not isinstance(c, dict) or c.get("in_reply_to_id"):
+            continue
+        if (c.get("user") or {}).get("type") != "Bot":
+            continue
+        meta = parse_meta(c.get("body", ""))
+        if not meta:
+            continue
+        records.append({
+            "comment_id": c.get("id"),
+            "pr": _pr_from_url(c.get("pull_request_url", "")),
+            "file": c.get("path"),
+            "line": c.get("line"),
+            "personas": meta["personas"],
+            "consensus": meta["consensus"],
+            "reactions": c.get("reactions") or {},
+            "replies": replies_by_parent.get(c.get("id"), []),
+        })
+    return records
 
 
 def classify(reactions: dict, replies: list) -> str:
@@ -95,20 +146,30 @@ def render_summary_md(per: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main() -> int:
-    if len(sys.argv) != 3:
-        print("usage: ai_review_track.py <records.json> <out_summary.md>", file=sys.stderr)
-        return 2
+def _read_json_list(path: str) -> list:
     try:
-        records = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        print(f"could not read records ({exc})", file=sys.stderr)
-        records = []
-    if not isinstance(records, list):
-        records = []
-    finalized = finalize(records)
-    Path(sys.argv[2]).write_text(render_summary_md(summarize(finalized)), encoding="utf-8")
-    print(json.dumps(finalized, indent=2))
+        print(f"could not read {path} ({exc})", file=sys.stderr)
+        return []
+    return data if isinstance(data, list) else []
+
+
+def main() -> int:
+    if len(sys.argv) != 4 or sys.argv[1] not in ("mine", "summarize"):
+        print("usage: ai_review_track.py mine <comments.json> <records.json>\n"
+              "       ai_review_track.py summarize <records.json> <out_summary.md>",
+              file=sys.stderr)
+        return 2
+    cmd, src, dst = sys.argv[1], sys.argv[2], sys.argv[3]
+    if cmd == "mine":
+        records = mine(_read_json_list(src))
+        Path(dst).write_text(json.dumps(records, indent=2), encoding="utf-8")
+        print(f"mined {len(records)} tracked finding(s)")
+    else:  # summarize
+        finalized = finalize(_read_json_list(src))
+        Path(dst).write_text(render_summary_md(summarize(finalized)), encoding="utf-8")
+        print(f"summarized {len(finalized)} record(s)")
     return 0
 
 

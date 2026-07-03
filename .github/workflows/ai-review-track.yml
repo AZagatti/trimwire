@@ -1,0 +1,71 @@
+# Weekly: mine the AI reviewer's inline-comment threads for maintainer accept/reject
+# signals (reactions + replies) and publish per-persona acceptance rates to a dedicated
+# `ai-review-data` branch. This feeds checklist tuning — it never touches main history.
+# All classification lives in the tested scripts/ai_review_track.py; this workflow only
+# fetches (gh api) and publishes (git push to the data branch).
+name: AI Review - Track
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write # checkout the tracker script + push results to the ai-review-data branch
+  pull-requests: read # read review comments + reactions
+
+concurrency:
+  group: ai-review-track
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout base repo (trusted — for the tracker script)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 1
+
+      - name: Mine review comments -> per-persona acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Every PR review comment in the repo (reactions summary included, paginated).
+          gh api "repos/$REPO/pulls/comments" --paginate \
+            -H "Accept: application/vnd.github+json" > comments.json
+          python3 scripts/ai_review_track.py mine comments.json records.json
+          python3 scripts/ai_review_track.py summarize records.json summary.md
+          echo "=== summary ==="; cat summary.md
+
+      - name: Publish to the ai-review-data branch
+        env:
+          # Job token has contents:write (above) → can push to the data branch.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Isolated clone so the trusted base checkout is never mutated. The token is only
+          # ever in the remote URL (GitHub masks GITHUB_TOKEN in logs; set -x stays off).
+          url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          d=$(mktemp -d); cp records.json summary.md "$d/"; cd "$d"
+          git init -q
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --depth 1 "$url" ai-review-data 2>/dev/null; then
+            git checkout -q -B ai-review-data FETCH_HEAD
+          else
+            git checkout -q --orphan ai-review-data
+            git rm -rfq --ignore-unmatch . >/dev/null 2>&1 || true
+          fi
+          cp "$d/records.json" "$d/summary.md" . 2>/dev/null || true
+          git add records.json summary.md
+          if git diff --cached --quiet; then
+            echo "no acceptance changes since last run"; exit 0
+          fi
+          git commit -q -m "chore(ai-review): FP tracker $(date -u +%F)"
+          git push -q "$url" HEAD:ai-review-data
+          echo "published to ai-review-data"

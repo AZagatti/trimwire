@@ -89,6 +89,15 @@ Highlights:
 - The diff is filtered (lockfiles, snapshots, generated/min files) and budgeted
   (per-file + total caps) before any model is called.
 
+## Accepted / false-positive tracking
+
+A weekly job (`ai-review-track.yml`) mines the bot's inline-comment threads for maintainer
+signals — a 👍/👎 reaction or a reply like "good catch" / "false positive" — and publishes
+per-persona acceptance rates to a dedicated **`ai-review-data`** branch (no noise on `main`).
+Each inline comment carries a hidden `ai-review-meta` marker so a finding can be attributed
+to the persona(s) that raised it. Over time this shows which personas are noisy, so their
+checklists can be tightened. React on the bot's comments to feed it — nothing else needed.
+
 ## Setup
 
 1. Add repo secrets: `ZAI_API_KEY`, `OPENROUTER_API_KEY`.
