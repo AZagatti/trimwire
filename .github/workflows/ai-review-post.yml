@@ -117,6 +117,9 @@ jobs:
               let b = `${emoji[f.severity] || '•'} **${f.title || 'finding'}**`;
               if (f.detail) b += `\n\n${f.detail}`;
               if (f.suggestion) b += `\n\n**Suggestion:** ${f.suggestion}`;
+              // One-click committable fix: a ```suggestion block replaces the commented line.
+              if (typeof f.replacement === 'string' && f.replacement.trim())
+                b += '\n\n```suggestion\n' + f.replacement.replace(/\s+$/, '') + '\n```';
               comments.push({ path: f.file, line, side: 'RIGHT', body: b });
             }
             if (comments.length === 0) { core.info('no findings on diff lines; sticky comment only'); return; }

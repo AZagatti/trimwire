@@ -758,7 +758,7 @@ def main() -> int:
                                  encoding="utf-8")
     # Structured findings so the post workflow can place INLINE review comments (file:line)
     # with committable ```suggestion blocks. review.md stays the fallback sticky comment.
-    inline = [{k: f.get(k) for k in ("severity", "file", "line", "title", "detail", "suggestion")}
+    inline = [{k: f.get(k) for k in ("severity", "file", "line", "title", "detail", "suggestion", "replacement")}
               for f in (agg.get("findings") or []) if isinstance(f, dict) and f.get("file")]
     Path("findings.json").write_text(json.dumps(inline, indent=2), encoding="utf-8")
     print(f"wrote findings.json ({len(inline)} inline-eligible)")
