@@ -40,7 +40,7 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout base repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -125,6 +125,42 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ARTIFACTS_DIR: artifacts
         run: python3 scripts/ai_review.py
+
+      # Compile-verify the reviewer's single-line ```suggestion fixes. Manual flow only:
+      # workflow_dispatch is maintainer-gated, so checking out + building PR-head code is
+      # trusted (same threat model as ci.yml, which already compiles it). Best-effort: any
+      # failure here never blocks the review post. PR head goes in an ISOLATED worktree so
+      # the trusted base checkout's scripts are never overwritten by PR-head code.
+      - name: Compile-verify AI suggestions (best effort)
+        continue-on-error: true
+        env:
+          PR: ${{ inputs.pr }}
+        run: |
+          set -uo pipefail
+          [ -f findings.json ] || { echo "no findings.json; skip verify"; exit 0; }
+          HEAD=$(jq -r '.head_sha // ""' artifacts/pr-meta.json)
+          [ -n "$HEAD" ] || exit 0
+          git fetch --depth 1 origin "$HEAD" 2>/dev/null \
+            || git fetch --depth 1 origin "pull/$PR/head" 2>/dev/null || exit 0
+          git worktree add --detach pr-head FETCH_HEAD || exit 0
+          # base checkout's (trusted) verifier applies replacements to the pr-head tree
+          summary=$(python3 scripts/ai_review_verify.py findings.json pr-head) || exit 0
+          echo "verify: $summary"
+          applied=$(printf '%s' "$summary" | jq '.applied | length')
+          [ "$applied" -gt 0 ] || { echo "no single-line suggestions to verify"; exit 0; }
+          if [ "$(printf '%s' "$summary" | jq -r '.touched_rust')" = "true" ]; then
+            if (cd pr-head && cargo check --quiet 2>/tmp/cargo_err); then
+              note="✅ **Suggestion compile-check:** all $applied applied single-line fix(es) compile (\`cargo check\` on PR head + suggestions)."
+            else
+              # 4-space-indented code block: renders compiler output verbatim, no ```fence to break out of
+              errs=$(head -c 1200 /tmp/cargo_err | sed 's/^/    /')
+              note=$(printf '⚠️ **Suggestion compile-check:** applying %s single-line fix(es) does NOT compile:\n\n%s' "$applied" "$errs")
+            fi
+          else
+            note="ℹ️ **Suggestion compile-check:** $applied single-line fix(es) applied to non-Rust files (no cargo check run)."
+          fi
+          printf '\n\n---\n%s\n' "$note" >> review.md
+          git worktree remove --force pr-head 2>/dev/null || true
 
       - name: Post sticky comment
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7

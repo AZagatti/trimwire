@@ -169,9 +169,11 @@ jobs:
       # Deterministic gate for the review engine's own Python (the completeness layer:
       # the LLM reviewer is advisory, these checks are non-negotiable).
       - name: ruff (AI-review scripts)
-        run: uvx ruff check scripts/ai_review.py scripts/ai_review_personas.py scripts/test_ai_review.py
+        run: uvx ruff check scripts/ai_review.py scripts/ai_review_personas.py scripts/ai_review_verify.py scripts/test_ai_review.py scripts/test_ai_review_verify.py
       - name: AI-review unit tests (stdlib)
-        run: python3 scripts/test_ai_review.py
+        run: |
+          python3 scripts/test_ai_review.py
+          python3 scripts/test_ai_review_verify.py
 
   semver:
     name: SemVer (public API vs base)
