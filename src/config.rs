@@ -211,7 +211,6 @@ pub struct FailedInputPurgeConfig {
 /// (`keep_recent_turns = 2`), off in `gentle`. Override in `~/.config/trimwire.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-#[non_exhaustive]  // config grows over time; adding fields must not be a semver break (see 0.4.0)
 pub struct StaleInputCapConfig {
     /// When false this strategy is a no-op (default).
     pub enabled: bool,
@@ -634,7 +633,6 @@ impl Default for SimHashDedupConfig {
 /// (systemd/launchd) where the service does not inherit interactive-shell exports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-#[non_exhaustive]  // config grows over time; adding fields must not be a semver break (see 0.4.0)
 pub struct SummarizerProviderConfig {
     /// Short user-chosen identifier (no spaces). Referenced by `engine`/`fallback`.
     pub id: String,
