@@ -757,6 +757,25 @@ patterns worth codifying in .review-rules. verdict=request_changes only if a
 bug/security finding has consensus>=2."""
 
 
+# --- Multi-sample (opt-in recall lever, off by default) ----------------------
+# Sample each lane N times at spread temperatures and union the findings — higher-temp
+# draws catch bugs a single deterministic pass misses (evidence: BugBot multi-pass).
+# OFF by default (AI_REVIEW_SAMPLES unset/1) to preserve the low-noise posture; N>1 trades
+# ~Nx cost + more noise for recall. `consensus` in the dedup then counts cross-sample hits.
+_TEMP_BANDS = [0.1, 0.7, 0.4, 0.8, 0.2]  # index 0 = low-temp anchor; rest add diversity
+
+
+def _sample_count() -> int:
+    try:
+        return max(1, min(len(_TEMP_BANDS), int(os.environ.get("AI_REVIEW_SAMPLES", "1") or "1")))
+    except ValueError:
+        return 1
+
+
+def _temperature_bands(samples: int) -> list[float]:
+    return _TEMP_BANDS[:max(1, min(len(_TEMP_BANDS), samples))]
+
+
 # --- Main --------------------------------------------------------------------
 def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
     """Routed persona review: route checklist modules by the changed files, group by model-lane,
@@ -779,7 +798,11 @@ def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
             cheat = "\n\n## Current framework facts (trust these over your memory):\n" + cs.read_text()
     _FRONTEND = {"VANGUARD", "ARGUS", "PACER"}
 
-    def one(module_list: list[dict]) -> dict:
+    samples = _sample_count()
+    bands = _temperature_bands(samples)
+
+    def one(job: tuple) -> dict:
+        module_list, temp = job
         lane = pz.LANES[module_list[0]["lane"]]
         names = "+".join(m["name"] for m in module_list)
         system = f"You are a {persona}.\n\n" + pz.build_system(module_list)
@@ -787,28 +810,39 @@ def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
             system += f"\n\n{rules_block}"
         if cheat and any(m["name"] in _FRONTEND for m in module_list):
             system += cheat
+        # Multi-sample (opt-in): merge a per-pass temperature into the lane params so
+        # higher-temp draws surface bugs a single T=0.1 pass misses; the deterministic
+        # dedup unions all passes and `consensus` counts cross-sample agreement.
+        params = dict(lane.get("params") or {})
+        label = f"{lane['name']} · {names}"
+        if samples > 1:
+            params["temperature"] = temp
+            label += f" · T{temp}"
         try:
             raw = chat(lane["provider"], lane["model"], system, user,
-                       max_tokens=8000, extra=lane.get("params"))
+                       max_tokens=8000, extra=params)
             review = _strip_reasoning(parse_json(raw))
             fs = [f for f in (review.get("findings") or []) if isinstance(f, dict)] \
                 if isinstance(review, dict) else []
-            return {"name": f"{lane['name']} · {names}", "model": lane["model"],
+            return {"name": label, "model": lane["model"],
                     "ok": True, "review": review, "findings": fs}
         except Exception as exc:  # noqa: BLE001 — record, never crash the run
-            return {"name": f"{lane['name']} · {names}", "model": lane["model"],
+            return {"name": label, "model": lane["model"],
                     "ok": False, "error": f"{type(exc).__name__}: {exc}", "findings": []}
 
-    with cf.ThreadPoolExecutor(max_workers=max(1, len(groups))) as ex:
-        results = list(ex.map(one, list(groups.values())))
+    # jobs = every lane × every temperature band; cap concurrency (z.ai throttles >~5).
+    jobs = [(ml, t) for ml in groups.values() for t in bands]
+    with cf.ThreadPoolExecutor(max_workers=min(len(jobs), 6)) as ex:
+        results = list(ex.map(one, jobs))
     all_findings = [f for r in results for f in r["findings"] if r["ok"]]
     deduped, _stats = pz.aggregate(all_findings)
     sev = {f.get("severity") for f in deduped}
     verdict = ("request_changes" if ("bug" in sev or "security" in sev)
                else "comment" if deduped else "approve")
+    passes = f", {samples}× multi-sample" if samples > 1 else ""
     agg = {"verdict": verdict, "findings": deduped, "aggregator_label": "deduped deterministically",
            "summary": f"Routed persona review — {len(deduped)} findings across {len(mods)} "
-                      f"perspectives ({len(results)} model calls). Advisory; CI owns completeness."}
+                      f"perspectives ({len(results)} model calls{passes}). Advisory; CI owns completeness."}
     panel_results = [{k: r.get(k) for k in ("name", "model", "ok", "review", "error")} for r in results]
     return agg, panel_results
 

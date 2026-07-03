@@ -306,6 +306,31 @@ class TestLegacyRouting(unittest.TestCase):
             self.assertFalse(R._use_legacy_panel())
 
 
+class TestMultiSample(unittest.TestCase):
+    def _count(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AI_REVIEW_SAMPLES", None)
+            return R._sample_count()
+
+    def test_default_is_single_sample(self):
+        self.assertEqual(self._count(), 1)
+
+    def test_env_sets_sample_count_clamped(self):
+        with mock.patch.dict(os.environ, {"AI_REVIEW_SAMPLES": "3"}, clear=False):
+            self.assertEqual(R._sample_count(), 3)
+        with mock.patch.dict(os.environ, {"AI_REVIEW_SAMPLES": "99"}, clear=False):
+            self.assertEqual(R._sample_count(), len(R._TEMP_BANDS))   # clamped to band count
+        with mock.patch.dict(os.environ, {"AI_REVIEW_SAMPLES": "bogus"}, clear=False):
+            self.assertEqual(R._sample_count(), 1)                    # non-int -> safe default
+
+    def test_temperature_bands_anchor_first(self):
+        self.assertEqual(R._temperature_bands(1), [0.1])             # single = deterministic anchor
+        b = R._temperature_bands(3)
+        self.assertEqual(len(b), 3)
+        self.assertEqual(b[0], 0.1)                                   # first pass is always the anchor
+        self.assertGreater(max(b[1:]), 0.1)                          # later passes add diversity
+
+
 class TestReplacementSanitization(unittest.TestCase):
     """findings.json feeds ```suggestion blocks in inline comments — a run of
     backticks in the model's replacement would break out of the fence."""

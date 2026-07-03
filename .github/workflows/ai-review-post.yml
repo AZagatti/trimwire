@@ -77,6 +77,10 @@ jobs:
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ARTIFACTS_DIR: artifacts
+          # Opt-in recall boost: set repo variable AI_REVIEW_SAMPLES=2..5 to sample each
+          # lane N times at spread temperatures and union the findings (~Nx cost, more
+          # noise). Default 1 = single deterministic pass (current low-noise posture).
+          AI_REVIEW_SAMPLES: ${{ vars.AI_REVIEW_SAMPLES || '1' }}
         run: python3 scripts/ai_review.py
 
       - name: Post inline review comments (best effort — sticky comment is the fallback)
