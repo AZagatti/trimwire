@@ -1,23 +1,12 @@
-"""Persona module library for the AI PR-review experiment (Phase 1).
+"""Persona module library for the AI PR review engine.
 
-A *persona* here is a composable CHECKLIST MODULE, not a hardwired API call. Each module
-carries: a trigger glob (when it's relevant), a model LANE (best-fit model from bench evidence),
-and a concrete standards-grounded checklist. A runner can execute these in EITHER architecture:
+A *persona* is a composable CHECKLIST MODULE, not a hardwired API call: a trigger glob
+(when it's relevant), a model lane (best-fit model), and a standards-grounded checklist
+(CWE Top 25, WCAG 2.2, Rust API Guidelines, GitHub Actions hardening, web.dev CWV).
 
-  - "composed"    : group relevant modules by lane -> one call per model-lane with checklists merged
-  - "per_persona" : one call per relevant module -> its own model
-
-The before/after bench decides which architecture wins (user asked to measure, not assume).
-
-Model lanes are bench-grounded (see PERSONA-ROSTER-PROPOSAL.md):
-  glm      = logic/correctness anchor (test-gap 3/3 vs DeepSeek 0/3; real Python bugs on #141)
-  gpt      = security-severity + a11y + frontend + policy (only model producing non-Rust findings)
-  deepseek = architecture/contract + docs/config drift
-  cheap    = placeholder for the NEW low-evidence modules until gap-tests lock a model
-
-NOTE: checklist items are standards-grounded (CWE Top 25, WCAG 2.2, Rust API Guidelines, GitHub
-Actions hardening, web.dev CWV, Diátaxis). Specific advisory IDs were intentionally NOT hardcoded
-(the synthesis pass invented some); the *item* is the payload, not an ID.
+`ai_review.py` routes the changed files to the relevant modules, groups them by model lane
+(one call per model), and deterministically dedups the findings. The per-persona model
+assignments below were picked by a real-fix-PR classification (see docs/AI-REVIEW.md).
 """
 
 from __future__ import annotations
@@ -26,49 +15,24 @@ import fnmatch
 import re
 
 # --- Model lanes -------------------------------------------------------------
-# provider/model/params mirror scripts/ai_review.py chat() expectations.
+# provider/model/params mirror scripts/ai_review.py chat(). GLM runs ONLY via the z.ai
+# subscription (free), never OpenRouter; everything else via OpenRouter. Each model runs at
+# its per-model-optimal reasoning level. Overridable with the AI_REVIEW_* env vars.
 LANES: dict[str, dict] = {
     "glm": {"name": "GLM-5.2", "provider": "zai", "model": "glm-5.2",
             "params": {"thinking": {"type": "disabled"}}},
-    # 2nd concurrent GLM slot (per-persona mode) — faster, cheaper input, same coding plan.
     "glm_turbo": {"name": "GLM-5-Turbo", "provider": "zai", "model": "glm-5-turbo",
-                  "params": {"thinking": {"type": "disabled"}}},
-    # Strong-model CEILING probe: GLM-5.2 with DEEP reasoning (reasoning_effort=max is the true top;
-    # only takes effect with thinking enabled). Free on z.ai. Slow — run single-model (sequential).
+                  "params": {"thinking": {"type": "disabled"}}},   # faster GLM alternative
     "glm_max": {"name": "GLM-5.2-max", "provider": "zai", "model": "glm-5.2",
-                "params": {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}},
+                "params": {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}},  # deep-reasoning alt
     "gpt": {"name": "GPT-5-mini", "provider": "openrouter", "model": "openai/gpt-5-mini",
             "params": {"reasoning": {"effort": "medium"}}},
     "deepseek": {"name": "DeepSeek-V3.2", "provider": "openrouter", "model": "deepseek/deepseek-v3.2",
                  "params": {"reasoning": {"enabled": False}}},
-    # NEW-module placeholder lane. Repointed OFF the expensive GPT-5-mini onto cheap DeepSeek-V3.2
-    # (reasoning-capable, ~$0.28/M) so a persona can never accidentally default to a top-3 cost model.
-    # Real per-persona model is picked in the re-classify step (PACER likely -> glm_max, FREE).
-    "cheap": {"name": "DeepSeek-V3.2", "provider": "openrouter", "model": "deepseek/deepseek-v3.2",
-              "params": {"reasoning": {"enabled": False}}},
-    # --- Expanded CHEAP candidate pool (gap-test only): a model weak at general review may be
-    # strong at a narrow checklist-driven persona, and an ultra-cheap model that also saturates a
-    # persona lets the council grow for near-nothing. Distinct lineages, reasoning off. ---
-    # (GLM only ever runs via z.ai subscription — never OpenRouter. No z-ai/* OpenRouter lane.)
-    "gptnano": {"name": "GPT-5-nano", "provider": "openrouter", "model": "openai/gpt-5-nano",
-                "params": {"reasoning": {"effort": "low"}}},  # cheapest of all (~$0.001/rev)
     "dsv4flash": {"name": "DeepSeek-V4-Flash", "provider": "openrouter", "model": "deepseek/deepseek-v4-flash",
-                  "params": {"reasoning": {"enabled": False}}},  # ~$0.002/rev; prior: 83% recall, low expectation
-    "qwencoder": {"name": "Qwen3-Coder-Next", "provider": "openrouter",
-                  "model": "qwen/qwen3-coder-next", "params": {"reasoning": {"enabled": False}}},
-    "qwen36": {"name": "Qwen3.6-35B", "provider": "openrouter", "model": "qwen/qwen3.6-35b-a3b",
-               "params": {"reasoning": {"enabled": False}}},
-    "qwenplus": {"name": "Qwen3.6-plus", "provider": "openrouter", "model": "qwen/qwen3.6-plus",
-                 "params": {"reasoning": {"enabled": False}}},
-    "minimax": {"name": "MiniMax-M3", "provider": "openrouter", "model": "minimax/minimax-m3",
-                "params": None},  # minimax rejects the reasoning param (HTTP 400)
-    "mistral": {"name": "Mistral-Small-2603", "provider": "openrouter",
-                "model": "mistralai/mistral-small-2603", "params": {"reasoning": {"enabled": False}}},
-    # Kimi DROPPED — whole family pricey ($0.011-0.022/rev) and K2.7-code was rejected (coding!=review).
-    "qwencoder30": {"name": "Qwen3-Coder-30B", "provider": "openrouter",  # cheapest ($0.0019); old-gen but old-pool-strong
+                  "params": {"reasoning": {"enabled": False}}},
+    "qwencoder30": {"name": "Qwen3-Coder-30B", "provider": "openrouter",
                     "model": "qwen/qwen3-coder-30b-a3b-instruct", "params": {"reasoning": {"enabled": False}}},
-    "llama4": {"name": "Llama-4-Maverick", "provider": "openrouter", "model": "meta-llama/llama-4-maverick",
-               "params": {"reasoning": {"enabled": False}}},
 }
 
 AGGREGATOR = {"name": "Gemini-3.5-Flash", "provider": "openrouter",
