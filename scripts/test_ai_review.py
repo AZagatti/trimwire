@@ -276,6 +276,32 @@ class TestReplacementSanitization(unittest.TestCase):
         self.assertEqual(R._safe_replacement("let x = foo(1);"), "let x = foo(1);")
 
 
+class TestStrictMode(unittest.TestCase):
+    """Label 'ai-review-strict' -> meta.strict -> render shows only consensus>=2
+    findings, but never hides security."""
+    _PANEL = [{"name": "X", "model": "x/y", "ok": True, "review": {}}]
+
+    def _agg(self):
+        return {"verdict": "comment", "findings": [
+            {"severity": "bug", "title": "solo bug", "file": "a.rs", "line": 1, "consensus": 1},
+            {"severity": "bug", "title": "agreed bug", "file": "b.rs", "line": 2, "consensus": 2},
+            {"severity": "security", "title": "solo sec", "file": "c.rs", "line": 3, "consensus": 1},
+        ]}
+
+    def test_strict_hides_solo_nonsecurity(self):
+        out = R.render({"strict": True}, self._agg(), self._PANEL, 3, 3)
+        self.assertNotIn("solo bug", out)      # consensus 1, non-security -> hidden
+        self.assertIn("agreed bug", out)       # consensus 2 -> shown
+        self.assertIn("solo sec", out)         # security always shown
+        self.assertIn("strict mode", out)
+
+    def test_non_strict_shows_everything(self):
+        out = R.render({}, self._agg(), self._PANEL, 3, 3)
+        self.assertIn("solo bug", out)
+        self.assertIn("agreed bug", out)
+        self.assertNotIn("strict mode", out)
+
+
 class TestRenderSafety(unittest.TestCase):
     def test_raw_panel_backticks_dont_break_fence(self):
         panel = [{"name": "X", "model": "x/y", "ok": True,

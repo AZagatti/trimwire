@@ -588,15 +588,28 @@ def render(meta: dict, agg: dict, panel_results: list[dict],
         for r in panel_results
     )
     agg_label = agg.get("aggregator_label") or f"aggregated by `{AGGREGATOR['name']}`"
+    strict_note = " · <strong>strict mode</strong> (consensus-only)" if meta.get("strict") else ""
     lines += ["", f"<sub>Panel: {panel_line} · {agg_label} · "
-                  f"reviewed {kept}/{total} changed files</sub>", ""]
+                  f"reviewed {kept}/{total} changed files{strict_note}</sub>", ""]
 
     findings = agg.get("findings") or []
     if not isinstance(findings, list):
         findings = []
     findings = [f for f in findings if isinstance(f, dict)]
     ok_count = len([r for r in panel_results if r.get("ok")])
-    if not findings:
+    # Opt-in strict mode (label 'ai-review-strict'): show only multi-model-consensus
+    # findings — but NEVER suppress security, one flag is worth surfacing. Solo lower-
+    # severity findings still appear in the raw-panel section for anyone who wants them.
+    strict = bool(meta.get("strict"))
+    if strict:
+        kept_findings = [f for f in findings
+                         if f.get("severity") == "security" or (f.get("consensus") or 1) >= 2]
+        hidden = len(findings) - len(kept_findings)
+        findings = kept_findings
+    if not findings and strict and hidden:
+        lines += [f"Strict mode: no consensus/security findings "
+                  f"({hidden} solo finding(s) hidden — see raw panel below). ✅", ""]
+    elif not findings:
         lines += ["No blocking issues found by the panel. ✅", ""]
     else:
         lines.append("### Findings")

@@ -45,6 +45,9 @@ jobs:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Opt-in low-noise mode: maintainer adds the 'ai-review-strict' label to
+          # show only multi-model-consensus findings (security is always shown).
+          STRICT: ${{ contains(github.event.pull_request.labels.*.name, 'ai-review-strict') }}
         run: |
           set -euo pipefail
           mkdir -p artifacts
@@ -62,9 +65,11 @@ jobs:
             --arg base   "$BASE_SHA" \
             --arg head   "$HEAD_SHA" \
             --arg repo   "$REPO" \
+            --argjson strict "${STRICT:-false}" \
             --rawfile body artifacts/pr-body.txt \
             '{number: ($number|tonumber), title: $title, author: $author,
-              base_sha: $base, head_sha: $head, repo: $repo, body: $body}' \
+              base_sha: $base, head_sha: $head, repo: $repo, body: $body,
+              strict: $strict}' \
             > artifacts/pr-meta.json
 
       - name: Upload review input

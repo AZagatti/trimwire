@@ -78,10 +78,14 @@ Highlights:
 
 - Runs on `opened` / `synchronize` / `reopened`; `concurrency` cancels superseded runs.
 - **Skipped:** draft PRs, bot PRs, `skip-ai-review`-labelled PRs, and PRs from
-  first-time / outside authors (only owner/member/collaborator/returning-contributor
-  auto-run — others are reviewed on demand via the manual workflow). GitHub's built-in
-  approval gate for outside-contributor workflows is the first line of defense; this
-  is belt-and-suspenders.
+  outside authors (only owner/member/collaborator auto-run — a one-off past merged
+  PR earns `CONTRIBUTOR`, which is **not** trusted to spend LLM budget, so outside
+  authors are reviewed on demand via the manual workflow). GitHub's built-in approval
+  gate for outside-contributor workflows is the first line of defense; this is
+  belt-and-suspenders.
+- **`ai-review-strict` label:** low-noise mode — the sticky comment shows only
+  findings ≥ 2 models agree on (security findings are always shown; hidden solo
+  findings remain in the collapsed raw-panel section).
 - The diff is filtered (lockfiles, snapshots, generated/min files) and budgeted
   (per-file + total caps) before any model is called.
 
