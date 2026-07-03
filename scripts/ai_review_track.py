@@ -35,10 +35,13 @@ _META_RE = re.compile(r"<!--\s*ai-review-meta\s+(.*?)-->", re.S)
 
 
 def parse_meta(body: str) -> dict | None:
-    """Extract {personas, consensus} from a comment's hidden ai-review-meta marker."""
-    m = _META_RE.search(body or "")
-    if not m:
+    """Extract {personas, consensus} from a comment's hidden ai-review-meta marker.
+    Use the LAST marker: the post step always appends the real one at the very end, so a
+    finding's `replacement`/detail can't spoof attribution by embedding an earlier one."""
+    matches = list(_META_RE.finditer(body or ""))
+    if not matches:
         return None
+    m = matches[-1]
     attrs = dict(re.findall(r"(\w+)=(\S+)", m.group(1)))
     personas = [p for p in attrs.get("personas", "").split(",") if p]
     consensus = int(attrs["consensus"]) if attrs.get("consensus", "").isdigit() else None

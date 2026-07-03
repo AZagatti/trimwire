@@ -636,6 +636,7 @@ def render(meta: dict, agg: dict, panel_results: list[dict],
     # findings — but NEVER suppress security, one flag is worth surfacing. Solo lower-
     # severity findings still appear in the raw-panel section for anyone who wants them.
     strict = bool(meta.get("strict"))
+    hidden = 0
     if strict:
         kept_findings = [f for f in findings
                          if f.get("severity") == "security" or (f.get("consensus") or 1) >= 2]

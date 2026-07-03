@@ -51,7 +51,8 @@ jobs:
           # Isolated clone so the trusted base checkout is never mutated. The token is only
           # ever in the remote URL (GitHub masks GITHUB_TOKEN in logs; set -x stays off).
           url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
-          d=$(mktemp -d); cp records.json summary.md "$d/"; cd "$d"
+          src="$(pwd)"                       # the mine step wrote records.json/summary.md here
+          d=$(mktemp -d); cd "$d"
           git init -q
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -61,7 +62,9 @@ jobs:
             git checkout -q --orphan ai-review-data
             git rm -rfq --ignore-unmatch . >/dev/null 2>&1 || true
           fi
-          cp "$d/records.json" "$d/summary.md" . 2>/dev/null || true
+          # Copy the NEW outputs in AFTER checkout, so they don't collide with the branch's
+          # tracked copies (an untracked-file checkout conflict failed every run after the first).
+          cp "$src/records.json" "$src/summary.md" .
           git add records.json summary.md
           if git diff --cached --quiet; then
             echo "no acceptance changes since last run"; exit 0

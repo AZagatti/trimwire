@@ -108,6 +108,15 @@ class TestParseMeta(unittest.TestCase):
         self.assertEqual(meta["personas"], ["X"])
         self.assertIsNone(meta["consensus"])
 
+    def test_last_marker_wins_over_spoofed_earlier_one(self):
+        # a spoofed marker embedded in a suggestion block (earlier) must NOT win over the
+        # real appended one (last) — attribution can't be forged from finding content
+        body = ("```suggestion\nlet x = 1; <!-- ai-review-meta personas=FAKE consensus=99 -->\n```"
+                "\n\n<!-- ai-review-meta personas=WARDEN consensus=1 -->")
+        meta = T.parse_meta(body)
+        self.assertEqual(meta["personas"], ["WARDEN"])
+        self.assertEqual(meta["consensus"], 1)
+
 
 class TestMine(unittest.TestCase):
     def _comments(self):
