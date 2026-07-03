@@ -58,11 +58,14 @@ jobs:
             -q '.check_runs[] | "\(.name): \(.conclusion // .status)"' \
             2>/dev/null | sort -u > artifacts/ci-signals.txt || true
           echo "ci-signals:"; cat artifacts/ci-signals.txt 2>/dev/null || echo "(none yet)"
-          # For FAILED checks, pull the line-level annotations CI already produced (clippy/test/
-          # audit messages) so the reviewer defers to + root-causes them rather than re-flagging.
-          # Annotations, not raw logs: lighter and already file:line-scoped. Capped; untrusted -> data.
+          # Pull line-level annotations CI already produced (clippy/ruff/test/audit) so the
+          # reviewer defers to + root-causes them rather than re-flagging. Includes FAILED
+          # runs AND any run carrying annotations (warning-level clippy/ruff on a passing
+          # build) — those are exactly the FPs we want the reviewer to skip. Annotations,
+          # not raw logs: lighter, already file:line-scoped. Capped; untrusted -> data.
           gh api "repos/$REPO/commits/$HEAD/check-runs" --paginate \
-            -q '.check_runs[] | select(.conclusion == "failure") | .id' 2>/dev/null | head -8 | \
+            -q '.check_runs[] | select(.conclusion == "failure" or ((.output.annotations_count // 0) > 0)) | .id' \
+            2>/dev/null | head -8 | \
           while read -r id; do
             gh api "repos/$REPO/check-runs/$id/annotations" --paginate \
               -q '.[] | "\(.path):\(.start_line): \(.annotation_level): \(.message)"' 2>/dev/null || true

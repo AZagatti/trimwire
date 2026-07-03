@@ -288,6 +288,30 @@ class TestRenderSafety(unittest.TestCase):
         self.assertNotIn("```", body)
 
 
+class TestDiffSymbols(unittest.TestCase):
+    """_diff_symbols feeds cross-file grep: added/changed symbols (verify callers) vs
+    removed-only symbols (external references likely broken)."""
+    def test_added_symbol_detected(self):
+        files = [{"filename": "src/a.rs", "patch": "@@\n+pub fn process_request() {}"}]
+        added, removed_only = R._diff_symbols(files)
+        self.assertIn("process_request", added)
+        self.assertEqual(removed_only, [])
+
+    def test_removed_only_symbol_detected(self):
+        files = [{"filename": "src/a.rs", "patch": "@@\n-pub fn old_helper() {}"}]
+        added, removed_only = R._diff_symbols(files)
+        self.assertIn("old_helper", removed_only)
+        self.assertNotIn("old_helper", added)
+
+    def test_signature_change_is_not_removed_only(self):
+        # same name on '-' and '+' == modification, not a deletion → stays out of removed_only
+        files = [{"filename": "src/a.rs",
+                  "patch": "@@\n-pub fn handle(a: u8) {}\n+pub fn handle(a: u8, b: u8) {}"}]
+        added, removed_only = R._diff_symbols(files)
+        self.assertIn("handle", added)
+        self.assertEqual(removed_only, [])
+
+
 class TestCiSignals(unittest.TestCase):
     def _with_artifacts(self, files):
         import tempfile
