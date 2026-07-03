@@ -18,13 +18,13 @@ on:
       # A bad id fails the run in ~1s (see the "Validate model ids" step).
       model_1:
         description: "Panel model 1 — full OpenRouter id, e.g. anthropic/claude-opus-4.8"
-        default: "google/gemini-3.5-flash"
+        default: "deepseek/deepseek-v3.2"
       model_2:
         description: "Panel model 2 — OpenRouter id, e.g. openai/gpt-5.5 (blank to skip)"
-        default: "deepseek/deepseek-v4-pro"
+        default: "openai/gpt-5-mini"
       model_3:
         description: "Panel model 3 — OpenRouter id (blank to skip)"
-        default: "nex-agi/nex-n2-pro"
+        default: "google/gemini-3.5-flash"
       aggregator:
         description: "Aggregator — full OpenRouter id, e.g. google/gemini-3.5-flash"
         default: "google/gemini-3.5-flash"
