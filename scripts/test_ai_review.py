@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ai_review as R  # noqa: E402
+import ai_review_personas as PZ  # noqa: E402
 
 
 class TestParseJson(unittest.TestCase):
@@ -133,6 +134,36 @@ class TestConfigValidation(unittest.TestCase):
     def test_rejects_missing_keys(self):
         with self.assertRaises(SystemExit):
             R._validate_member({"name": "x"}, "t")
+
+
+class TestPersonas(unittest.TestCase):
+    def test_routing_rust(self):
+        names = {m["name"] for m in PZ.relevant_modules(["src/x.rs", "Cargo.toml"])}
+        self.assertIn("SENTINEL", names)   # always-on baseline
+        self.assertIn("FERRUS", names)     # src/**/*.rs
+        self.assertIn("SENTRY", names)     # Cargo.toml -> deps glob
+
+    def test_docs_only_drops_code_personas(self):
+        names = {m["name"] for m in PZ.relevant_modules(["README.md"])}
+        self.assertNotIn("SENTINEL", names)  # needs_code + no code file changed
+        self.assertNotIn("WARDEN", names)
+        self.assertIn("SCRIBE", names)
+
+    def test_group_by_model_merges_same_lane(self):
+        mods = [m for m in PZ.MODULES if m["name"] in ("SENTINEL", "FERRUS")]  # both GLM
+        self.assertEqual(len(PZ.group_by_model(mods)), 1)
+
+    def test_aggregate_dedups_identical(self):
+        d = {"file": "a.rs", "line": 1, "title": "same bug", "severity": "bug"}
+        out, stats = PZ.aggregate([dict(d), dict(d), dict(d)])
+        self.assertEqual(len(out), 1)
+        self.assertEqual(stats["raw"], 3)
+
+    def test_build_system_has_coverage_and_schema(self):
+        s = PZ.build_system([m for m in PZ.MODULES if m["name"] == "ARGUS"])
+        self.assertIn("COVERAGE", s)     # coverage directive baked in
+        self.assertIn("findings", s)     # output schema
+        self.assertIn("ARGUS", s)        # persona checklist composed in
 
 
 if __name__ == "__main__":

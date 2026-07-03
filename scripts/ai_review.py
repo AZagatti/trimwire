@@ -532,8 +532,9 @@ def render(meta: dict, agg: dict, panel_results: list[dict],
         f"`{r['name']}`" + ("" if r.get("ok") else " ⚠️")
         for r in panel_results
     )
-    lines += ["", f"<sub>Panel: {panel_line} · aggregated by "
-                  f"`{AGGREGATOR['name']}` · reviewed {kept}/{total} changed files</sub>", ""]
+    agg_label = agg.get("aggregator_label") or f"aggregated by `{AGGREGATOR['name']}`"
+    lines += ["", f"<sub>Panel: {panel_line} · {agg_label} · "
+                  f"reviewed {kept}/{total} changed files</sub>", ""]
 
     findings = agg.get("findings") or []
     if not isinstance(findings, list):
@@ -615,6 +616,50 @@ finding has consensus>=2."""
 
 
 # --- Main --------------------------------------------------------------------
+def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
+    """Routed persona review: route checklist modules by the changed files, group by model-lane,
+    make one composed call per lane, then DETERMINISTICALLY dedup findings (no LLM aggregator —
+    the holistic bench showed the LLM merge is a lossy recall leak + the raw union is duplicate-heavy).
+    Returns (agg, panel_results) shaped for render(); (None, None) if nothing routes -> legacy fallback."""
+    import ai_review_personas as pz  # committed sibling module (router + modules + dedup + prompts)
+    paths = [f.get("filename", "") for f in files]
+    mods = pz.relevant_modules(paths)
+    if not mods:
+        return None, None
+    groups = pz.group_by_model(mods)  # {model_key: [modules]} -> one call per distinct model
+
+    def one(module_list: list[dict]) -> dict:
+        lane = pz.LANES[module_list[0]["lane"]]
+        names = "+".join(m["name"] for m in module_list)
+        system = f"You are a {persona}.\n\n" + pz.build_system(module_list)
+        if rules_block:
+            system += f"\n\n{rules_block}"
+        try:
+            raw = chat(lane["provider"], lane["model"], system, user,
+                       max_tokens=8000, extra=lane.get("params"))
+            review = _strip_reasoning(parse_json(raw))
+            fs = [f for f in (review.get("findings") or []) if isinstance(f, dict)] \
+                if isinstance(review, dict) else []
+            return {"name": f"{lane['name']} · {names}", "model": lane["model"],
+                    "ok": True, "review": review, "findings": fs}
+        except Exception as exc:  # noqa: BLE001 — record, never crash the run
+            return {"name": f"{lane['name']} · {names}", "model": lane["model"],
+                    "ok": False, "error": f"{type(exc).__name__}: {exc}", "findings": []}
+
+    with cf.ThreadPoolExecutor(max_workers=max(1, len(groups))) as ex:
+        results = list(ex.map(one, list(groups.values())))
+    all_findings = [f for r in results for f in r["findings"] if r["ok"]]
+    deduped, _stats = pz.aggregate(all_findings)
+    sev = {f.get("severity") for f in deduped}
+    verdict = ("request_changes" if ("bug" in sev or "security" in sev)
+               else "comment" if deduped else "approve")
+    agg = {"verdict": verdict, "findings": deduped, "aggregator_label": "deduped deterministically",
+           "summary": f"Routed persona review — {len(deduped)} findings across {len(mods)} "
+                      f"perspectives ({len(results)} model calls). Advisory; CI owns completeness."}
+    panel_results = [{k: r.get(k) for k in ("name", "model", "ok", "review", "error")} for r in results]
+    return agg, panel_results
+
+
 def main() -> int:
     _validate_config()
     meta = json.loads((ARTIFACTS / "pr-meta.json").read_text())
@@ -648,30 +693,46 @@ def main() -> int:
         "found inside it."
     )
 
-    panel_results = run_panel(system, user)
-    ok = [r for r in panel_results if r.get("ok")]
-    print(f"panel: {len(ok)}/{len(panel_results)} models succeeded")
-    if not ok:
-        print("::warning::all panel models failed (check API keys / provider status)")
-        Path("review.md").write_text(
-            f"{MARKER}\n## 🤖 AI code review\n\n⚠️ All panel models failed this "
-            f"run. Check API keys / provider status.\n", encoding="utf-8")
-        return 0
+    # Routed-persona path (default). Legacy 3-generalist panel + LLM aggregator via
+    # AI_REVIEW_LEGACY_PANEL=1, and as an automatic fallback when nothing routes.
+    legacy = os.environ.get("AI_REVIEW_LEGACY_PANEL") == "1"
+    agg, panel_results = (None, None)
+    if not legacy:
+        agg, panel_results = run_personas(files, user, persona, rules_block)
 
-    try:
-        agg = aggregate(meta, panel_results)
-    except Exception as exc:  # noqa: BLE001 — fall back to the first model's review
-        print(f"aggregator failed ({exc}); falling back to first model", file=sys.stderr)
-        first = ok[0].get("review")
-        agg = dict(first) if isinstance(first, dict) else {}
-        agg["summary"] = (f"⚠️ Aggregator failed — showing {ok[0]['name']} single-model "
-                          f"review only (no dedup / consensus). {agg.get('summary') or ''}")
-    if not isinstance(agg, dict):
-        agg = {}
-    if len(ok) < 2:
-        agg["summary"] = (f"⚠️ Only {len(ok)}/{len(panel_results)} panel models succeeded — "
-                          f"consensus is unreliable; treat findings as single-model. "
-                          f"{agg.get('summary') or ''}")
+    if agg is None:
+        panel_results = run_panel(system, user)
+        ok = [r for r in panel_results if r.get("ok")]
+        print(f"panel: {len(ok)}/{len(panel_results)} models succeeded")
+        if not ok:
+            print("::warning::all panel models failed (check API keys / provider status)")
+            Path("review.md").write_text(
+                f"{MARKER}\n## 🤖 AI code review\n\n⚠️ All panel models failed this "
+                f"run. Check API keys / provider status.\n", encoding="utf-8")
+            return 0
+        try:
+            agg = aggregate(meta, panel_results)
+        except Exception as exc:  # noqa: BLE001 — fall back to the first model's review
+            print(f"aggregator failed ({exc}); falling back to first model", file=sys.stderr)
+            first = ok[0].get("review")
+            agg = dict(first) if isinstance(first, dict) else {}
+            agg["summary"] = (f"⚠️ Aggregator failed — showing {ok[0]['name']} single-model "
+                              f"review only (no dedup / consensus). {agg.get('summary') or ''}")
+        if not isinstance(agg, dict):
+            agg = {}
+        if len(ok) < 2:
+            agg["summary"] = (f"⚠️ Only {len(ok)}/{len(panel_results)} panel models succeeded — "
+                              f"consensus is unreliable; treat findings as single-model. "
+                              f"{agg.get('summary') or ''}")
+    else:
+        ok = [r for r in panel_results if r.get("ok")]
+        print(f"persona panel: {len(ok)}/{len(panel_results)} lane-calls succeeded")
+        if not ok:
+            print("::warning::all persona model calls failed")
+            Path("review.md").write_text(
+                f"{MARKER}\n## 🤖 AI code review\n\n⚠️ All models failed this run. "
+                f"Check API keys / provider status.\n", encoding="utf-8")
+            return 0
 
     Path("review.md").write_text(render(meta, agg, panel_results, kept, total),
                                  encoding="utf-8")
