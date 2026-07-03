@@ -848,6 +848,13 @@ def main() -> int:
         rep = _safe_replacement(f.get("replacement"))
         if rep is not None:
             entry["replacement"] = rep
+        # Carry persona attribution + consensus so the accepted/FP tracker can compute
+        # per-persona acceptance later (these are metadata, not rendered in comments).
+        personas = [p for p in (f.get("personas") or []) if isinstance(p, str)]
+        if personas:
+            entry["personas"] = personas
+        if f.get("consensus"):
+            entry["consensus"] = f["consensus"]
         inline.append(entry)
     Path("findings.json").write_text(json.dumps(inline, indent=2), encoding="utf-8")
     print(f"wrote findings.json ({len(inline)} inline-eligible)")
