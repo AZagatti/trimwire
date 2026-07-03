@@ -6,8 +6,10 @@ lose issues without anyone noticing. Stdlib only (matches ai_review.py).
 
 Run:  python3 scripts/test_ai_review.py      (or: pytest scripts/test_ai_review.py)
 """
+import os
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -25,6 +27,10 @@ class TestParseJson(unittest.TestCase):
     def test_fenced(self):
         o = R.parse_json('```json\n{"verdict":"approve","findings":[]}\n```')
         self.assertEqual(o["verdict"], "approve")
+
+    def test_prose_after_closing_fence(self):
+        obj = R.parse_json('```json\n{"verdict": "approve", "findings": []}\n```\nThanks!')
+        self.assertEqual(obj["verdict"], "approve")
 
     def test_prose_wrapped(self):
         o = R.parse_json('Here is my review:\n{"verdict":"approve","findings":[]}\nThanks!')
@@ -98,6 +104,18 @@ class TestMdSafe(unittest.TestCase):
         s = R._md_safe("see [click me](https://evil.example)")
         self.assertNotIn("](https", s)  # zero-width space inserted between ] and (
 
+    def test_defangs_html_links(self):
+        s = R._md_safe('phish <a href="https://evil.example">login</a> now')
+        self.assertNotIn("<a href", s)   # raw HTML anchor neutralized (GitHub renders it)
+
+    def test_defangs_triple_backtick_fence(self):
+        s = R._md_safe("escape ```json\nmalicious markdown\n``` after")
+        self.assertNotIn("```", s)       # no run of 3+ raw backticks survives to break a fence
+
+    def test_keeps_inline_code_backticks(self):
+        s = R._md_safe("use the `foo` and ``bar`` helpers")
+        self.assertIn("`foo`", s)        # single/double backticks (inline code) are untouched
+
     def test_non_string_coerced(self):
         self.assertEqual(R._md_safe(None), "None")
         self.assertEqual(R._md_safe(42), "42")
@@ -109,6 +127,11 @@ class TestBuildDiff(unittest.TestCase):
         text, kept, total = R.build_diff(files)
         self.assertIn("NOT a code defect", text)  # graceful truncation marker
         self.assertEqual((kept, total), (1, 1))
+
+    def test_skip_re_top_level_dist(self):
+        self.assertIsNotNone(R.SKIP_RE.search("dist/bundle.js"))       # top-level dist/
+        self.assertIsNotNone(R.SKIP_RE.search("site/dist/bundle.js"))  # nested dist/
+        self.assertIsNone(R.SKIP_RE.search("src/distance.rs"))         # 'dist' prefix isn't dist/
 
     def test_skips_lockfiles_and_removed(self):
         files = [
@@ -159,6 +182,38 @@ class TestPersonas(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertEqual(stats["raw"], 3)
 
+    def test_aggregate_promotes_higher_severity_on_title_collision(self):
+        # low severity inserted FIRST — must not mask the later security finding
+        lo = {"file": "a.rs", "line": 1, "title": "Same Issue", "severity": "suggestion", "detail": "short"}
+        hi = {"file": "a.rs", "line": 1, "title": "same issue", "severity": "security", "detail": "much longer detail"}
+        out, _ = PZ.aggregate([lo, hi])
+        self.assertEqual(len(out), 1)                       # normalized titles collapse
+        self.assertEqual(out[0]["severity"], "security")    # promoted, not first-wins
+        self.assertEqual(out[0]["detail"], "much longer detail")  # richest detail kept
+        self.assertEqual(out[0]["consensus"], 2)
+
+    def test_aggregate_higher_severity_survives_when_first(self):
+        hi = {"file": "a.rs", "line": 1, "title": "same", "severity": "bug"}
+        lo = {"file": "a.rs", "line": 1, "title": "same", "severity": "question"}
+        out, _ = PZ.aggregate([hi, lo])                     # high severity inserted first
+        self.assertEqual(out[0]["severity"], "bug")
+
+    def test_aggregate_keeps_distinct_same_line_findings(self):
+        # two genuinely different bugs on the same line must both survive
+        f1 = {"file": "a.rs", "line": 5, "title": "unwrap panic", "severity": "bug"}
+        f2 = {"file": "a.rs", "line": 5, "title": "auth bypass", "severity": "security"}
+        out, _ = PZ.aggregate([f1, f2])
+        self.assertEqual(len(out), 2)
+        self.assertEqual({x["title"] for x in out}, {"unwrap panic", "auth bypass"})
+
+    def test_aggregate_uses_consensus_not_dupes(self):
+        d = {"file": "a.rs", "line": 1, "title": "t", "severity": "bug", "persona": "SENTINEL"}
+        e = {"file": "a.rs", "line": 1, "title": "t", "severity": "bug", "persona": "WARDEN"}
+        out, _ = PZ.aggregate([d, e])
+        self.assertEqual(out[0]["consensus"], 2)            # render() reads .consensus for the badge
+        self.assertNotIn("_dupes", out[0])
+        self.assertEqual(set(out[0]["personas"]), {"SENTINEL", "WARDEN"})
+
     def test_build_system_has_coverage_and_schema(self):
         s = PZ.build_system([m for m in PZ.MODULES if m["name"] == "ARGUS"])
         self.assertIn("COVERAGE", s)     # coverage directive baked in
@@ -172,6 +227,65 @@ class TestPersonas(unittest.TestCase):
         txt = cs.read_text()
         self.assertIn("$props()", txt)   # current Svelte-5 fact
         self.assertIn("onclick", txt)    # not on:click
+
+
+class TestLegacyRouting(unittest.TestCase):
+    """The manual workflow sets AI_REVIEW_PANEL/_AGGREGATOR from user-entered models;
+    those are only honored on the legacy path, so an explicit value must force it."""
+    def _clear(self):
+        for k in ("AI_REVIEW_LEGACY_PANEL", "AI_REVIEW_PANEL", "AI_REVIEW_AGGREGATOR"):
+            os.environ.pop(k, None)
+
+    def test_explicit_flag_selects_legacy(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            self._clear()
+            os.environ["AI_REVIEW_LEGACY_PANEL"] = "1"
+            self.assertTrue(R._use_legacy_panel())
+
+    def test_panel_env_forces_legacy(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            self._clear()
+            os.environ["AI_REVIEW_PANEL"] = '[{"name":"x","provider":"openrouter","model":"x/y"}]'
+            self.assertTrue(R._use_legacy_panel())  # manual selection must not be discarded
+
+    def test_aggregator_env_forces_legacy(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            self._clear()
+            os.environ["AI_REVIEW_AGGREGATOR"] = '{"name":"x","provider":"openrouter","model":"x/y"}'
+            self.assertTrue(R._use_legacy_panel())
+
+    def test_default_is_persona_path(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            self._clear()
+            self.assertFalse(R._use_legacy_panel())
+
+
+class TestReplacementSanitization(unittest.TestCase):
+    """findings.json feeds ```suggestion blocks in inline comments — a run of
+    backticks in the model's replacement would break out of the fence."""
+    def test_defangs_fence_breakout(self):
+        out = R._safe_replacement("let x = 1;\n```\nmalicious markdown")
+        self.assertNotIn("```", out)
+
+    def test_none_for_empty(self):
+        self.assertIsNone(R._safe_replacement(""))
+        self.assertIsNone(R._safe_replacement(None))
+        self.assertIsNone(R._safe_replacement("   "))
+
+    def test_keeps_normal_code_verbatim(self):
+        self.assertEqual(R._safe_replacement("let x = foo(1);"), "let x = foo(1);")
+
+
+class TestRenderSafety(unittest.TestCase):
+    def test_raw_panel_backticks_dont_break_fence(self):
+        panel = [{"name": "X", "model": "x/y", "ok": True,
+                  "review": {"findings": [{"detail": "escape ```fence``` here"}]}}]
+        out = R.render({}, {"findings": [], "verdict": "approve"}, panel, 1, 1)
+        idx = out.find("```json")
+        self.assertGreater(idx, -1)
+        # content between the opening ```json and its intended closing \n``` must be fence-free
+        body, _sep, _rest = out[idx + len("```json"):].partition("\n```")
+        self.assertNotIn("```", body)
 
 
 class TestCiSignals(unittest.TestCase):

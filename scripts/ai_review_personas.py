@@ -297,33 +297,41 @@ def _norm(t: str) -> str:
 
 
 def aggregate(findings: list[dict]) -> tuple[list[dict], dict]:
+    """Deduplicate by (file, normalized-title) only. Two findings with the SAME
+    normalized title in the same file are the same issue reported twice — merge them,
+    keeping the HIGHEST severity and the RICHEST detail/suggestion/replacement, and
+    counting agreement in `consensus` (surfaced as the "N/M models" badge). Findings
+    with DIFFERENT titles are kept separate even when they share a file:line — two
+    distinct bugs can land on the same line and neither may be dropped."""
     by_key: dict[tuple, dict] = {}
     for f in findings:
         file = f.get("file", "")
         title_key = _norm(f.get("title", ""))
         key = (file, title_key)                       # collapse near-identical titles in same file
+        p = f.get("persona")
         if key in by_key:
-            by_key[key]["_dupes"] += 1
-            p = f.get("persona")
-            if p and p not in by_key[key]["personas"]:
-                by_key[key]["personas"].append(p)
+            existing = by_key[key]
+            existing["consensus"] += 1
+            if p and p not in existing["personas"]:
+                existing["personas"].append(p)
+            # Promote to the more severe verdict (a later `security` must not be lost
+            # behind an earlier `suggestion`); lower rank == more severe.
+            if SEV_RANK.get(f.get("severity", "suggestion"), 9) < \
+               SEV_RANK.get(existing.get("severity", "suggestion"), 9):
+                existing["severity"] = f.get("severity", existing.get("severity"))
+            # Keep the richest evidence regardless of which severity won.
+            if len(f.get("detail") or "") > len(existing.get("detail") or ""):
+                existing["detail"] = f.get("detail") or existing.get("detail")
+            if f.get("suggestion") and not existing.get("suggestion"):
+                existing["suggestion"] = f["suggestion"]
+            if f.get("replacement") and not existing.get("replacement"):
+                existing["replacement"] = f["replacement"]
             continue
         entry = dict(f)
-        entry["_dupes"] = 1
-        entry["personas"] = [f.get("persona")] if f.get("persona") else []
+        entry["consensus"] = 1
+        entry["personas"] = [p] if p else []
         by_key[key] = entry
-    # second pass: merge different-title findings that share exact file:line (co-location)
-    merged: dict[tuple, dict] = {}
-    for e in by_key.values():
-        loc = (e.get("file", ""), e.get("line", 0))
-        if loc in merged and loc[1]:                  # only merge when line is a real (nonzero) anchor
-            merged[loc]["_colocated"] = merged[loc].get("_colocated", 1) + 1
-            for p in e["personas"]:
-                if p not in merged[loc]["personas"]:
-                    merged[loc]["personas"].append(p)
-            continue
-        merged[loc] = e
-    out = sorted(merged.values(), key=lambda x: SEV_RANK.get(x.get("severity", "suggestion"), 9))
+    out = sorted(by_key.values(), key=lambda x: SEV_RANK.get(x.get("severity", "suggestion"), 9))
     stats = {"raw": len(findings), "after": len(out),
              "reduction_pct": round(100 * (1 - len(out) / max(1, len(findings))))}
     return out, stats

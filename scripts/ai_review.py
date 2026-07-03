@@ -140,7 +140,7 @@ MAX_PATCH_CHARS = 24000     # per file (a whole file's diff comfortably fits)
 MAX_TOTAL_CHARS = 256000    # whole diff sent to a model (~256 KB; fits the largest repo PR)
 SKIP_RE = re.compile(
     r"(\.lock$|Cargo\.lock|package-lock\.json|pnpm-lock\.yaml|\.min\.(js|css)$"
-    r"|/dist/|node_modules/|\.snap$|\.svg$|\.png$|CHANGELOG\.md$)"
+    r"|(?:^|/)dist/|node_modules/|\.snap$|\.svg$|\.png$|CHANGELOG\.md$)"
 )
 REQUEST_TIMEOUT = 180   # headroom for large diffs (a 256 KB PR ~= 64K tok input can
                         # take a reviewer 60-90s); the CI job timeout is 10 min
@@ -267,7 +267,7 @@ def parse_json(text: str) -> dict:
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\n", "", text)
-        text = re.sub(r"\n```$", "", text).strip()
+        text = re.sub(r"\n```.*$", "", text, flags=re.DOTALL).strip()
     for candidate in (text, None):
         try:
             src = candidate if candidate is not None else _first_json_object(text)
@@ -523,8 +523,24 @@ def _md_safe(s: object) -> str:
         s = str(s)
     s = s.replace("<details", "&lt;details").replace("</details>", "&lt;/details&gt;")
     s = s.replace("<!--", "&lt;!--").replace("-->", "--&gt;")
+    # Defang raw HTML that GitHub renders (live/phishing links, script/style injection).
+    s = re.sub(r"<(a|img|script|iframe|svg|form|input|style|object|embed)\b",
+               r"&lt;\1", s, flags=re.IGNORECASE)
     s = re.sub(r"\]\((\s*https?:)", "]​(\\1", s)  # defang [text](http…) links
+    # Break runs of 3+ backticks so model output can't escape a code fence (the
+    # raw-panel ```json block, or a ```suggestion). Zero-width spaces keep it
+    # readable while destroying the fence sequence.
+    s = re.sub(r"`{3,}", lambda m: "​".join("`" * len(m.group(0))), s)
     return s
+
+
+def _safe_replacement(s: object) -> str | None:
+    """A ```suggestion body is rendered verbatim, so it must not be Markdown-escaped
+    (that would corrupt the code) — but a run of 3+ backticks would still break out of
+    the fence. Defang only that, with zero-width spaces. Returns None for empty input."""
+    if not isinstance(s, str) or not s.strip():
+        return None
+    return re.sub(r"`{3,}", lambda m: "​".join("`" * len(m.group(0))), s)
 
 
 def render(meta: dict, agg: dict, panel_results: list[dict],
@@ -680,6 +696,19 @@ def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
     return agg, panel_results
 
 
+def _use_legacy_panel() -> bool:
+    """Whether to run the legacy 3-generalist panel + LLM aggregator instead of the
+    routed personas. Explicit via AI_REVIEW_LEGACY_PANEL=1, but ALSO forced whenever
+    AI_REVIEW_PANEL / AI_REVIEW_AGGREGATOR are set: those env vars are consumed only by
+    the legacy path, so the manual workflow (which sets them from user-entered models)
+    would otherwise have its model selection silently discarded by persona routing."""
+    return (
+        os.environ.get("AI_REVIEW_LEGACY_PANEL") == "1"
+        or bool(os.environ.get("AI_REVIEW_PANEL"))
+        or bool(os.environ.get("AI_REVIEW_AGGREGATOR"))
+    )
+
+
 def main() -> int:
     _validate_config()
     meta = json.loads((ARTIFACTS / "pr-meta.json").read_text())
@@ -701,7 +730,11 @@ def main() -> int:
         system += f"\n\n{rules_block}"
     # Trusted context: cross-file references (grep) + real CI results, injected before
     # the untrusted diff so the model reasons with them but knows the diff is data.
-    context = "\n\n".join(b for b in (cross_file_context(files), read_ci_signals()) if b)
+    # cross_file_context greps the trusted base checkout; CI signals are PR-influenced
+    # (annotation messages can quote attacker-controlled source/test strings) — neutralize
+    # them like the diff so they can't smuggle instructions above the <diff> boundary.
+    context = "\n\n".join(
+        b for b in (cross_file_context(files), neutralize(read_ci_signals())) if b)
     pr_body = neutralize(meta.get("body") or "(none)")[:2000]
     user = (
         (f"{context}\n\n" if context else "")
@@ -715,7 +748,7 @@ def main() -> int:
 
     # Routed-persona path (default). Legacy 3-generalist panel + LLM aggregator via
     # AI_REVIEW_LEGACY_PANEL=1, and as an automatic fallback when nothing routes.
-    legacy = os.environ.get("AI_REVIEW_LEGACY_PANEL") == "1"
+    legacy = _use_legacy_panel()
     agg, panel_results = (None, None)
     if not legacy:
         agg, panel_results = run_personas(files, user, persona, rules_block)
@@ -758,8 +791,21 @@ def main() -> int:
                                  encoding="utf-8")
     # Structured findings so the post workflow can place INLINE review comments (file:line)
     # with committable ```suggestion blocks. review.md stays the fallback sticky comment.
-    inline = [{k: f.get(k) for k in ("severity", "file", "line", "title", "detail", "suggestion", "replacement")}
-              for f in (agg.get("findings") or []) if isinstance(f, dict) and f.get("file")]
+    # The post step embeds these fields as raw Markdown/```suggestion, so sanitize HERE
+    # (single source) — title/detail/suggestion via _md_safe; replacement only needs its
+    # fence protected (it's rendered verbatim inside ```suggestion).
+    inline = []
+    for f in (agg.get("findings") or []):
+        if not isinstance(f, dict) or not f.get("file"):
+            continue
+        entry = {k: f.get(k) for k in ("severity", "file", "line", "title", "detail", "suggestion")}
+        for k in ("title", "detail", "suggestion"):
+            if entry.get(k):
+                entry[k] = _md_safe(entry[k])
+        rep = _safe_replacement(f.get("replacement"))
+        if rep is not None:
+            entry["replacement"] = rep
+        inline.append(entry)
     Path("findings.json").write_text(json.dumps(inline, indent=2), encoding="utf-8")
     print(f"wrote findings.json ({len(inline)} inline-eligible)")
     # Surface any AI-proposed rule updates for the (human-gated) maintenance workflow.

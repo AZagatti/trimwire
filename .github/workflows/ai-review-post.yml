@@ -123,6 +123,14 @@ jobs:
               comments.push({ path: f.file, line, side: 'RIGHT', body: b });
             }
             if (comments.length === 0) { core.info('no findings on diff lines; sticky comment only'); return; }
+            // meta.head_sha comes from the artifact; cross-check it against the event's
+            // authoritative head SHA before trusting it as commit_id (mirrors the sticky
+            // step's guard so a poisoned artifact can't retarget the review).
+            const expectedSha = context.payload.workflow_run.head_sha;
+            if (meta.head_sha && expectedSha && meta.head_sha !== expectedSha) {
+              core.warning(`head_sha mismatch (artifact=${meta.head_sha} event=${expectedSha}); skipping inline comments`);
+              return;
+            }
             await github.rest.pulls.createReview({
               owner, repo, pull_number: prNumber, commit_id: meta.head_sha,
               event: 'COMMENT', comments: comments.slice(0, 40),
