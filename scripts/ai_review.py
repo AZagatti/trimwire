@@ -497,6 +497,42 @@ def cross_file_context(files: list[dict]) -> str:
             "changes — verify the change doesn't break them)\n" + "\n".join(out))
 
 
+MAX_EXEMPLAR_CHARS = 1200
+_SAFE_PATH_RE = re.compile(r"[\w./\-]+")
+
+
+def git_history_exemplar(files: list[dict]) -> str:
+    """One-shot from repo history: inject the most recent BUG-FIX commit that touched the
+    changed files, so the model looks for the same class of mistake. Local git only, top-1
+    (top-2+ degrades per RAG-for-review research); '' if git unavailable or no such commit."""
+    paths = [f.get("filename", "") for f in files
+             if f.get("filename") and _SAFE_PATH_RE.fullmatch(f["filename"])]
+    if not paths:
+        return ""
+    try:
+        res = subprocess.run(
+            ["git", "log", "-n", "1", "-i", "--grep=fix", "--grep=bug", "--grep=patch",
+             "--grep=cve", "--grep=vuln", "--format=%H\t%s", "--", *paths],
+            capture_output=True, text=True, timeout=10)
+        rows = res.stdout.strip().splitlines()
+        if not rows:
+            return ""
+        sha, _, subject = rows[0].partition("\t")
+        if not re.fullmatch(r"[0-9a-f]{7,40}", sha):
+            return ""
+        show = subprocess.run(["git", "show", "--format=", "--no-color", sha, "--", *paths],
+                              capture_output=True, text=True, timeout=10)
+    except Exception:  # noqa: BLE001 — git missing / any git error → skip the feature
+        return ""
+    diff = show.stdout.strip()
+    if not diff:
+        return ""
+    if len(diff) > MAX_EXEMPLAR_CHARS:
+        diff = diff[:MAX_EXEMPLAR_CHARS].rsplit("\n", 1)[0] + "\n… (exemplar truncated)"
+    return ("## Prior bug fixed in these files — look for the SAME class of mistake in this PR\n"
+            f"commit {sha[:12]}: {_md_safe(subject)}\n```diff\n{diff}\n```")
+
+
 def read_ci_signals() -> str:
     """Existing CI results captured by the post workflow — grounds findings in real
     compiler/linter truth instead of re-running anything. Two artifacts, both optional:
@@ -815,7 +851,8 @@ def main() -> int:
     # (annotation messages can quote attacker-controlled source/test strings) — neutralize
     # them like the diff so they can't smuggle instructions above the <diff> boundary.
     context = "\n\n".join(
-        b for b in (cross_file_context(files), neutralize(read_ci_signals())) if b)
+        b for b in (cross_file_context(files), git_history_exemplar(files),
+                    neutralize(read_ci_signals())) if b)
     pr_body = neutralize(meta.get("body") or "(none)")[:2000]
     user = (
         (f"{context}\n\n" if context else "")

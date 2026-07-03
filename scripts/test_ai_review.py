@@ -397,6 +397,12 @@ class TestDiffSymbols(unittest.TestCase):
         added, _ = R._diff_symbols(files)
         self.assertIn("keeper", added)
 
+    def test_git_exemplar_empty_for_unsafe_or_missing_paths(self):
+        # paths with shell/glob metacharacters are filtered out -> no git call, empty result
+        self.assertEqual(R.git_history_exemplar([{"filename": "a; rm -rf /.rs"}]), "")
+        self.assertEqual(R.git_history_exemplar([{"filename": ""}]), "")
+        self.assertEqual(R.git_history_exemplar([]), "")
+
 
 class TestCiSignals(unittest.TestCase):
     def _with_artifacts(self, files):
