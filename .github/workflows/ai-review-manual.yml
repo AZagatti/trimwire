@@ -119,6 +119,28 @@ jobs:
             printf 'AI_REVIEW_AGGREGATOR<<__TW_EOF__\n%s\n__TW_EOF__\n' "$agg"
           } >> "$GITHUB_ENV"
 
+      - name: Capture existing CI results (best effort — no re-run)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Ground the review in CI truth the same way the auto flow does, so a high-stakes
+          # manual review defers to clippy/tests/audit instead of re-flagging them.
+          HEAD=$(jq -r '.head_sha // ""' artifacts/pr-meta.json)
+          [ -n "$HEAD" ] || exit 0
+          gh api "repos/$REPO/commits/$HEAD/check-runs" --paginate \
+            -q '.check_runs[] | "\(.name): \(.conclusion // .status)"' \
+            2>/dev/null | sort -u > artifacts/ci-signals.txt || true
+          gh api "repos/$REPO/commits/$HEAD/check-runs" --paginate \
+            -q '.check_runs[] | select(.conclusion == "failure" or ((.output.annotations_count // 0) > 0)) | .id' \
+            2>/dev/null | head -8 | \
+          while read -r id; do
+            gh api "repos/$REPO/check-runs/$id/annotations" --paginate \
+              -q '.[] | "\(.path):\(.start_line): \(.annotation_level): \(.message)"' 2>/dev/null || true
+          done | head -c 6000 > artifacts/ci-failure-logs.txt || true
+
       - name: Run review
         env:
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}

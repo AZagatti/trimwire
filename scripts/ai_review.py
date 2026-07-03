@@ -385,7 +385,11 @@ def load_project_context(changed_files: list[str]) -> tuple[str, str]:
         p = RULES_DIR / f"{name}.md"
         if p.exists():
             parts.append(f"### {name}\n{_strip_frontmatter(p.read_text())}")
-    body = "\n\n".join(parts)[:MAX_RULES_CHARS]
+    body = "\n\n".join(parts)
+    if len(body) > MAX_RULES_CHARS:
+        # Cut at the last newline before the cap so a rule isn't sliced mid-sentence.
+        cut = body.rfind("\n", 0, MAX_RULES_CHARS)
+        body = body[:cut if cut > 0 else MAX_RULES_CHARS] + "\n… (rules truncated)"
     block = (f"## Project rules (.review-rules — trusted project context for the "
              f"changed files)\n<project_rules>\n{body}\n</project_rules>") if body else ""
     return persona, block
@@ -396,6 +400,7 @@ _SYMBOL_DEF_CORE = (r"(?:pub\s+)?(?:async\s+)?(?:fn|struct|enum|trait|type|const
                     r"function|def|class|interface)\s+([A-Za-z_][A-Za-z0-9_]{2,})")
 _SYMBOL_DEF_RE = re.compile(r"^\+.*\b" + _SYMBOL_DEF_CORE)   # added definition ('+')
 _SYMBOL_DEL_RE = re.compile(r"^-.*\b" + _SYMBOL_DEF_CORE)    # removed definition ('-')
+_COMMENT_TAIL_RE = re.compile(r"(//|/\*).*$")               # strip C/Rust/JS line+block comments
 MAX_SYMBOLS = 12
 MAX_HITS_PER_SYMBOL = 4
 MAX_CFC_CHARS = 3000
@@ -409,10 +414,14 @@ def _diff_symbols(files: list[dict]) -> tuple[list[str], list[str]]:
     removed: list[str] = []
     for f in files:
         for line in (f.get("patch") or "").splitlines():
-            ma = _SYMBOL_DEF_RE.match(line)
+            # Drop // and /* … comments so a commented-out `fn foo` isn't mistaken for a
+            # real definition (the diff +/- prefix is at col 0, before any comment, so it
+            # survives). Approximate — also cuts // inside a string, harmless for symbol defs.
+            scan = _COMMENT_TAIL_RE.sub("", line)
+            ma = _SYMBOL_DEF_RE.match(scan)
             if ma and ma.group(1) not in added:
                 added.append(ma.group(1))
-            md = _SYMBOL_DEL_RE.match(line)
+            md = _SYMBOL_DEL_RE.match(scan)
             if md and md.group(1) not in removed:
                 removed.append(md.group(1))
     removed_only = [s for s in removed if s not in added]
@@ -679,8 +688,10 @@ lines (keep the highest severity, set "consensus" = how many reviewers raised it
 Drop speculative single-reviewer nits. Rank by severity then consensus. Return ONLY
 JSON: {"verdict":"approve|comment|request_changes","summary":"...","findings":[
 {"severity":"...","title":"...","file":"...","line":0,"detail":"...",
-"suggestion":"...","consensus":1}]}. verdict=request_changes only if a bug/security
-finding has consensus>=2."""
+"suggestion":"...","consensus":1}],"rule_suggestions":[{"category":"...","rule":"...",
+"why":"..."}]}. rule_suggestions (optional, [] if none) = recurring project-specific
+patterns worth codifying in .review-rules. verdict=request_changes only if a
+bug/security finding has consensus>=2."""
 
 
 # --- Main --------------------------------------------------------------------

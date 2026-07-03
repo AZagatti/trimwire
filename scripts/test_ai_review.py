@@ -145,6 +145,13 @@ class TestBuildDiff(unittest.TestCase):
         self.assertNotIn("Cargo.lock", text)
 
 
+class TestAggregatorPrompt(unittest.TestCase):
+    def test_default_aggregator_requests_rule_suggestions(self):
+        # render()/main() read agg["rule_suggestions"]; the fallback prompt must ask for it
+        self.assertIn("rule_suggestions", R._DEFAULT_AGGREGATOR)
+        self.assertIn("verdict", R._DEFAULT_AGGREGATOR)
+
+
 class TestConfigValidation(unittest.TestCase):
     # importing ai_review at the top of this file already proves import doesn't exit
     def test_default_config_is_valid(self):
@@ -336,6 +343,20 @@ class TestDiffSymbols(unittest.TestCase):
         added, removed_only = R._diff_symbols(files)
         self.assertIn("handle", added)
         self.assertEqual(removed_only, [])
+
+    def test_ignores_commented_out_def(self):
+        # a commented-out fn must not be mistaken for a real definition (no false cross-file grep)
+        files = [{"filename": "src/a.rs",
+                  "patch": "@@\n+// pub fn ghost_fn() {}\n+let x = 1; /* fn also_ghost */\n+pub fn real_fn() {}"}]
+        added, _ = R._diff_symbols(files)
+        self.assertIn("real_fn", added)
+        self.assertNotIn("ghost_fn", added)
+        self.assertNotIn("also_ghost", added)
+
+    def test_trailing_comment_after_real_def_still_detected(self):
+        files = [{"filename": "src/a.rs", "patch": "@@\n+pub fn keeper() { // TODO tidy\n"}]
+        added, _ = R._diff_symbols(files)
+        self.assertIn("keeper", added)
 
 
 class TestCiSignals(unittest.TestCase):
