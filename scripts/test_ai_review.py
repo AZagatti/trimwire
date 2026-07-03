@@ -253,6 +253,19 @@ class TestPersonas(unittest.TestCase):
         self.assertIn("findings", s)     # output schema
         self.assertIn("ARGUS", s)        # persona checklist composed in
 
+    def test_shared_preamble_has_intent_directive(self):
+        self.assertIn("intent-vs-implementation", PZ.SHARED_PREAMBLE)
+
+    def test_ferrus_checklist_covers_benchmark_misses(self):
+        ferrus = next(m for m in PZ.MODULES if m["name"] == "FERRUS")["checklist"]
+        self.assertIn("non_exhaustive", ferrus)          # the bug that broke our own build
+        self.assertIn("Send ≠ Sync", ferrus)             # wrong-direction impl
+        self.assertIn("read-modify-write", ferrus)       # non-atomic RMW data race
+
+    def test_sentry_checklist_enumerates_every_ref(self):
+        sentry = next(m for m in PZ.MODULES if m["name"] == "SENTRY")["checklist"]
+        self.assertIn("EVERY", sentry)                   # enumerate-each directive
+
 
     def test_svelte5_cheatsheet_present_and_current(self):
         cs = Path(__file__).resolve().parent.parent / ".github" / "ai-review" / "cheatsheets" / "svelte5.md"
