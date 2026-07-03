@@ -133,6 +133,32 @@ class TestBuildDiff(unittest.TestCase):
         self.assertIsNotNone(R.SKIP_RE.search("site/dist/bundle.js"))  # nested dist/
         self.assertIsNone(R.SKIP_RE.search("src/distance.rs"))         # 'dist' prefix isn't dist/
 
+    def test_risk_ordered_small_security_file_beats_large_safe_file(self):
+        files = [
+            {"filename": "src/big_ui.rs", "patch": "@@\n" + "+ui line\n" * 200, "additions": 200},
+            {"filename": "src/auth/token.rs", "patch": "@@\n+let k = api_key;", "additions": 2},
+        ]
+        text, kept, total = R.build_diff(files)
+        self.assertEqual((kept, total), (2, 2))
+        # the tiny auth file must appear BEFORE the large UI file in the sent diff
+        self.assertLess(text.index("src/auth/token.rs"), text.index("src/big_ui.rs"))
+
+    def test_risk_content_lifts_unsafe_block(self):
+        files = [
+            {"filename": "src/render.rs", "patch": "@@\n+draw();", "additions": 1},
+            {"filename": "src/mem.rs", "patch": "@@\n+unsafe { ptr::write(p, v); }", "additions": 1},
+        ]
+        text, _, _ = R.build_diff(files)
+        self.assertLess(text.index("src/mem.rs"), text.index("src/render.rs"))
+
+    def test_test_files_sink_below_code(self):
+        files = [
+            {"filename": "tests/big_test.rs", "patch": "@@\n" + "+assert!(x)\n" * 50, "additions": 50},
+            {"filename": "src/logic.rs", "patch": "@@\n+let y = compute();", "additions": 1},
+        ]
+        text, _, _ = R.build_diff(files)
+        self.assertLess(text.index("src/logic.rs"), text.index("tests/big_test.rs"))
+
     def test_skips_lockfiles_and_removed(self):
         files = [
             {"filename": "Cargo.lock", "patch": "huge", "additions": 5},

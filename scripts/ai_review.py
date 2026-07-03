@@ -142,6 +142,30 @@ SKIP_RE = re.compile(
     r"(\.lock$|Cargo\.lock|package-lock\.json|pnpm-lock\.yaml|\.min\.(js|css)$"
     r"|(?:^|/)dist/|node_modules/|\.snap$|\.svg$|\.png$|CHANGELOG\.md$)"
 )
+# Risk-order the diff so critical-but-small edits (auth/crypto/config, unsafe blocks) sit
+# at the TOP of the model's context, not buried under large-but-safe files. Sorting by
+# additions alone buries them (and truncates them first) — "lost in the middle" costs recall.
+_RISK_PATH_RE = re.compile(
+    r"(auth|secur|middleware|config|crypto|permission|access|token|secret|login|session"
+    r"|passwo?rd|creds?|admin|privile|sql|exec|eval|deserial|sandbox|unsafe|jwt|oauth)", re.I)
+_RISK_CONTENT_RE = re.compile(
+    r"(\bunsafe\b|transmute|mem::|os\.system|subprocess|shell\s*=\s*True|innerHTML"
+    r"|dangerouslySetInnerHTML|pickle|yaml\.load|eval\(|\bexec\(|api[_-]?key|private[_-]?key"
+    r"|secret|password|SELECT\s.+\sFROM)", re.I)
+_TEST_PATH_RE = re.compile(r"((^|/)(tests?|__tests__|spec)/|_test\.|\.test\.|\.spec\.|(^|/)test_)", re.I)
+
+
+def _risk_score(f: dict) -> int:
+    """Heuristic (no LLM) risk rank for diff ordering: security-shaped paths and dangerous
+    constructs score high; test files score low (reviewed last in the first pass)."""
+    score = 0
+    if _RISK_PATH_RE.search(f.get("filename", "")):
+        score += 3
+    if _RISK_CONTENT_RE.search(f.get("patch", "") or ""):
+        score += 2
+    if _TEST_PATH_RE.search(f.get("filename", "")):
+        score -= 2
+    return score
 REQUEST_TIMEOUT = 180   # headroom for large diffs (a 256 KB PR ~= 64K tok input can
                         # take a reviewer 60-90s); the CI job timeout is 10 min
 MAX_RETRIES = 3
@@ -302,7 +326,9 @@ def build_diff(files: list[dict]) -> tuple[str, int, int]:
         if f.get("patch") and not SKIP_RE.search(f["filename"])
         and f.get("status") != "removed"
     ]
-    keep.sort(key=lambda f: f.get("additions", 0), reverse=True)
+    # Highest-risk files first (so they lead the context and survive the budget cap),
+    # then larger diffs within the same risk tier.
+    keep.sort(key=lambda f: (_risk_score(f), f.get("additions", 0)), reverse=True)
     out, used = [], 0
     for i, f in enumerate(keep):
         patch = f["patch"]
