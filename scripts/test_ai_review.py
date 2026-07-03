@@ -166,5 +166,13 @@ class TestPersonas(unittest.TestCase):
         self.assertIn("ARGUS", s)        # persona checklist composed in
 
 
+    def test_svelte5_cheatsheet_present_and_current(self):
+        cs = Path(__file__).resolve().parent.parent / ".github" / "ai-review" / "cheatsheets" / "svelte5.md"
+        self.assertTrue(cs.exists(), "svelte5 cheatsheet must be committed")
+        txt = cs.read_text()
+        self.assertIn("$props()", txt)   # current Svelte-5 fact
+        self.assertIn("onclick", txt)    # not on:click
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

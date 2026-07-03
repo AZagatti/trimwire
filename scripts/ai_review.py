@@ -627,6 +627,15 @@ def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
     if not mods:
         return None, None
     groups = pz.group_by_model(mods)  # {model_key: [modules]} -> one call per distinct model
+    # Doc-currency: bundle a current-framework cheatsheet for frontend personas — models may
+    # predate the framework version (observed: wrong Svelte-5 facts), and GHA can't call a live
+    # docs source, so we inject a committed, periodically-refreshed sheet.
+    cheat = ""
+    if any(p.endswith(".svelte") for p in paths):
+        cs = PROMPT_DIR / "cheatsheets" / "svelte5.md"
+        if cs.exists():
+            cheat = "\n\n## Current framework facts (trust these over your memory):\n" + cs.read_text()
+    _FRONTEND = {"VANGUARD", "ARGUS", "PACER"}
 
     def one(module_list: list[dict]) -> dict:
         lane = pz.LANES[module_list[0]["lane"]]
@@ -634,6 +643,8 @@ def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
         system = f"You are a {persona}.\n\n" + pz.build_system(module_list)
         if rules_block:
             system += f"\n\n{rules_block}"
+        if cheat and any(m["name"] in _FRONTEND for m in module_list):
+            system += cheat
         try:
             raw = chat(lane["provider"], lane["model"], system, user,
                        max_tokens=8000, extra=lane.get("params"))
