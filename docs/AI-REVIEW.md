@@ -86,13 +86,14 @@ Highlights:
 - **`ai-review-strict` label:** low-noise mode — the sticky comment shows only
   findings ≥ 2 models agree on (security findings are always shown; hidden solo
   findings remain in the collapsed raw-panel section).
-- **`AI_REVIEW_SAMPLES` repo variable (opt-in recall boost):** default `1` (single
-  deterministic pass — the low-noise default). Set to `2`–`5` to sample each model
-  N times at spread temperatures and union the findings; higher-temperature passes
-  surface bugs a single pass misses (evidence: multi-pass raises catch rate ~+15-25%),
-  at ~N× cost and more noise. `consensus` badges then count cross-sample agreement, so
-  pairing it with the `ai-review-strict` label keeps only the findings multiple passes
-  agree on.
+- **`AI_REVIEW_SAMPLES` repo variable (opt-in, off by default):** default `1` (single
+  deterministic pass — the low-noise default). Set to `2`–`5` to sample each model N
+  times at spread temperatures and union the findings. **Measured caveat:** on our own
+  planted-bug corpus (small, single-issue diffs) this gave **0 pp recall for ~2.8× the
+  findings** — the extra passes just reproduce the same hits. It only helps on **large,
+  multi-file PRs** where one pass under-samples the diff, so leave it at `1` for normal
+  PRs and enable it only for big diffs. If you do enable it, pair with the
+  `ai-review-strict` label so `consensus` (cross-sample agreement) filters the added noise.
 - The diff is filtered (lockfiles, snapshots, generated/min files) and budgeted
   (per-file + total caps) before any model is called.
 
