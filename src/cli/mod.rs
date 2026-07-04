@@ -106,25 +106,29 @@ pub fn on() -> Result<()> {
     // would still force the gateway to forward unmodified. Report honestly and
     // stop, so the success line never lies about the pruning state.
     if let Err(e) = trimwire::bypass::disable() {
-        println!("couldn't clear bypass: {e}");
+        println!("{} couldn't clear bypass: {e}", render::bad());
         println!(
-            "→ pruning is still OFF — the {} sentinel remains. Fix the error above, \
-             then re-run `trimwire on`.",
-            trimwire::bypass::sentinel_path().display()
+            "  {} pruning is still OFF — the {} sentinel remains. Fix the error above, then re-run {}.",
+            render::dim("→"),
+            trimwire::bypass::sentinel_path().display(),
+            render::accent("trimwire on")
         );
         return Ok(());
     }
     match service::on() {
         Ok(()) => println!(
-            "trimwire is on — pruning active ({}).",
+            "{} trimwire is on — pruning active ({}).",
+            render::ok(),
             service::detect().label()
         ),
         // Degrade gracefully like `status`/`stats` rather than a bare `Error:`.
         Err(e) => {
-            println!("couldn't start the service: {e}");
+            println!("{} couldn't start the service: {e}", render::warn());
             println!(
-                "→ is it installed? run `trimwire install`. Or run the gateway yourself: \
-                 `trimwire run`."
+                "  {} is it installed? run {}. Or run the gateway yourself: {}.",
+                render::dim("→"),
+                render::accent("trimwire install"),
+                render::accent("trimwire run")
             );
         }
     }
@@ -142,7 +146,7 @@ pub fn off(stop: bool) -> Result<()> {
         // Hard stop — degrade gracefully rather than a raw anyhow "Error:" blast.
         match service::off() {
             Ok(()) => {
-                println!("trimwire gateway stopped.");
+                println!("{} trimwire gateway stopped.", render::ok());
                 // Now that the gateway is down, clear any bypass sentinel so a
                 // later restart-by-other-means (socket activation, `systemctl
                 // start`, launchd RunAtLoad) doesn't silently come back bypassed.
@@ -152,25 +156,34 @@ pub fn off(stop: bool) -> Result<()> {
                 // pruning.
                 if had_bypass {
                     if trimwire::bypass::disable().is_ok() {
-                        println!("  (also cleared the bypass sentinel.)");
+                        println!("  {}", render::dim("(also cleared the bypass sentinel.)"));
                     } else {
                         println!(
-                            "  (note: couldn't clear the bypass sentinel — remove {} by hand.)",
-                            trimwire::bypass::sentinel_path().display()
+                            "  {}",
+                            render::dim(&format!(
+                                "(note: couldn't clear the bypass sentinel — remove {} by hand.)",
+                                trimwire::bypass::sentinel_path().display()
+                            ))
                         );
                     }
                 }
                 println!(
-                    "→ your shell still exports ANTHROPIC_BASE_URL, so Claude Code can't reach \
-                     Anthropic until you `trimwire on` (restart it) — or use plain `trimwire off` \
-                     (no --stop) next time, which bypasses to Anthropic without stopping."
+                    "  {} your shell still exports ANTHROPIC_BASE_URL, so Claude Code can't reach \
+                     Anthropic until you {} (restart it) — or use plain {} next time, which \
+                     bypasses to Anthropic without stopping.",
+                    render::dim("→"),
+                    render::accent("trimwire on"),
+                    render::accent("trimwire off")
                 );
             }
             Err(e) => {
-                println!("couldn't stop the service: {e}");
+                println!("{} couldn't stop the service: {e}", render::warn());
                 println!(
-                    "→ is it installed/running? check `trimwire status`. If you never ran \
-                     `trimwire install`, there's nothing to stop."
+                    "  {} is it installed/running? check {}. If you never ran {}, there's \
+                     nothing to stop.",
+                    render::dim("→"),
+                    render::accent("trimwire status"),
+                    render::accent("trimwire install")
                 );
             }
         }
@@ -182,7 +195,8 @@ pub fn off(stop: bool) -> Result<()> {
     match trimwire::bypass::enable() {
         Ok(()) => {
             println!(
-                "trimwire is off — sessions go straight to Anthropic, unmodified (no pruning)."
+                "{} trimwire is off — sessions go straight to Anthropic, unmodified (no pruning).",
+                render::ok()
             );
             // Bypass only takes effect if the gateway is actually serving (it
             // reads the sentinel per request). If it was hard-stopped, the socket
@@ -194,18 +208,27 @@ pub fn off(stop: bool) -> Result<()> {
             if let Ok(addr) = listen_addr() {
                 if !service::healthz_ok(addr) {
                     println!(
-                        "⚠ but the gateway isn't running right now — run `trimwire on` to start it \
-                         so requests actually reach Anthropic."
+                        "{} but the gateway isn't running right now — run {} to start it so \
+                         requests actually reach Anthropic.",
+                        render::warn(),
+                        render::accent("trimwire on")
                     );
                 }
             }
             println!(
-                "→ `trimwire on` to resume pruning. (`trimwire off --stop` stops the gateway entirely.)"
+                "  {} {} to resume pruning. ({} stops the gateway entirely.)",
+                render::dim("→"),
+                render::accent("trimwire on"),
+                render::accent("trimwire off --stop")
             );
         }
         Err(e) => {
-            println!("couldn't switch to bypass: {e}");
-            println!("→ stop the gateway instead with `trimwire off --stop`.");
+            println!("{} couldn't switch to bypass: {e}", render::warn());
+            println!(
+                "  {} stop the gateway instead with {}.",
+                render::dim("→"),
+                render::accent("trimwire off --stop")
+            );
         }
     }
     Ok(())
@@ -236,7 +259,7 @@ pub fn status() -> Result<()> {
 pub fn doctor(strict: bool) -> Result<()> {
     use trimwire::config::Config;
 
-    println!("trimwire doctor\n");
+    println!("{}\n", render::strong("trimwire doctor"));
 
     // Build platform — handy in bug reports, and the asset-selection primitive
     // `trimwire upgrade` uses to pick the matching release artifact.
@@ -310,8 +333,16 @@ pub fn doctor(strict: bool) -> Result<()> {
             render::bullet()
         );
         println!();
-        println!("→ run `trimwire install` to set up the gateway, shell env, and starter config.");
-        println!("→ run `trimwire doctor` again after install to verify the setup.");
+        println!(
+            "  {} run {} to set up the gateway, shell env, and starter config.",
+            render::dim("→"),
+            render::accent("trimwire install")
+        );
+        println!(
+            "  {} run {} again after install to verify the setup.",
+            render::dim("→"),
+            render::accent("trimwire doctor")
+        );
         if strict {
             // Pre-install is an advisory state (not installed / gateway down / env
             // unset). `--strict` exists for CI / scripted health checks, which must
@@ -558,19 +589,22 @@ pub fn doctor(strict: bool) -> Result<()> {
                             // Recommend the key file first: the always-up service that
                             // `trimwire install` sets up can't see shell exports.
                             println!(
-                                "  → recommended: set `api_key_file = \"~/.{}_key\"` on this provider \
+                                "  {} recommended: set `api_key_file = \"~/.{}_key\"` on this provider \
                                  in trimwire.toml (works as a service — the default install; `chmod 600` it).",
+                                render::dim("→"),
                                 provider.id
                             );
                             if !provider.api_key_env.is_empty() {
                                 println!(
-                                    "  → or, for foreground `trimwire run` only: export {}=\"<your-api-key>\" \
+                                    "  {} or, for foreground `trimwire run` only: export {}=\"<your-api-key>\" \
                                      (add to ~/.zshrc/~/.bashrc to persist).",
+                                    render::dim("→"),
                                     provider.api_key_env
                                 );
                             }
                             println!(
-                                "  → then `trimwire off --stop && trimwire on` to restart the gateway with the new key."
+                                "  {} then `trimwire off --stop && trimwire on` to restart the gateway with the new key.",
+                                render::dim("→")
                             );
                         }
                     }
@@ -722,14 +756,28 @@ fn base_url_matches(v: &str, addr: std::net::SocketAddr) -> bool {
 fn report_unwire(u: install::Unwired) {
     use install::Unwired::*;
     match u {
-        Restored => println!("removed trimwire — restored your original statusline."),
-        Removed => println!("removed trimwire's statusline bar."),
+        Restored => println!(
+            "  {} removed trimwire — restored your original statusline.",
+            render::ok()
+        ),
+        Removed => println!("  {} removed trimwire's statusline bar.", render::ok()),
         StashMissing => {
-            println!("removed trimwire's wrapped statusline, but COULD NOT restore your original");
-            println!("— the backup (~/.trimwire/statusline-wrapped.cmd) is missing. Re-add your");
-            println!("  own statusline in ~/.claude/settings.json if you had one.");
+            println!(
+                "  {} removed trimwire's wrapped statusline, but COULD NOT restore your original",
+                render::warn()
+            );
+            println!(
+                "  {}",
+                render::dim(
+                    "— the backup (~/.trimwire/statusline-wrapped.cmd) is missing. Re-add your own \
+                     statusline in ~/.claude/settings.json if you had one."
+                )
+            );
         }
-        NotOurs => println!("trimwire isn't in your statusline — nothing to remove."),
+        NotOurs => println!(
+            "  {} trimwire isn't in your statusline — nothing to remove.",
+            render::bullet()
+        ),
     }
 }
 
@@ -743,10 +791,15 @@ pub fn statusline_remove() -> Result<()> {
 pub fn uninstall() -> Result<()> {
     service::uninstall()?;
     let u = install::unwire_statusline(); // only touches the statusLine if it's ours
-    println!("removed trimwire's service + env hooks.");
+    println!("{}\n", render::strong("trimwire uninstall"));
+    println!("  {} removed trimwire's service + env hooks.", render::ok());
     report_unwire(u);
-    println!("→ the shell-rc export block is left in place; delete the `# >>> trimwire >>>` block");
-    println!("  from your rc if you want it gone, then restart your shell.");
+    println!(
+        "  {} the shell-rc export block is left in place; delete the {} block from your rc if you \
+         want it gone, then restart your shell.",
+        render::dim("→"),
+        render::accent("# >>> trimwire >>>")
+    );
     Ok(())
 }
 

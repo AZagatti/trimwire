@@ -66,9 +66,13 @@ trimwire run --bypass                 # interactive, no pruning, gateway untouch
 
 Show whether the gateway is running and serving, plus a `pruning:` line — `on`, or `OFF (bypass — forwarding unmodified)` after `trimwire off`.
 
+![trimwire status](https://raw.githubusercontent.com/AZagatti/trimwire/main/docs/cli/status.gif)
+
 ### `trimwire doctor`
 
 Diagnose the setup: config, active profile, gateway health, `ANTHROPIC_BASE_URL` wiring, ledger, and summarizer state. Run this first whenever something looks wrong.
+
+![trimwire doctor](https://raw.githubusercontent.com/AZagatti/trimwire/main/docs/cli/doctor.gif)
 
 Immediately below the header, a `platform:` line reports the build **platform** — the target triple the binary was compiled for (e.g. `platform: x86_64-unknown-linux-gnu`) — which is useful in bug reports and identifies which release asset matches this binary.
 
@@ -204,11 +208,15 @@ Manage the optional model-based summarizer backend. Off by default — `engine =
 
 ### `trimwire summarizer setup`
 
-Interactive wizard: asks which engine (`local`, a cloud API provider, or `model-free`), which model, and (for API engines) which API-key environment variable, then writes the config block.
+Interactive wizard: asks which engine (`local`, a cloud API provider, or `model-free`), which model, and (for API engines) which API-key environment variable, then writes the config block. It highlights the recommended choice, marks a provider you just added, and previews the exact config before writing.
+
+![trimwire summarizer setup](https://raw.githubusercontent.com/AZagatti/trimwire/main/docs/cli/summarizer-setup.gif)
 
 ### `trimwire summarizer status`
 
 Show the current summarizer engine, model, and whether the endpoint is reachable.
+
+![trimwire summarizer status](https://raw.githubusercontent.com/AZagatti/trimwire/main/docs/cli/summarizer-status.gif)
 
 ### `trimwire summarizer benchmark`
 
@@ -314,6 +322,8 @@ Clean Claude Code session transcripts on disk. Atomic (backed up before any writ
 #### `trimwire sweep list`
 
 List all session transcripts trimwire can find (no need to locate paths manually).
+
+![trimwire sweep list](https://raw.githubusercontent.com/AZagatti/trimwire/main/docs/cli/sweep.gif)
 
 #### `trimwire sweep all`
 

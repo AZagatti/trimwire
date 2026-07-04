@@ -27,7 +27,10 @@ pub fn stats(
                 serde_json::json!({"available": false, "reason": "ledger disabled"})
             );
         } else {
-            println!("ledger is disabled in config ([ledger] enabled = false); nothing to report.");
+            println!(
+                "{} ledger is disabled in config ([ledger] enabled = false); nothing to report.",
+                render::bullet()
+            );
         }
         return Ok(());
     }
@@ -41,8 +44,11 @@ pub fn stats(
             );
         } else {
             println!(
-                "ledger not yet created — run `trimwire run` (or `trimwire on`), \
-                 use Claude Code a bit, then re-run `trimwire stats`."
+                "{} ledger not yet created — run {} (or {}), use Claude Code a bit, then re-run {}.",
+                render::bullet(),
+                render::accent("trimwire run"),
+                render::accent("trimwire on"),
+                render::accent("trimwire stats")
             );
         }
         return Ok(());
@@ -378,11 +384,14 @@ fn print_session_report(report: Option<SessionReport>, requested: &str, json: bo
             );
         } else if requested == "last" {
             println!(
-                "no sessions recorded yet — run a Claude Code session through trimwire first (`trimwire on`)."
+                "{} no sessions recorded yet — run a Claude Code session through trimwire first ({}).",
+                render::bullet(),
+                render::accent("trimwire on")
             );
         } else {
             println!(
-                "no ledger rows for session {requested:?} (ids come from x-claude-code-session-id)."
+                "{} no ledger rows for session {requested:?} (ids come from x-claude-code-session-id).",
+                render::bullet()
             );
         }
         return Ok(());

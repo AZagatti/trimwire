@@ -276,34 +276,51 @@ fn default_ollama_endpoint() -> String {
 /// Returns the new `ProviderEntry` on success. The caller ensures no duplicate ids
 /// by passing `existing_ids`.
 fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
+    use super::render;
     println!();
-    println!("  New API provider");
-    println!("  ─────────────────");
-    println!("  trimwire will SEND the prunable conversation slice to this provider");
-    println!("  authenticated with YOUR API key. Content leaves your machine.");
+    println!("  {}", render::strong("New API provider"));
+    println!(
+        "  {}",
+        render::dim("The prunable slice is sent here with YOUR key — content leaves your machine.")
+    );
     println!();
 
     // Provider id
     let id = loop {
-        let raw = prompt("  Provider id (short name, no spaces) [e.g. anthropic]: ")?;
+        let raw = prompt(&format!(
+            "  Provider id {}: ",
+            render::dim("(short, no spaces — e.g. anthropic)")
+        ))?;
         if raw.is_empty() {
-            println!("  Provider id is required (e.g. 'anthropic', 'openrouter').");
+            println!(
+                "  {} id is required (e.g. anthropic, openrouter).",
+                render::warn()
+            );
             continue;
         }
         if raw.contains(' ') {
-            println!("  Provider id must not contain spaces.");
+            println!("  {} id must not contain spaces.", render::warn());
             continue;
         }
         if raw == "local" || raw == "model-free" {
-            println!("  '{raw}' is a reserved engine token — pick another id.");
+            println!(
+                "  {} '{raw}' is a reserved engine token — pick another id.",
+                render::warn()
+            );
             continue;
         }
         if raw.contains(['"', '\\', '\n', '\r']) {
-            println!("  Provider id must not contain quotes or backslashes.");
+            println!(
+                "  {} id must not contain quotes or backslashes.",
+                render::warn()
+            );
             continue;
         }
         if existing_ids.contains(&raw.as_str()) {
-            println!("  Provider id '{raw}' is already configured — pick a unique id.");
+            println!(
+                "  {} id '{raw}' is already configured — pick a unique id.",
+                render::warn()
+            );
             continue;
         }
         break raw;
@@ -311,7 +328,10 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
 
     // Style
     let style = loop {
-        let raw = prompt("  API style — anthropic or openai (OpenAI-compatible) [anthropic]: ")?;
+        let raw = prompt(&format!(
+            "  API style {}: ",
+            render::dim("(anthropic | openai-compatible) [anthropic]")
+        ))?;
         let s = if raw.is_empty() {
             "anthropic".to_owned()
         } else {
@@ -320,21 +340,21 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
         if s == "anthropic" || s == "openai" {
             break s;
         }
-        println!("  Please enter 'anthropic' or 'openai'.");
+        println!("  {} enter 'anthropic' or 'openai'.", render::warn());
     };
 
-    // Default base URL hints
+    // Default base URL hint (OpenRouter's double-/v1 trap is the one worth calling out).
     let default_url = match style.as_str() {
         "anthropic" => "https://api.anthropic.com",
         _ => "https://api.openai.com",
     };
     println!();
-    println!("  Base URL (the API root, before any /v1 path).");
-    println!("  Defaults: anthropic → https://api.anthropic.com");
-    println!("            openai   → https://api.openai.com");
-    println!("  OpenRouter: use https://openrouter.ai/api (NOT .../api/v1 — double-/v1 trap).");
+    println!(
+        "  {}",
+        render::dim("Base URL = the API root (no /v1). OpenRouter: https://openrouter.ai/api")
+    );
     let base_url = {
-        let raw = prompt(&format!("  base_url [{default_url}]: "))?;
+        let raw = prompt(&format!("  base_url [{}]: ", render::accent(default_url)))?;
         if raw.is_empty() {
             default_url.to_owned()
         } else {
@@ -343,17 +363,19 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
     };
 
     // Model
-    println!();
     let model_hint = match style.as_str() {
         "anthropic" => "e.g. claude-haiku-4-5",
         _ => "e.g. gpt-4o-mini",
     };
     let model = loop {
-        let raw = prompt(&format!("  Model tag ({model_hint}): "))?;
+        let raw = prompt(&format!(
+            "  Model tag {}: ",
+            render::dim(&format!("({model_hint})"))
+        ))?;
         if !raw.is_empty() {
             break raw;
         }
-        println!("  Model tag is required.");
+        println!("  {} model tag is required.", render::warn());
     };
 
     // API key. trimwire stores the file PATH or the env-var NAME — NEVER the key.
@@ -363,18 +385,21 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
     // invisible to it (issue #111). A file is read at runtime and works either way.
     let default_key_file = format!("~/.{id}_key");
     println!();
-    println!("  API key — trimwire stores WHERE to find it, never the key itself.");
-    println!();
-    println!("  RECOMMENDED: a key FILE. trimwire usually runs as a background service");
-    println!("  (that's what `trimwire install` sets up), and a service can't see an env");
-    println!("  var you exported in ~/.zshrc. A file is read at runtime — works either way.");
-    println!("  Create one now (in another terminal) if you don't have it yet:");
     println!(
-        "    printf '%s' \"<your-api-key>\" > {default_key_file} && chmod 600 {default_key_file}"
+        "  {} trimwire stores WHERE to find your key, never the key itself.",
+        render::strong("API key.")
+    );
+    println!(
+        "  {}",
+        render::dim(
+            "A key FILE is recommended — trimwire runs as a background proxy, so it can't see env vars you export in your shell."
+        )
     );
     let api_key_file = {
         let raw = prompt(&format!(
-            "  Key file path (recommended; Enter to skip if you only use `trimwire run`) [{default_key_file}]: "
+            "  Key file path [{}] {}: ",
+            render::accent(&default_key_file),
+            render::dim("(Enter to skip)")
         ))?;
         let trimmed = raw.trim().to_owned();
         if trimmed.is_empty() {
@@ -399,14 +424,14 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
         .collect::<String>()
         + "_API_KEY";
     println!();
-    if api_key_file.is_some() {
-        println!("  (Optional) Env-var NAME too — used for foreground `trimwire run`.");
+    let env_why = if api_key_file.is_some() {
+        "Optional env-var NAME too — used for foreground `trimwire run`."
     } else {
-        println!("  Env-var NAME holding your key — works for foreground `trimwire run`, but a");
-        println!("  background service won't see it (prefer the key file above for the service).");
-    }
+        "Env-var NAME holding your key — works for `trimwire run`, not the service."
+    };
+    println!("  {}", render::dim(env_why));
     let api_key_env = loop {
-        let raw = prompt(&format!("  API key env var name [{key_hint}]: "))?;
+        let raw = prompt(&format!("  Env var name [{}]: ", render::accent(&key_hint)))?;
         let name = if raw.is_empty() {
             key_hint.clone()
         } else {
@@ -414,21 +439,14 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
         };
         // Reject anything that looks like a key value (starts with sk- or contains spaces).
         if name.contains(' ') || name.to_lowercase().starts_with("sk-") {
-            println!("  That looks like a key VALUE, not a variable name.");
-            println!("  Enter the NAME of the env var (e.g. ANTHROPIC_API_KEY).");
+            println!(
+                "  {} that looks like a key VALUE — enter the NAME (e.g. ANTHROPIC_API_KEY).",
+                render::warn()
+            );
             continue;
         }
         break name;
     };
-
-    // Privacy notice
-    println!();
-    println!("  Privacy: trimwire will send the prunable conversation slice to {base_url}");
-    let key_source = match api_key_file.as_deref() {
-        Some(f) => format!("the key in ${api_key_env} (or the file {f})"),
-        None => format!("the key in ${api_key_env}"),
-    };
-    println!("  to be summarized, authenticated with {key_source}.");
 
     // Warn only if NEITHER source can currently produce a key. A configured key
     // file makes the provider daemon-safe, so a set-but-unexported env var is fine.
@@ -437,23 +455,27 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
         .unwrap_or(true);
     if env_unset && api_key_file.is_none() {
         println!();
-        println!("  Warning: no key source is set — ${api_key_env} is unset and you skipped");
-        println!("  the key file, so trimwire will skip this provider and fall back.");
-        println!();
-        println!("  Recommended (works as a service AND in `trimwire run`):");
-        println!("    printf '%s' \"<your-api-key>\" > ~/.{id}_key && chmod 600 ~/.{id}_key");
-        println!("    then re-run `trimwire summarizer setup` and give the key file path.");
-        println!();
-        println!("  Alternative (foreground `trimwire run` only — a background service");
-        println!("  won't see it): export {api_key_env}=\"<your-api-key>\"");
-        println!("  (add that to ~/.zshrc or ~/.bashrc to persist it).");
+        println!(
+            "  {} no key source set — trimwire will skip this provider until you add one:",
+            render::warn()
+        );
+        println!(
+            "    {}",
+            render::accent(&format!(
+                "printf '%s' \"<key>\" > ~/.{id}_key && chmod 600 ~/.{id}_key"
+            ))
+        );
     }
 
     if !prompt_yn("  Add this provider?", true)? {
         anyhow::bail!("provider entry cancelled");
     }
 
-    println!("  → Provider \"{id}\" added. It will appear in the model list.");
+    println!(
+        "  {} provider {} added — it now appears in the list.",
+        render::ok(),
+        render::strong(&format!("\"{id}\""))
+    );
 
     Ok(ProviderEntry {
         id,
@@ -485,34 +507,43 @@ impl PickerItem {
         }
     }
 
-    /// Human-readable label for the picker line.
+    /// Human-readable label for the picker line. The `← recommended` marker is
+    /// accented (cyan) so it reads at a glance; the glyph-free text still conveys
+    /// it under NO_COLOR/non-TTY, so meaning is never colour-only.
     fn label(&self) -> String {
+        use super::render;
         match self {
             PickerItem::LocalModel { tag } => {
                 use trimwire::summarizer::{APPROVED_MODELS, WARN_MODELS, is_disqualified};
                 let annotation = if tag == RECOMMENDED_MODEL {
-                    " ← recommended".to_owned()
+                    render::accent(" ← recommended")
                 } else if WARN_MODELS.contains(&tag.as_str()) {
-                    " (warn: failed harm gate)".to_owned()
+                    render::dim(" (warn: failed harm gate)")
                 } else if is_disqualified(tag) {
-                    " (DISQUALIFIED)".to_owned()
+                    render::warn_text(" (DISQUALIFIED)")
                 } else if !APPROVED_MODELS.contains(&tag.as_str()) {
-                    " (unvalidated)".to_owned()
+                    render::dim(" (unvalidated)")
                 } else {
                     String::new()
                 };
-                format!("{tag:<28} [local]{annotation}")
+                format!("{tag:<28} {}{annotation}", render::dim("[local]"))
             }
             PickerItem::ApiProvider { provider } => {
-                format!("{:<28} [api · {}]", provider.model, provider.id)
+                format!(
+                    "{:<28} {}",
+                    provider.model,
+                    render::dim(&format!("[api · {}]", provider.id))
+                )
             }
         }
     }
 }
 
-/// Print the numbered picker list.
-/// Returns (local_count, api_count) for the separator position.
-fn print_picker(items: &[PickerItem], exclude: Option<usize>) {
+/// Print the numbered picker list. `highlight` marks the item the user just
+/// added (accented `← your new provider`) so it can't be confused with the
+/// pre-existing rows — the item explicitly deferred from PR #115.
+fn print_picker(items: &[PickerItem], exclude: Option<usize>, highlight: Option<usize>) {
+    use super::render;
     let mut had_local = false;
     let mut printed_api_header = false;
     let mut n = 1usize;
@@ -528,12 +559,17 @@ fn print_picker(items: &[PickerItem], exclude: Option<usize>) {
             }
             PickerItem::ApiProvider { .. } => {
                 if had_local && !printed_api_header {
-                    println!("    ─────────────────────────────────────────────────────");
+                    println!("    {}", render::dim(&"─".repeat(53)));
                     printed_api_header = true;
                 }
             }
         }
-        println!("    {n:>2})  {}", item.label());
+        let marker = if highlight == Some(i) {
+            render::accent("  ← your new provider")
+        } else {
+            String::new()
+        };
+        println!("    {n:>2})  {}{marker}", item.label());
         n += 1;
     }
 }
@@ -556,10 +592,12 @@ fn prompt_picker(
     exclude: Option<usize>,
     include_model_free: bool,
     include_none: bool,
+    highlight: Option<usize>,
 ) -> Result<PickResult> {
+    use super::render;
     println!();
-    println!("  {heading}:");
-    print_picker(items, exclude);
+    println!("  {}", render::strong(heading));
+    print_picker(items, exclude, highlight);
     // Compute the length of non-excluded items for separator detection.
     let visible_count = items
         .iter()
@@ -567,9 +605,11 @@ fn prompt_picker(
         .filter(|(i, _)| exclude != Some(*i))
         .count();
     if visible_count > 0 {
-        println!("    ─────────────────────────────────────────────────────");
+        println!("    {}", render::dim(&"─".repeat(53)));
     }
-    println!("    a)  Add a new API provider...");
+    // Option keys (a/m/n) are left unstyled to match the plain numbered rows —
+    // the accent is reserved for markers, defaults, and values-to-type.
+    println!("    a)  Add a new API provider…");
     if include_model_free {
         println!("    m)  model-free (no summarizer)");
     }
@@ -588,7 +628,10 @@ fn prompt_picker(
     let valid_msg = valid_opts.join(", ");
 
     loop {
-        let raw = prompt(&format!("  {heading} [{default_label}]: "))?;
+        let raw = prompt(&format!(
+            "  {heading} [{}]: ",
+            render::accent(default_label)
+        ))?;
         let inp = if raw.is_empty() {
             default_label.to_owned()
         } else {
@@ -627,13 +670,20 @@ fn wizard_local_details(
     ollama_reachable: bool,
     installed_models: &[String],
 ) -> Result<(String, String)> {
+    use super::render;
     use trimwire::summarizer::{APPROVED_MODELS, WARN_MODELS, is_disqualified};
 
     println!();
-    println!("  Local backend: ollama runs on your machine. Content never leaves your machine.");
+    println!(
+        "  {} ollama runs on your machine — content never leaves it.",
+        render::strong("Local backend.")
+    );
 
     let def_ep = default_ollama_endpoint();
-    let raw_endpoint = prompt(&format!("\n  ollama endpoint [{def_ep}]: "))?;
+    let raw_endpoint = prompt(&format!(
+        "\n  ollama endpoint [{}]: ",
+        render::accent(&def_ep)
+    ))?;
     let endpoint = if raw_endpoint.is_empty() {
         def_ep.clone()
     } else {
@@ -644,23 +694,23 @@ fn wizard_local_details(
     // and reachability info reflects the actual target. Unreachable is a warning
     // only — the user can configure now and start ollama later.
     let custom_probe: Option<(bool, Vec<String>)> = if endpoint != def_ep {
-        print!("  Probing ollama at {endpoint} ... ");
+        print!("  Probing ollama at {endpoint} … ");
         use std::io::Write;
         let _ = std::io::stdout().flush();
         match probe_ollama(&endpoint) {
             OllamaProbe::Reachable(models) => {
-                println!("reachable ({} model(s) installed)", models.len());
+                println!("{} reachable ({} installed)", render::ok(), models.len());
                 if !models.is_empty() {
-                    println!("  Installed models at this endpoint:");
-                    for m in &models {
-                        println!("    {m}");
-                    }
+                    println!(
+                        "  {}",
+                        render::dim(&format!("installed: {}", models.join(", ")))
+                    );
                 }
                 Some((true, models))
             }
             OllamaProbe::Unreachable(reason) => {
-                println!("unreachable ({reason})");
-                println!("    You can still configure the backend now and start ollama later.");
+                println!("{} unreachable ({reason})", render::warn());
+                println!("  {}", render::dim("Configure now, start ollama later."));
                 Some((false, Vec::new()))
             }
         }
@@ -686,7 +736,11 @@ fn wizard_local_details(
     let recommended_installed = ep_models.iter().any(|m| m == RECOMMENDED_MODEL);
     if ep_reachable && !recommended_installed && tag_hint.is_none() {
         println!();
-        println!("  The recommended model ({RECOMMENDED_MODEL}) is not installed.");
+        println!(
+            "  {} recommended model {} is not installed.",
+            render::warn(),
+            render::accent(RECOMMENDED_MODEL)
+        );
         if prompt_yn(
             &format!("  Pull it now (`ollama pull {RECOMMENDED_MODEL}`)?"),
             true,
@@ -696,35 +750,53 @@ fn wizard_local_details(
                 .args(["pull", RECOMMENDED_MODEL])
                 .status();
             match status {
-                Ok(s) if s.success() => println!("  Done."),
-                Ok(s) => println!("  ollama pull exited with {s} — continuing."),
-                Err(e) => println!("  Could not run `ollama`: {e} — continuing."),
+                Ok(s) if s.success() => println!("  {} done.", render::ok()),
+                Ok(s) => println!(
+                    "  {} ollama pull exited with {s} — continuing.",
+                    render::warn()
+                ),
+                Err(e) => println!(
+                    "  {} could not run `ollama`: {e} — continuing.",
+                    render::warn()
+                ),
             }
         }
     }
 
     let model = {
-        let raw = prompt(&format!("\n  Model to use [{hint}]: "))?;
+        let raw = prompt(&format!("\n  Model to use [{}]: ", render::accent(hint)))?;
         if raw.is_empty() { hint.to_owned() } else { raw }
     };
 
     // Model guard feedback.
     println!();
     if is_disqualified(&model) {
-        println!("  WARNING: {model} is DISQUALIFIED for summarization (the blind");
-        println!("  gut-read proved it drops or hallucinates load-bearing facts).");
-        println!("  trimwire will REFUSE to use it at runtime.");
-        println!("  Strongly recommend using qwen3.5:4b instead.");
+        println!(
+            "  {} {} is {} — it drops/hallucinates load-bearing facts; the runtime will REFUSE it.",
+            render::bad(),
+            model,
+            render::error_text("DISQUALIFIED")
+        );
+        println!(
+            "  {}",
+            render::dim(&format!("Recommend {RECOMMENDED_MODEL} instead."))
+        );
         if !prompt_yn("  Continue with this model anyway?", false)? {
             anyhow::bail!("setup cancelled — choose an approved model");
         }
     } else if WARN_MODELS.contains(&model.as_str()) {
-        println!("  Note: {model} failed the fact-retention harm gate.");
-        println!("  It is a RAM opt-down — consider qwen3.5:4b if you have the RAM.");
+        println!(
+            "  {} {} failed the fact-retention harm gate — a RAM opt-down, not an equal.",
+            render::warn(),
+            model
+        );
     } else if !APPROVED_MODELS.contains(&model.as_str()) {
-        println!("  Note: {model} is not a validated tag.");
-        println!("  Approved: {}", APPROVED_MODELS.join(", "));
-        println!("  Summary fidelity is unverified. Proceeding at your own risk.");
+        println!(
+            "  {} {} is unvalidated — fidelity unverified. {}",
+            render::warn(),
+            model,
+            render::dim(&format!("Approved: {}", APPROVED_MODELS.join(", ")))
+        );
     }
 
     Ok((endpoint, model))
@@ -736,15 +808,14 @@ fn wizard_local_details(
 pub fn summarizer_setup() -> Result<()> {
     use trimwire::summarizer::is_disqualified;
 
-    println!("trimwire summarizer setup\n");
-    println!("This wizard configures the optional summarizer backend.");
-    println!("The summarizer compresses OLD conversation turns before model-free");
-    println!("pruning applies — it is best-effort and NEVER load-bearing.");
-    println!("(enter q — or Ctrl-D — at any prompt to cancel; nothing is written)");
-    println!();
-    println!("Note: completing this wizard REPLACES the entire [summarizer] section in");
-    println!("your config (existing providers are re-seeded, so they are not lost).");
-    println!("To add another provider later, simply re-run `trimwire summarizer setup`.");
+    println!("{}\n", super::render::strong("trimwire summarizer setup"));
+    println!("Pick the engine that compresses OLD context before model-free pruning.");
+    println!(
+        "{}",
+        super::render::dim(
+            "Best-effort, never load-bearing. Re-running keeps providers you already added. q/Ctrl-D cancels."
+        )
+    );
     println!();
 
     // Load existing config (if any) to seed already-configured providers.
@@ -769,18 +840,24 @@ pub fn summarizer_setup() -> Result<()> {
     // Probe ollama.
     let (ollama_reachable, installed_models) = {
         let ep = default_ollama_endpoint();
-        print!("  Probing ollama at {ep} ... ");
+        print!("  Probing ollama at {ep} … ");
         use std::io::Write;
         let _ = std::io::stdout().flush();
         match probe_ollama(&ep) {
             OllamaProbe::Reachable(models) => {
-                println!("reachable ({} model(s) installed)", models.len());
+                println!(
+                    "{} reachable ({} installed)",
+                    super::render::ok(),
+                    models.len()
+                );
                 (true, models)
             }
             OllamaProbe::Unreachable(reason) => {
-                println!("unreachable ({reason})");
-                println!("  → Install/start ollama: https://ollama.com");
-                println!("    You can still configure the backend now and start ollama later.");
+                println!("{} unreachable ({reason})", super::render::warn());
+                println!(
+                    "  {}",
+                    super::render::dim("Configure now, start ollama later: https://ollama.com")
+                );
                 (false, vec![])
             }
         }
@@ -796,22 +873,37 @@ pub fn summarizer_setup() -> Result<()> {
     }
 
     // ── Primary engine pick ───────────────────────────────────────────────────
+    // `just_added` tracks the provider the user added in THIS picker so its row
+    // gets the `← your new provider` marker AND becomes the default selection —
+    // the fix for the maintainer-reported "default points at a local model even
+    // right after I added my provider" bug (issue #118 / deferred from PR #115).
 
+    let mut just_added: Option<usize> = None;
     let primary_idx = loop {
+        // Default to the just-added provider (its 1-based row) when present;
+        // otherwise the first item. Recomputed each pass so it always reflects
+        // live state, never a frozen initial label (rustup #3429 anti-pattern).
+        let default_label = just_added
+            .map(|i| (i + 1).to_string())
+            .unwrap_or_else(|| "1".to_owned());
         match prompt_picker(
             &items,
             "Primary engine",
-            "1",
+            &default_label,
             None,
             true,  // model-free is an option
             false, // no "none" at primary step
+            just_added,
         )? {
             PickResult::Item(idx) => break idx,
             PickResult::ModelFree => {
                 // model-free is a valid primary — means "no summarizer at all".
                 println!();
-                println!("  model-free selected: this disables the summarizer entirely.");
-                println!("  Pruning still runs; no model calls are made.");
+                println!("  model-free selected — the summarizer is off.");
+                println!(
+                    "  {}",
+                    super::render::dim("Pruning still runs; no model calls are made.")
+                );
                 let answers = SetupAnswers {
                     engine: "model-free".to_owned(),
                     fallback: Vec::new(),
@@ -820,13 +912,7 @@ pub fn summarizer_setup() -> Result<()> {
                     providers: Vec::new(),
                 };
                 write_summarizer_config(&answers)?;
-                println!();
-                println!("  Next steps:");
-                println!("    trimwire doctor                 — validate your full configuration");
-                println!(
-                    "    trimwire summarizer setup       — re-run this wizard to add a provider later"
-                );
-                println!();
+                print_next_steps(&answers);
                 return Ok(());
             }
             PickResult::AddProvider => {
@@ -841,11 +927,14 @@ pub fn summarizer_setup() -> Result<()> {
                     })
                     .collect();
                 match wizard_add_api_provider(&existing_ids) {
-                    Ok(p) => items.push(PickerItem::ApiProvider { provider: p }),
+                    Ok(p) => {
+                        items.push(PickerItem::ApiProvider { provider: p });
+                        just_added = Some(items.len() - 1);
+                    }
                     Err(e) if is_cancelled(&e) => return Err(e),
                     Err(e) => println!("  {e} — try again."),
                 }
-                // Re-display the picker.
+                // Re-display the picker, now defaulting to the new provider.
                 continue;
             }
             PickResult::None => unreachable!("None not offered at primary step"),
@@ -855,7 +944,7 @@ pub fn summarizer_setup() -> Result<()> {
     let primary_token = items[primary_idx].engine_token().to_owned();
     let primary_label = items[primary_idx].label();
     println!();
-    println!("  Primary: {primary_label}");
+    println!("  {} {primary_label}", super::render::strong("Primary:"));
 
     // ── Local details for primary local pick ─────────────────────────────────
 
@@ -886,17 +975,22 @@ pub fn summarizer_setup() -> Result<()> {
     let mut selected: Vec<usize> = vec![primary_idx]; // tracks which items are already in chain
 
     // F2: smart fallback suggestion — if primary is an API provider and ollama is
-    // reachable, pre-suggest `local` as the fallback (so the user sees a concrete
-    // recommendation rather than a blank prompt). Never auto-write; the preview
-    // before confirm will show the full chain either way.
+    // reachable, pre-suggest `local` as the fallback (concrete recommendation over
+    // a blank prompt). Never auto-write; the confirm preview shows the full chain.
     let primary_is_api = primary_token != "local" && primary_token != "model-free";
     if primary_is_api && ollama_reachable {
         println!();
-        println!("  Suggestion: add 'local' as a fallback in case {primary_token} is unreachable.");
         println!(
-            "  (model-free is always the implicit last resort — no need to add it explicitly)"
+            "  {} add {} as a fallback if {primary_token} is unreachable.",
+            super::render::dim("Suggestion:"),
+            super::render::accent("local")
         );
     }
+
+    // `fb_added_orig` tracks a provider added mid-fallback (its ORIGINAL index in
+    // `items`) so we can re-locate it in each rebuilt `remaining` view to mark it
+    // `← your new provider` and default the pick to it.
+    let mut fb_added_orig: Option<usize> = None;
 
     // Offer fallback round(s).
     println!();
@@ -922,13 +1016,45 @@ pub fn summarizer_setup() -> Result<()> {
                 remaining.iter().map(|(_, it)| (*it).clone()).collect();
             let fallback_n = fallback.len() + 1;
 
+            // Re-locate a just-added provider in this rebuilt view → highlight +
+            // default. Falls back to "n" (done) when nothing was just added.
+            let fb_highlight =
+                fb_added_orig.and_then(|orig| remaining.iter().position(|(i, _)| *i == orig));
+            // Default the pick so Enter agrees with what's on screen:
+            //   1. a just-added provider → its row (the `← your new provider` fix);
+            //   2. else, on the FIRST fallback when we actively suggested `local`
+            //      (primary is an API + ollama reachable), point at the recommended
+            //      local model (or the first local) so the default matches the
+            //      "Suggestion: add local" line and the `← recommended` marker —
+            //      instead of the "None" escape hatch contradicting both;
+            //   3. else "n" (done).
+            let fb_default = if let Some(d) = fb_highlight {
+                (d + 1).to_string()
+            } else if fallback.is_empty() && primary_is_api && ollama_reachable {
+                remaining
+                    .iter()
+                    .position(|(_, it)| {
+                        matches!(it, PickerItem::LocalModel { tag } if tag == RECOMMENDED_MODEL)
+                    })
+                    .or_else(|| {
+                        remaining
+                            .iter()
+                            .position(|(_, it)| matches!(it, PickerItem::LocalModel { .. }))
+                    })
+                    .map(|d| (d + 1).to_string())
+                    .unwrap_or_else(|| "n".to_owned())
+            } else {
+                "n".to_owned()
+            };
+
             match prompt_picker(
                 &remaining_items,
                 &format!("Fallback {fallback_n}"),
-                "n",
+                &fb_default,
                 None,
                 false, // model-free shown via "none" button
                 true,  // "none" = done
+                fb_highlight,
             )? {
                 PickResult::Item(display_idx) => {
                     let (original_idx, item) = remaining[display_idx];
@@ -972,7 +1098,10 @@ pub fn summarizer_setup() -> Result<()> {
                         })
                         .collect();
                     match wizard_add_api_provider(&existing_ids) {
-                        Ok(p) => items.push(PickerItem::ApiProvider { provider: p }),
+                        Ok(p) => {
+                            items.push(PickerItem::ApiProvider { provider: p });
+                            fb_added_orig = Some(items.len() - 1);
+                        }
                         Err(e) if is_cancelled(&e) => return Err(e),
                         Err(e) => println!("  {e} — try again."),
                     }
@@ -1009,18 +1138,40 @@ pub fn summarizer_setup() -> Result<()> {
     // ── Write config ──────────────────────────────────────────────────────────
 
     write_summarizer_config(&answers)?;
+    print_next_steps(&answers);
 
-    // ── Next steps ────────────────────────────────────────────────────────────
+    Ok(())
+}
+
+/// Print the post-write "next steps" block: a short curated command list, plus a
+/// per-provider "action required" callout for any provider that has no reachable
+/// key yet (a configured key file counts as set — it works in a daemon even
+/// without a shell export). Shared by the model-free and full paths.
+fn print_next_steps(answers: &SetupAnswers) {
+    use super::render;
+    // Pad the PLAIN command to a fixed width BEFORE colouring — applying `{:<30}`
+    // to an already-escaped string counts the invisible ANSI bytes and breaks
+    // column alignment whenever colour is on.
+    let cmd = |c: &str, why: &str| {
+        println!(
+            "    {}  {}",
+            render::accent(&format!("{c:<30}")),
+            render::dim(why)
+        )
+    };
 
     println!();
-    println!("  Next steps:");
-    println!("    trimwire doctor                 — validate your full configuration");
-    println!("    trimwire summarizer status      — check the summarizer state");
+    println!("  {}", render::strong("Next steps"));
+    cmd("trimwire doctor", "validate your full setup");
+    cmd("trimwire summarizer status", "check the summarizer state");
     if answers.engine == "local" || answers.fallback.iter().any(|f| f == "local") {
-        println!("    trimwire summarizer benchmark   — score the model on the quality corpus");
+        cmd(
+            "trimwire summarizer benchmark",
+            "score the model on the corpus",
+        );
     }
-    // Remind about API key env vars for any provider in the chain. A configured
-    // key file counts as "set" — it works in a daemon even without a shell export.
+    cmd("trimwire summarizer setup", "re-run to add more providers");
+
     for p in &answers.providers {
         let env_set = std::env::var(&p.api_key_env)
             .map(|v| !v.trim().is_empty())
@@ -1033,29 +1184,27 @@ pub fn summarizer_setup() -> Result<()> {
         if !env_set && !file_set {
             println!();
             println!(
-                "  Action required: give provider \"{}\" a key before starting.",
-                p.id
-            );
-            println!("  Recommended (works as a service, which is the default install):");
-            println!(
-                "    printf '%s' \"<your-api-key>\" > ~/.{}_key && chmod 600 ~/.{}_key",
-                p.id, p.id
+                "  {} give provider {} a key before starting:",
+                render::warn(),
+                render::strong(&format!("\"{}\"", p.id))
             );
             println!(
-                "    then set  api_key_file = \"~/.{}_key\"  on this provider in trimwire.toml.",
-                p.id
+                "    {}",
+                render::accent(&format!(
+                    "printf '%s' \"<key>\" > ~/.{}_key && chmod 600 ~/.{}_key",
+                    p.id, p.id
+                ))
             );
             println!(
-                "  Or, for foreground `trimwire run` only: export {}=\"<your-api-key>\"",
-                p.api_key_env
+                "    {}",
+                render::dim(&format!(
+                    "then set  api_key_file = \"~/.{}_key\"  on this provider, and `trimwire on`.",
+                    p.id
+                ))
             );
-            println!("  Then run `trimwire on` to start.");
         }
     }
-    println!("    trimwire summarizer setup       — re-run to add more providers later");
     println!();
-
-    Ok(())
 }
 
 // ─── Config writing ───────────────────────────────────────────────────────────
@@ -1073,17 +1222,23 @@ fn write_summarizer_config(answers: &SetupAnswers) -> Result<()> {
 
     let merged = upsert_summarizer_section(&existing, &block);
 
+    use super::render;
+    let rule = render::dim(&"─".repeat(53));
     println!();
-    println!("  Config file: {}", path.display());
-    println!("  The following will be written (summarizer section only):");
-    println!("  ─────────────────────────────────────────────────────");
+    println!(
+        "  {} {} {}",
+        render::strong("Review"),
+        render::dim("— writes only the [summarizer] section of"),
+        render::accent(&path.display().to_string())
+    );
+    println!("  {rule}");
     for line in block.lines() {
         println!("  {line}");
     }
-    println!("  ─────────────────────────────────────────────────────");
+    println!("  {rule}");
 
     if !prompt_yn("\n  Write this to your config?", true)? {
-        println!("  Aborted — nothing written.");
+        println!("  {} nothing written.", render::warn());
         return Ok(());
     }
 
@@ -1093,7 +1248,7 @@ fn write_summarizer_config(answers: &SetupAnswers) -> Result<()> {
     }
     std::fs::write(&path, &merged).with_context(|| format!("write {}", path.display()))?;
 
-    println!("  Saved.");
+    println!("  {} saved.", render::ok());
     Ok(())
 }
 
@@ -1101,60 +1256,82 @@ fn write_summarizer_config(answers: &SetupAnswers) -> Result<()> {
 
 /// `trimwire summarizer status` — show the current summarizer configuration.
 pub fn summarizer_status() -> Result<()> {
-    println!("trimwire summarizer status\n");
+    use super::render;
+    println!("{}\n", render::strong("trimwire summarizer status"));
 
     let config = match Config::load() {
         Ok(c) => c,
         Err(e) => {
-            println!("  config failed to load: {e}");
-            println!("  run `trimwire config` to create or edit the config.");
+            println!("  {} config failed to load: {e}", render::bad());
+            println!(
+                "  {}",
+                render::dim("run `trimwire config` to create or edit the config.")
+            );
             return Ok(());
         }
+    };
+
+    // Shared "reprune off → silent no-op" caution (both engine branches use it).
+    let reprune_warning = |render: &dyn Fn(&str) -> String, warn: &str| {
+        println!();
+        println!(
+            "  {warn} reprune.enabled = false — summarizer runs but the summary isn't carried \
+             across turns (silent no-op)."
+        );
+        println!(
+            "  {}",
+            render("To fix: set  [reprune] enabled = true  (`trimwire config`).")
+        );
     };
 
     let s = &config.summarizer;
     match s.engine.as_str() {
         "model-free" => {
-            println!("  summarizer: not configured (engine = \"model-free\")");
+            println!(
+                "  {} summarizer not configured (engine = model-free)",
+                render::bullet()
+            );
             println!();
-            println!("  To enable: run `trimwire summarizer setup` for the wizard.");
+            println!(
+                "  {}",
+                render::dim("To enable: run `trimwire summarizer setup`.")
+            );
         }
         "local" => {
-            println!("  summarizer: enabled");
-            println!("  engine:     local model (ollama)");
-            println!("  model:      {}", s.local.model);
-            println!("  endpoint:   {}", s.local.endpoint);
-            println!("  mode:       {}", s.mode);
+            println!("  {} summarizer enabled", render::ok());
+            println!("  engine:    local model (ollama)");
+            println!("  model:     {}", render::accent(&s.local.model));
+            println!("  endpoint:  {}", s.local.endpoint);
+            println!("  mode:      {}", s.mode);
             if !s.fallback.is_empty() {
-                println!("  fallback:   {}", s.fallback.join(" -> "));
+                println!("  fallback:  {}", s.fallback.join(" → "));
             }
             if !config.reprune.enabled {
-                println!();
-                println!(
-                    "  warning: reprune.enabled = false — the summarizer is enabled but \
-                     reprune is off. The summary is not applied across turns (silent no-op)."
-                );
-                println!(
-                    "  To fix: add the following to your config (`trimwire config` to open it):"
-                );
-                println!("    [reprune]");
-                println!("    enabled = true");
+                reprune_warning(&render::dim, &render::warn());
             }
             println!();
-            println!("  Validate with: trimwire doctor");
-            println!("  Score the model: trimwire summarizer benchmark");
+            println!(
+                "  {}",
+                render::dim("Validate: trimwire doctor · Score: trimwire summarizer benchmark")
+            );
         }
         provider_id => {
-            println!("  summarizer: enabled");
-            println!("  engine:     cloud API provider (id = {provider_id:?})");
-            println!("  mode:       {}", s.mode);
+            println!("  {} summarizer enabled", render::ok());
+            println!(
+                "  engine:    cloud API provider (id = {})",
+                render::accent(provider_id)
+            );
+            println!("  mode:      {}", s.mode);
             if !s.fallback.is_empty() {
-                println!("  fallback:   {}", s.fallback.join(" -> "));
+                println!("  fallback:  {}", s.fallback.join(" → "));
             }
             // Print each configured provider.
             if s.providers.is_empty() {
                 println!();
-                println!("  warning: no [[summarizer.providers]] entries configured.");
+                println!(
+                    "  {} no [[summarizer.providers]] entries configured.",
+                    render::warn()
+                );
             } else {
                 println!();
                 println!("  Configured providers:");
@@ -1178,48 +1355,54 @@ pub fn summarizer_status() -> Result<()> {
                                 // Resolved from the shell env, but the installed service
                                 // can't see shell exports — flag the silent-failure trap.
                                 println!(
-                                    "      key: set in THIS shell — but the installed service can't see it"
+                                    "      {} key set in THIS shell — but the installed service can't see it",
+                                    render::warn()
                                 );
                                 println!(
-                                    "      → set api_key_file = \"~/.{}_key\" so the background service can authenticate.",
-                                    p.id
+                                    "      {}",
+                                    render::dim(&format!(
+                                        "→ set api_key_file = \"~/.{}_key\" so the service can authenticate.",
+                                        p.id
+                                    ))
                                 );
                             } else {
-                                println!("      key: set");
+                                println!("      {} key set", render::ok());
                             }
                         }
                         Err(reason) => {
-                            println!("      key: NOT SET ({reason})");
                             println!(
-                                "      → recommended: set api_key_file in trimwire.toml (works as a service — the default install)."
+                                "      {} key {} ({reason})",
+                                render::bad(),
+                                render::error_text("NOT SET")
                             );
-                            if !p.api_key_env.is_empty() {
-                                println!(
-                                    "      → or, for foreground `trimwire run`: export {}=\"<your-api-key>\".",
-                                    p.api_key_env
-                                );
-                            }
+                            // Only mention the env-var fallback when the provider
+                            // actually has one — a file-only provider (api_key_env
+                            // = "") must not print a dangling "or export .".
+                            let hint = if p.api_key_env.is_empty() {
+                                format!(
+                                    "→ set api_key_file = \"~/.{}_key\" (works as a service).",
+                                    p.id
+                                )
+                            } else {
+                                format!(
+                                    "→ set api_key_file = \"~/.{}_key\" (works as a service), or export {}.",
+                                    p.id, p.api_key_env
+                                )
+                            };
+                            println!("      {}", render::dim(&hint));
                         }
                     }
                 }
             }
             if !config.reprune.enabled {
-                println!();
-                println!(
-                    "  warning: reprune.enabled = false — the summarizer is enabled but \
-                     reprune is off. The summary is not applied across turns (silent no-op)."
-                );
-                println!(
-                    "  To fix: add the following to your config (`trimwire config` to open it):"
-                );
-                println!("    [reprune]");
-                println!("    enabled = true");
+                reprune_warning(&render::dim, &render::warn());
             }
             println!();
-            println!("  Validate with: trimwire doctor");
             println!(
-                "  Score the provider (makes real paid API calls): \
-                 trimwire summarizer benchmark --model {provider_id} --yes"
+                "  {}",
+                render::dim(&format!(
+                    "Validate: trimwire doctor · Score (paid): trimwire summarizer benchmark --model {provider_id} --yes"
+                ))
             );
         }
     }

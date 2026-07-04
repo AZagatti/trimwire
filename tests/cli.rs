@@ -968,6 +968,115 @@ fn summarizer_setup_api_provider_writes_provider_block_without_key() {
     );
 }
 
+/// `summarizer setup` — issue #118 regression: after adding a provider while
+/// local models are present, the primary picker must (a) mark the new provider
+/// row `← your new provider` and (b) DEFAULT the selection to it, not to a local
+/// model. Two local models exist (rows 1–2); the added provider is row 3. We
+/// accept the default (blank line) at the primary pick and assert the written
+/// engine is the provider id — proving the default pointed at the new provider.
+#[test]
+fn summarizer_setup_defaults_primary_to_newly_added_provider() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join(".config/trimwire.toml");
+    fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+    fs::write(&cfg_path, "[server]\nlisten = \"127.0.0.1:9999\"\n").unwrap();
+
+    // Two local models → the added provider is item 3 (a local model is item 1,
+    // which is the OLD buggy default the fix must move off of).
+    let fake = FakeOllama::start(&["qwen3.5:4b", "llama3"]);
+    let mut child = Command::new(bin())
+        .args(["summarizer", "setup"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env("TRIMWIRE_OLLAMA_ENDPOINT", fake.endpoint())
+        .env_remove("NEWPROV_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn summarizer setup");
+    // a=add; id; style; base_url(default); model; key file(skip); env NAME; y=add;
+    // <blank>=accept the primary DEFAULT (must be the new provider, row 3);
+    // n=no fallback; y=write.
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"a\nnewprov\nanthropic\n\ntest-model\n\nNEWPROV_KEY\ny\n\nn\ny\n")
+        .unwrap();
+    let out = child.wait_with_output().expect("wait");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success(), "setup should succeed; got: {all}");
+    // The re-displayed picker marks the new provider row.
+    assert!(
+        all.contains("your new provider"),
+        "picker must mark the newly-added provider; got: {all}"
+    );
+    // The recommended local model is still clearly marked (marker survives under
+    // non-TTY as plain text — never colour-only).
+    assert!(
+        all.contains("← recommended") || all.contains("recommended"),
+        "the recommended model must carry a text marker; got: {all}"
+    );
+    // Captured (non-TTY) output must be plain: no ANSI escapes leak into a pipe.
+    assert!(
+        !all.contains('\u{1b}'),
+        "piped wizard output must contain no ANSI escape; got bytes with ESC"
+    );
+    let cfg = fs::read_to_string(&cfg_path).expect("config written");
+    // The accepted default selected the provider, not a local model.
+    assert!(
+        cfg.contains("engine = \"newprov\""),
+        "accepting the default must pick the new provider as primary; got:\n{cfg}"
+    );
+}
+
+/// a11y/portability contract: colour must NEVER leak into piped/redirected
+/// (non-TTY) output. Under the test harness stdout is captured (not a terminal),
+/// so `use_color()` is false and every styled surface must degrade to plain
+/// ASCII. Exercises the two always-available diagnostic surfaces — `doctor`
+/// (pre-install) and `summarizer status` — and asserts not a single ESC (0x1b)
+/// byte appears. Guards the whole render colour layer from regressing.
+#[test]
+fn piped_command_output_contains_no_ansi_escapes() {
+    let dir = tempfile::tempdir().unwrap();
+
+    for args in [vec!["doctor"], vec!["summarizer", "status"]] {
+        let out = Command::new(bin())
+            .args(&args)
+            .env("HOME", dir.path())
+            .env("XDG_CONFIG_HOME", dir.path().join(".config"))
+            // Keep doctor's update-advisory check offline + deterministic (a
+            // localhost base is honored; port 1 refuses instantly → no GitHub call).
+            .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
+            // Pin the gateway probe to a free (closed) port for a fast, deterministic
+            // "not serving" result that can't collide with a real :8765.
+            .env(
+                "TRIMWIRE_SERVER__LISTEN",
+                format!("127.0.0.1:{}", free_port()),
+            )
+            .output()
+            .expect("spawn command");
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            !combined.contains('\u{1b}'),
+            "`trimwire {}` leaked an ANSI escape into non-TTY output:\n{combined}",
+            args.join(" ")
+        );
+    }
+}
+
 /// `summarizer setup` local-ollama happy path against a FAKE ollama server (no
 /// real ollama, no inference). The `TRIMWIRE_OLLAMA_ENDPOINT` seam points the
 /// probe at the fake, which reports an approved model — so picking it as primary
@@ -1714,6 +1823,117 @@ fn summarizer_setup_api_primary_with_local_fallback() {
     assert!(
         cfg.contains("listen = \"127.0.0.1:9999\""),
         "unrelated [server] preserved; got:\n{cfg}"
+    );
+}
+
+/// #118 (wow-review finding): when the primary is an API provider and ollama is
+/// reachable, the wizard SUGGESTS `local` as the fallback — so the FIRST fallback
+/// picker must DEFAULT to the RECOMMENDED local model, not the "None" escape
+/// hatch, so hitting Enter follows the on-screen suggestion (matches the
+/// `← recommended` marker too).
+///
+/// The fake reports TWO local models with the recommended one SECOND (`llama3`
+/// then `qwen3.5:4b`), so the written local model discriminates the two possible
+/// implementations: a correct "default = recommended" writes `qwen3.5:4b` (row
+/// 2), whereas a naive "default = first local" would write `llama3` (row 1).
+#[test]
+fn summarizer_setup_fallback_default_follows_local_suggestion() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    // Recommended model deliberately NOT first, so "recommended" ≠ "first local".
+    let fake = FakeOllama::start(&["llama3", "qwen3.5:4b"]);
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join(".config/trimwire.toml");
+    fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+    fs::write(&cfg_path, "[server]\nlisten = \"127.0.0.1:9999\"\n").unwrap();
+
+    let mut child = Command::new(bin())
+        .args(["summarizer", "setup"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env("TRIMWIRE_OLLAMA_ENDPOINT", fake.endpoint())
+        .env_remove("TESTPROV_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn summarizer setup");
+    // a=add; provider fields; 3=pick provider (row 3, after 2 locals) as primary;
+    // y=add a fallback; <blank>=ACCEPT the fallback default (must be the
+    // RECOMMENDED local qwen3.5:4b at row 2, NOT llama3 at row 1, NOT None);
+    // <blank>/<blank>=local endpoint/model defaults; n=no more; y=write.
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"a\ntestprov\nanthropic\n\ntest-model\n\nTESTPROV_KEY\ny\n3\ny\n\n\n\nn\ny\n")
+        .unwrap();
+    let out = child.wait_with_output().expect("wait");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success(), "setup should succeed; got: {all}");
+    let cfg = fs::read_to_string(&cfg_path).expect("config written");
+    assert!(
+        cfg.contains("engine = \"testprov\""),
+        "provider is primary; got:\n{cfg}"
+    );
+    // The blank fallback line selected local via the new default (was "None")...
+    assert!(
+        cfg.contains("fallback = [\"local\"]") && cfg.contains("[summarizer.local]"),
+        "accepting the fallback default must pick the suggested local model; got:\n{cfg}"
+    );
+    // ...and it was the RECOMMENDED model (row 2), not the first local (llama3).
+    assert!(
+        cfg.contains("model    = \"qwen3.5:4b\"") && !cfg.contains("model    = \"llama3\""),
+        "the fallback default must be the RECOMMENDED local, not the first; got:\n{cfg}"
+    );
+}
+
+/// #118 regression (final-review finding): `summarizer status` for a FILE-ONLY
+/// provider (empty `api_key_env`) whose key file is missing must NOT print a
+/// dangling "…, or export ." hint — the env-var clause is only shown when the
+/// provider actually has an env var. A provider with `api_key_env = ""` is a
+/// legitimate, still-supported config shape.
+#[test]
+fn summarizer_status_file_only_provider_no_dangling_export_hint() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join(".config/trimwire.toml");
+    fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+    // engine = a provider with NO env var and a MISSING key file → key unresolved
+    // → the "NOT SET" remediation branch runs.
+    fs::write(
+        &cfg_path,
+        "[summarizer]\nengine = \"fileonly\"\n\n\
+         [[summarizer.providers]]\nid = \"fileonly\"\nstyle = \"anthropic\"\n\
+         base_url = \"https://api.anthropic.com\"\nmodel = \"claude-haiku-4-5\"\n\
+         api_key_env = \"\"\napi_key_file = \"/nonexistent/trimwire-test/key\"\n",
+    )
+    .unwrap();
+
+    let out = Command::new(bin())
+        .args(["summarizer", "status"])
+        .env("HOME", dir.path())
+        .env("XDG_CONFIG_HOME", cfg_path.parent().unwrap())
+        .output()
+        .expect("spawn summarizer status");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // The key is reported unset, and the remediation names the file...
+    assert!(
+        all.contains("NOT SET") && all.contains("api_key_file"),
+        "expected the key-unset remediation; got:\n{all}"
+    );
+    // ...but never suggests exporting an (empty-named) env var.
+    assert!(
+        !all.contains("or export"),
+        "file-only provider must not print a dangling env-var export hint; got:\n{all}"
     );
 }
 

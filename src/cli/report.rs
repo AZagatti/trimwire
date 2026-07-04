@@ -16,6 +16,7 @@ use trimwire::ledger::SessionReport;
 /// piping into a browser opener). With `auto` set, runs the anomaly-detection
 /// flow designed for a Stop hook — silent when nothing to do, never errors.
 pub fn report(url_only: bool, auto: bool, session: Option<String>) -> Result<()> {
+    use super::render;
     if auto {
         // The auto flow must never propagate errors — a hook must not break a session.
         let _ = do_auto_report(session.as_deref());
@@ -47,16 +48,20 @@ pub fn report(url_only: bool, auto: bool, session: Option<String>) -> Result<()>
     if url_only {
         println!("{url}");
     } else {
+        println!("{}\n", render::strong("trimwire report"));
         println!(
-            "Open this link to file a content-free bug report (versions and OS only — \
-             no file paths or session content)."
+            "{} Open this link to file a content-free bug report (versions and OS only — \
+             no file paths or session content).",
+            render::bullet()
         );
         println!(
-            "Fill in what happened and paste reviewed gateway logs before submitting \
-             (`TRIMWIRE_LOG=info trimwire serve` — review lines before sharing)."
+            "  {} Fill in what happened and paste reviewed gateway logs before submitting \
+             ({} — review lines before sharing).",
+            render::dim("→"),
+            render::accent("TRIMWIRE_LOG=info trimwire serve")
         );
         println!();
-        println!("{url}");
+        println!("{}", render::accent(&url));
     }
     Ok(())
 }
@@ -208,6 +213,7 @@ fn percent_encode(s: &str) -> String {
 /// Run the anomaly-detection flow. Returns `Ok(())` on all errors so the
 /// caller (`report()`) can discard the result without disrupting a Stop hook.
 fn do_auto_report(session_arg: Option<&str>) -> Result<()> {
+    use super::render;
     use trimwire::config::Config;
     use trimwire::ledger::Ledger;
 
@@ -292,7 +298,7 @@ fn do_auto_report(session_arg: Option<&str>) -> Result<()> {
             let _ = record_filed(&dir, &fingerprint);
             let url_raw = String::from_utf8_lossy(&out.stdout);
             let url = url_raw.trim();
-            println!("trimwire: filed anomaly issue {url}");
+            println!("{} trimwire: filed anomaly issue {url}", render::ok());
         }
         _ => {
             // gh missing, not authenticated, non-zero exit, or timed out →
@@ -309,7 +315,10 @@ fn do_auto_report(session_arg: Option<&str>) -> Result<()> {
                 title,
                 Some(&anomaly.note),
             );
-            println!("trimwire: anomaly this session — file it: {fallback}");
+            println!(
+                "{} trimwire: anomaly this session — file it: {fallback}",
+                render::warn()
+            );
         }
     }
 

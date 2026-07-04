@@ -2037,11 +2037,19 @@ fn with_trailing_newline(mut s: String) -> String {
 pub fn share_stats(yes: bool, force: bool) -> Result<()> {
     let config = Config::load().context("load config")?;
     if !config.ledger.enabled {
-        println!("ledger is disabled ([ledger] enabled = false) — nothing to share.");
+        println!(
+            "{} ledger is disabled ([ledger] enabled = false) — nothing to share.",
+            super::render::bullet()
+        );
         return Ok(());
     }
     if !ledger::resolve_path(&config.ledger.db_path).exists() {
-        println!("ledger not yet created — run `trimwire on`/`trimwire run` first.");
+        println!(
+            "{} ledger not yet created — run {}/{} first.",
+            super::render::bullet(),
+            super::render::accent("trimwire on"),
+            super::render::accent("trimwire run")
+        );
         return Ok(());
     }
 
@@ -2078,7 +2086,12 @@ pub fn share_stats(yes: bool, force: bool) -> Result<()> {
         "{} trimwire share stats — anonymous, content-free telemetry",
         super::render::header()
     );
-    println!("  This is the *entire* payload (coarse buckets only; see docs/TELEMETRY.md):\n");
+    println!(
+        "  {}\n",
+        super::render::dim(
+            "This is the *entire* payload (coarse buckets only; see docs/TELEMETRY.md):"
+        )
+    );
     println!("{body}\n");
     println!(
         "  No prompts, code, paths, ids, IPs, timestamps, or raw counts are in it,\n\
