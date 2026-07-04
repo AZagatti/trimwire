@@ -73,7 +73,12 @@ export TRIMWIRE_UPDATE_API_BASE="http://127.0.0.1:51997"
 trimwire serve >/dev/null 2>&1 &
 export ANTHROPIC_BASE_URL="http://127.0.0.1:59947"
 
-# Wait until the gateway and the ollama stub answer (best-effort, ~5s cap each).
+# Wait until the gateway, the ollama stub, and the update stub answer
+# (best-effort, ~5s cap each) so `doctor`/`stats` render deterministically.
 for _ in $(seq 1 25); do curl -sf http://127.0.0.1:59947/healthz  >/dev/null 2>&1 && break; sleep 0.2; done
 for _ in $(seq 1 20); do curl -sf http://127.0.0.1:51447/api/tags >/dev/null 2>&1 && break; sleep 0.2; done
-set +e
+for _ in $(seq 1 20); do curl -sf http://127.0.0.1:51997/         >/dev/null 2>&1 && break; sleep 0.2; done
+
+# Restore the recording shell's defaults — this file is *sourced*, so the options
+# set at the top would otherwise leak into the rest of demo.tape.
+set +u +o pipefail
