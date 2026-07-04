@@ -605,7 +605,9 @@ fn prompt_picker(
     if visible_count > 0 {
         println!("    {}", render::dim(&"─".repeat(53)));
     }
-    println!("    {}  Add a new API provider…", render::accent("a)"));
+    // Option keys (a/m/n) are left unstyled to match the plain numbered rows —
+    // the accent is reserved for markers, defaults, and values-to-type.
+    println!("    a)  Add a new API provider…");
     if include_model_free {
         println!("    m)  model-free (no summarizer)");
     }
@@ -809,7 +811,7 @@ pub fn summarizer_setup() -> Result<()> {
     println!(
         "{}",
         super::render::dim(
-            "Best-effort, never load-bearing. Rewrites the [summarizer] section (providers re-seeded). q/Ctrl-D cancels."
+            "Best-effort, never load-bearing. Re-running keeps providers you already added. q/Ctrl-D cancels."
         )
     );
     println!();
@@ -1016,9 +1018,32 @@ pub fn summarizer_setup() -> Result<()> {
             // default. Falls back to "n" (done) when nothing was just added.
             let fb_highlight =
                 fb_added_orig.and_then(|orig| remaining.iter().position(|(i, _)| *i == orig));
-            let fb_default = fb_highlight
-                .map(|d| (d + 1).to_string())
-                .unwrap_or_else(|| "n".to_owned());
+            // Default the pick so Enter agrees with what's on screen:
+            //   1. a just-added provider → its row (the `← your new provider` fix);
+            //   2. else, on the FIRST fallback when we actively suggested `local`
+            //      (primary is an API + ollama reachable), point at the recommended
+            //      local model (or the first local) so the default matches the
+            //      "Suggestion: add local" line and the `← recommended` marker —
+            //      instead of the "None" escape hatch contradicting both;
+            //   3. else "n" (done).
+            let fb_default = if let Some(d) = fb_highlight {
+                (d + 1).to_string()
+            } else if fallback.is_empty() && primary_is_api && ollama_reachable {
+                remaining
+                    .iter()
+                    .position(|(_, it)| {
+                        matches!(it, PickerItem::LocalModel { tag } if tag == RECOMMENDED_MODEL)
+                    })
+                    .or_else(|| {
+                        remaining
+                            .iter()
+                            .position(|(_, it)| matches!(it, PickerItem::LocalModel { .. }))
+                    })
+                    .map(|d| (d + 1).to_string())
+                    .unwrap_or_else(|| "n".to_owned())
+            } else {
+                "n".to_owned()
+            };
 
             match prompt_picker(
                 &remaining_items,
