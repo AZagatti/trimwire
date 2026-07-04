@@ -555,7 +555,7 @@ fn supervisor_start() -> Result<()> {
     if let Ok(pid) = std::fs::read_to_string(&pidfile) {
         if let Ok(pid) = pid.trim().parse::<i32>() {
             if proc_alive(pid) {
-                println!("already running (pid {pid})");
+                println!("{} already running (pid {pid})", super::render::ok());
                 return Ok(());
             }
         }
@@ -569,7 +569,11 @@ fn supervisor_start() -> Result<()> {
         .spawn()
         .context("spawn detached daemon")?;
     std::fs::write(&pidfile, child.id().to_string())?;
-    println!("started background daemon (pid {})", child.id());
+    println!(
+        "{} started background daemon (pid {})",
+        super::render::ok(),
+        child.id()
+    );
     Ok(())
 }
 
@@ -581,7 +585,7 @@ fn supervisor_stop(quiet: bool) -> Result<()> {
     let pidfile = supervisor_pidfile()?;
     let Ok(pid) = std::fs::read_to_string(&pidfile) else {
         if !quiet {
-            println!("not running (no pidfile)");
+            println!("{} not running (no pidfile)", super::render::bullet());
         }
         return Ok(());
     };
@@ -591,7 +595,7 @@ fn supervisor_stop(quiet: bool) -> Result<()> {
         if proc_alive(pid) {
             let _ = run("kill", &[&pid.to_string()]);
         } else if !quiet {
-            println!("not running (stale pidfile)");
+            println!("{} not running (stale pidfile)", super::render::bullet());
         }
     }
     let _ = std::fs::remove_file(&pidfile);

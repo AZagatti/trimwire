@@ -84,7 +84,10 @@ pub fn sweep_all(dry_run: bool, yes: bool) -> Result<()> {
     // otherwise pile up on disk uncleaned.
     let files = engine::all_transcript_files();
     if files.is_empty() {
-        println!("no session transcripts found to sweep.");
+        println!(
+            "{} no session transcripts found to sweep.",
+            render::bullet()
+        );
         return Ok(());
     }
     // A live sweep rewrites every transcript on disk (backups are made, and

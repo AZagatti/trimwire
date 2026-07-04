@@ -1018,7 +1018,9 @@ fn print_table(results: &[ModelScore], corpus: &[CorpusSlice], out: Option<&Path
             format!("{:.0}", r.fcs)
         };
         let flag = if r.gated && r.backend != "api-dry-run" {
-            format!("  {}", render::error_text("gated"))
+            // Keep a leading glyph (not colour-only): restores the always-visible
+            // ✗ this line had before, matching the gate-detail lines below.
+            format!("  {} {}", render::bad(), render::error_text("gated"))
         } else {
             String::new()
         };
