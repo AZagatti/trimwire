@@ -391,7 +391,9 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
     );
     println!(
         "  {}",
-        render::dim("A key FILE is recommended — the background service can't see shell exports.")
+        render::dim(
+            "A key FILE is recommended — trimwire runs as a background proxy, so it can't see env vars you export in your shell."
+        )
     );
     let api_key_file = {
         let raw = prompt(&format!(
