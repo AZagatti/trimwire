@@ -231,9 +231,11 @@ verified model ranking.
 | `trimwire config` / `config show [--json]` | Open the config in `$EDITOR`; `show` prints the *resolved* effective config + active profile. |
 | `trimwire uninstall` | Remove the service, GUI/login env hooks, lingering, and the statusline (if trimwire added it). Leaves the shell-rc `ANTHROPIC_BASE_URL` block for you to delete by hand. |
 
-> Output adapts to context: the status glyphs (`✓ ✗ ⚠ ⊡`) and the `▰▱` gauge fall
-> back to ASCII (`[ok] [x] [!] ::`, `#-`) when stdout is piped/redirected or
-> `NO_COLOR` is set, so logs and scripts stay clean.
+> Output adapts to context: semantic colour (green `✓` / yellow `⚠` / red `✗`,
+> cyan for the recommended choice and the value to type) plus the status glyphs
+> (`✓ ✗ ⚠ ⊡`) and the `▰▱` gauge fall back to plain ASCII (`[ok] [x] [!] ::`,
+> `#-`) when stdout is piped/redirected, `TERM=dumb`, or `NO_COLOR` is set — so
+> logs and scripts stay clean.
 
 ## Live savings bar (opt-in)
 
