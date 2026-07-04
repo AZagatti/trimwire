@@ -17,7 +17,8 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="$repo/target/release:$repo/target/debug:$PATH"
 
 # Throwaway HOME + config so nothing real is touched.
-export HOME="$(mktemp -d)"
+HOME="$(mktemp -d)" || { echo "demo-setup: mktemp failed" >&2; return 1; }
+export HOME
 mkdir -p "$HOME/.config"
 export XDG_CONFIG_HOME="$HOME/.config"
 cat > "$HOME/.config/trimwire.toml" <<CFG
@@ -38,6 +39,7 @@ CFG
 
 # Seed a representative ledger so `trimwire stats` shows real numbers.
 export TRIMWIRE_LEDGER__DB_PATH="$HOME/demo.db"
+# shellcheck source=scripts/demo-seed.sh
 source "$repo/scripts/demo-seed.sh"
 
 # Tiny offline HTTP/1.1 stub: any GET returns $BODY. Used for the ollama /api/tags
