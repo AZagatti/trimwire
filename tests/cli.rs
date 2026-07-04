@@ -968,6 +968,65 @@ fn summarizer_setup_api_provider_writes_provider_block_without_key() {
     );
 }
 
+/// `summarizer setup` — issue #118 regression: after adding a provider while
+/// local models are present, the primary picker must (a) mark the new provider
+/// row `← your new provider` and (b) DEFAULT the selection to it, not to a local
+/// model. Two local models exist (rows 1–2); the added provider is row 3. We
+/// accept the default (blank line) at the primary pick and assert the written
+/// engine is the provider id — proving the default pointed at the new provider.
+#[test]
+fn summarizer_setup_defaults_primary_to_newly_added_provider() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join(".config/trimwire.toml");
+    fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+    fs::write(&cfg_path, "[server]\nlisten = \"127.0.0.1:9999\"\n").unwrap();
+
+    // Two local models → the added provider is item 3 (a local model is item 1,
+    // which is the OLD buggy default the fix must move off of).
+    let fake = FakeOllama::start(&["qwen3.5:4b", "llama3"]);
+    let mut child = Command::new(bin())
+        .args(["summarizer", "setup"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env("TRIMWIRE_OLLAMA_ENDPOINT", fake.endpoint())
+        .env_remove("NEWPROV_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn summarizer setup");
+    // a=add; id; style; base_url(default); model; key file(skip); env NAME; y=add;
+    // <blank>=accept the primary DEFAULT (must be the new provider, row 3);
+    // n=no fallback; y=write.
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"a\nnewprov\nanthropic\n\ntest-model\n\nNEWPROV_KEY\ny\n\nn\ny\n")
+        .unwrap();
+    let out = child.wait_with_output().expect("wait");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success(), "setup should succeed; got: {all}");
+    // The re-displayed picker marks the new provider row.
+    assert!(
+        all.contains("your new provider"),
+        "picker must mark the newly-added provider; got: {all}"
+    );
+    let cfg = fs::read_to_string(&cfg_path).expect("config written");
+    // The accepted default selected the provider, not a local model.
+    assert!(
+        cfg.contains("engine = \"newprov\""),
+        "accepting the default must pick the new provider as primary; got:\n{cfg}"
+    );
+}
+
 /// `summarizer setup` local-ollama happy path against a FAKE ollama server (no
 /// real ollama, no inference). The `TRIMWIRE_OLLAMA_ENDPOINT` seam points the
 /// probe at the fake, which reports an approved model — so picking it as primary

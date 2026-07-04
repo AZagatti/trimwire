@@ -105,22 +105,24 @@ pub fn install(boot: bool) -> Result<()> {
 
     // We do NOT touch the statusline here. See savings via `trimwire stats`, or
     // add a live bar explicitly with `trimwire statusline add`.
+    use super::render;
+    let step =
+        |cmd: &str, why: &str| println!("  {:<34}  {}", render::accent(cmd), render::dim(why));
     println!();
-    println!("Optional next steps:");
-    println!("  see savings anytime:         trimwire stats");
-    println!(
-        "  model summarizer (long runs): trimwire summarizer setup  \
-         (optional — local or API model compresses old context)"
+    println!("{}", render::strong("Optional next steps"));
+    step("trimwire stats", "see savings anytime");
+    step(
+        "trimwire summarizer setup",
+        "compress old context (local or API model)",
     );
-    println!(
-        "  live savings bar:            trimwire statusline add  \
-         (or `trimwire statusline wrap` if you already have a statusline)"
+    step(
+        "trimwire statusline add",
+        "live savings bar (or `statusline wrap`)",
     );
-    println!("  health alert hook:           trimwire hook");
-    println!(
-        "  shell completions:           trimwire completions {}  \
-         (see `trimwire completions --help`)",
-        detected_shell_hint()
+    step("trimwire hook", "health-alert hook");
+    step(
+        &format!("trimwire completions {}", detected_shell_hint()),
+        "shell completions (see --help)",
     );
 
     // End-state confirmation: probe /healthz so the user gets a clear result
@@ -137,14 +139,16 @@ pub fn install(boot: bool) -> Result<()> {
         println!();
         if serving {
             println!(
-                "{} trimwire is active and serving on {addr} — start coding: claude",
-                super::render::ok()
+                "{} trimwire is active and serving on {addr} — start coding: {}",
+                super::render::ok(),
+                super::render::accent("claude")
             );
         } else {
             println!(
                 "{} installed, but the gateway isn't answering on {addr} yet — it may start on \
-                 first use (socket activation) or at next login. Check it: trimwire doctor",
-                super::render::warn()
+                 first use (socket activation) or at next login. Check it: {}",
+                super::render::warn(),
+                super::render::accent("trimwire doctor")
             );
         }
     }

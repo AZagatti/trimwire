@@ -236,7 +236,7 @@ pub fn status() -> Result<()> {
 pub fn doctor(strict: bool) -> Result<()> {
     use trimwire::config::Config;
 
-    println!("trimwire doctor\n");
+    println!("{}\n", render::strong("trimwire doctor"));
 
     // Build platform — handy in bug reports, and the asset-selection primitive
     // `trimwire upgrade` uses to pick the matching release artifact.
@@ -310,8 +310,14 @@ pub fn doctor(strict: bool) -> Result<()> {
             render::bullet()
         );
         println!();
-        println!("→ run `trimwire install` to set up the gateway, shell env, and starter config.");
-        println!("→ run `trimwire doctor` again after install to verify the setup.");
+        println!(
+            "→ run {} to set up the gateway, shell env, and starter config.",
+            render::accent("`trimwire install`")
+        );
+        println!(
+            "→ run {} again after install to verify the setup.",
+            render::accent("`trimwire doctor`")
+        );
         if strict {
             // Pre-install is an advisory state (not installed / gateway down / env
             // unset). `--strict` exists for CI / scripted health checks, which must
