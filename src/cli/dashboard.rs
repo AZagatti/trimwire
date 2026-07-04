@@ -16,6 +16,7 @@ use trimwire::ledger::{self, Ledger, SessionRow};
 const TEMPLATE: &str = include_str!("dashboard_template.html");
 
 pub fn dashboard(out: Option<PathBuf>) -> Result<()> {
+    use super::render;
     let config = Config::load().context("load config")?;
     // No ledger data yet → nothing to render, so no HTML file is written. Say so
     // explicitly: a bare exit 0 left a `--out` caller wondering why the file never
@@ -23,13 +24,17 @@ pub fn dashboard(out: Option<PathBuf>) -> Result<()> {
     // "no data yet" as a non-error.
     if !config.ledger.enabled {
         println!(
-            "ledger is disabled in config ([ledger] enabled = false); no dashboard file written."
+            "{} ledger is disabled in config ([ledger] enabled = false); no dashboard file written.",
+            render::bullet()
         );
         return Ok(());
     }
     if !ledger::resolve_path(&config.ledger.db_path).exists() {
         println!(
-            "ledger not yet created — run `trimwire on`/`trimwire run` first; no dashboard file written."
+            "{} ledger not yet created — run {}/{} first; no dashboard file written.",
+            render::bullet(),
+            render::accent("trimwire on"),
+            render::accent("trimwire run")
         );
         return Ok(());
     }
@@ -53,8 +58,9 @@ pub fn dashboard(out: Option<PathBuf>) -> Result<()> {
     std::fs::write(&out_path, html)
         .with_context(|| format!("write dashboard to {}", out_path.display()))?;
     println!(
-        "wrote {} — open it in a browser (file://, no server needed). Content-free; re-run to refresh.",
-        out_path.display()
+        "{} wrote {} — open it in a browser (file://, no server needed). Content-free; re-run to refresh.",
+        render::ok(),
+        render::accent(&out_path.display().to_string())
     );
     Ok(())
 }

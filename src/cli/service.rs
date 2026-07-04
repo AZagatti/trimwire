@@ -490,34 +490,52 @@ pub fn off() -> Result<()> {
 
 /// Print on/off + a liveness probe.
 pub fn status(addr: SocketAddr) -> Result<()> {
+    use super::render;
     let mgr = detect();
-    println!("manager: {}", mgr.label());
     let listening = tcp_open(addr);
     let serving = listening && healthz_ok(addr);
-    println!("listening on {addr}: {}", yesno(listening));
-    println!("serving (/healthz): {}", yesno(serving));
+    let mark = |b: bool| if b { render::ok() } else { render::bad() };
+
+    println!("{}\n", render::strong("trimwire status"));
+    println!("  {} manager: {}", render::bullet(), mgr.label());
+    println!(
+        "  {} listening on {addr}: {}",
+        mark(listening),
+        yesno(listening)
+    );
+    println!("  {} serving (/healthz): {}", mark(serving), yesno(serving));
     // Pruning state: `trimwire off` (default) keeps the gateway serving but flips
     // a bypass sentinel so requests forward unmodified. Surface it so a serving
     // gateway that isn't pruning doesn't look like a silent failure.
-    println!(
-        "pruning: {}",
-        if trimwire::bypass::is_active() {
-            "OFF (bypass — forwarding unmodified; `trimwire on` to resume)"
-        } else {
-            "on"
-        }
-    );
+    if trimwire::bypass::is_active() {
+        println!(
+            "  {} pruning: OFF (bypass — forwarding unmodified; {} to resume)",
+            render::warn(),
+            render::accent("trimwire on")
+        );
+    } else {
+        println!("  {} pruning: on", render::ok());
+    }
     if !listening {
         // First-time users: `trimwire on` fails (with a soft exit) until `install`
         // has set up the service — point them there first, and at `doctor` to tell
         // which state they're in.
-        println!("→ not running.");
-        println!("    First time?       run `trimwire install`.");
-        println!("    Already installed? run `trimwire on`  (or `trimwire doctor` to diagnose).");
+        println!("\n  {} not running.", render::warn());
+        println!(
+            "      first time?       run {}.",
+            render::accent("trimwire install")
+        );
+        println!(
+            "      already installed? run {}  (or {} to diagnose).",
+            render::accent("trimwire on"),
+            render::accent("trimwire doctor")
+        );
     } else if !serving {
         println!(
-            "→ something holds the port but isn't answering /healthz — another process is on it. \
-             Free it, or set a different `[server] listen` in config."
+            "\n  {} something holds the port but isn't answering /healthz — another process is on \
+             it. Free it, or set a different {} in config.",
+            render::warn(),
+            render::accent("[server] listen")
         );
     }
     Ok(())

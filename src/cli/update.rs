@@ -378,30 +378,45 @@ fn verify_latest_release(pinned_tag: Option<String>) -> std::result::Result<DryR
 /// `--dry-run`: verify the latest release without changing anything. Returns the
 /// process exit code: 0 = verified, 1 = NOT verified (any failure). Fail-closed.
 fn run_dry_run() -> i32 {
+    use super::render;
     match verify_latest_release(None) {
         Err(e) => {
-            eprintln!("trimwire upgrade --dry-run: {e}\n→ treating as NOT verified (fail-closed).");
+            eprintln!(
+                "{} trimwire upgrade --dry-run: {e}\n  {} treating as {} (fail-closed).",
+                render::bad(),
+                render::dim("→"),
+                render::error_text("NOT verified")
+            );
             1
         }
         Ok(o) => match o.result {
             Ok(_archive) => {
                 println!(
-                    "verified ✓  {} ({})\n  • SHA-256 checksum matches the published .sha256\n  \
+                    "{} verified  {} ({})\n  • SHA-256 checksum matches the published .sha256\n  \
                      • minisign signature is valid for the pinned key",
-                    o.asset, o.tag
+                    render::ok(),
+                    o.asset,
+                    o.tag
                 );
                 0
             }
             Err(ve) => {
                 eprintln!(
-                    "NOT verified ✗  {} ({})\n  • {ve}\n→ refusing to trust this download (fail-closed).",
-                    o.asset, o.tag
+                    "{} {}  {} ({})\n  • {ve}\n  {} refusing to trust this download (fail-closed).",
+                    render::bad(),
+                    render::error_text("NOT verified"),
+                    o.asset,
+                    o.tag,
+                    render::dim("→")
                 );
                 if ve == upd::VerifyError::NoPinnedKey {
                     eprintln!(
-                        "  (this build has no embedded update-signing key — released \
-                         builds are always signed, so this is a non-standard or \
-                         development build. Update via your install method instead.)"
+                        "{}",
+                        render::dim(
+                            "  (this build has no embedded update-signing key — released \
+                             builds are always signed, so this is a non-standard or \
+                             development build. Update via your install method instead.)"
+                        )
                     );
                 }
                 1
@@ -445,11 +460,13 @@ fn resolve_eligibility()
 /// guidance for non-managed installs; otherwise reports current/available.
 /// Network failure is non-fatal (exit 0).
 fn run_check() -> ! {
+    use super::render;
     let (_, exe_str, elig, receipt_path) = match resolve_eligibility() {
         Ok(v) => v,
         Err(msg) => {
             eprintln!(
-                "trimwire update: {msg}\n\n{}",
+                "{} trimwire update: {msg}\n\n{}",
+                render::bad(),
                 upd::manual_update_guidance()
             );
             std::process::exit(2);
@@ -457,10 +474,12 @@ fn run_check() -> ! {
     };
     if elig != upd::Eligibility::Eligible {
         eprintln!(
-            "{}\n\n{}\n\nTo verify the next release before updating manually:\n\
-             \x20     trimwire upgrade --dry-run",
+            "{} {}\n\n{}\n\nTo verify the next release before updating manually:\n\
+             \x20     {}",
+            render::bad(),
             upd::refusal_reason(&elig, &exe_str, &receipt_path),
-            upd::manual_update_guidance()
+            upd::manual_update_guidance(),
+            render::accent("trimwire upgrade --dry-run")
         );
         std::process::exit(2);
     }
@@ -469,8 +488,9 @@ fn run_check() -> ! {
     match fetch_latest_tag().and_then(|t| upd::parse_version(&t).map(|v| (t, v))) {
         None => {
             eprintln!(
-                "trimwire update: couldn't check for updates (GitHub unreachable or rate-limited). \
+                "{} trimwire update: couldn't check for updates (GitHub unreachable or rate-limited). \
                  See https://github.com/{}/releases",
+                render::warn(),
                 upd::REPO
             );
             std::process::exit(0);
@@ -480,12 +500,18 @@ fn run_check() -> ! {
             // Only advertise an upgrade for an exact stable release tag.
             if upd::is_stable_release_tag(&tag) && upd::is_newer(latest, cur) {
                 println!(
-                    "trimwire {} is available (you have {current}).\n  • verify it:  trimwire upgrade --dry-run\n  \
-                     • apply it:   trimwire upgrade",
-                    tag.trim_start_matches('v')
+                    "{} trimwire {} is available (you have {current}).\n  • verify it:  {}\n  \
+                     • apply it:   {}",
+                    render::warn(),
+                    render::accent(tag.trim_start_matches('v')),
+                    render::accent("trimwire upgrade --dry-run"),
+                    render::accent("trimwire upgrade")
                 );
             } else {
-                println!("trimwire is already up to date ({current}).");
+                println!(
+                    "{} trimwire is already up to date ({current}).",
+                    render::ok()
+                );
             }
             std::process::exit(0);
         }
@@ -496,6 +522,7 @@ fn run_check() -> ! {
 /// moved to `trimwire upgrade`; if a deprecated flag is passed here we redirect
 /// (exit 2) rather than silently ignore it. Default = the read-only check.
 pub fn update(dry_run: bool, apply: bool, yes: bool) -> Result<()> {
+    use super::render;
     if dry_run || apply || yes {
         // `update` no longer downloads or applies anything — point at `upgrade`.
         let suggestion = if dry_run {
@@ -506,8 +533,10 @@ pub fn update(dry_run: bool, apply: bool, yes: bool) -> Result<()> {
             "trimwire upgrade"
         };
         eprintln!(
-            "trimwire update is a read-only check and no longer downloads or applies updates.\n\
-             Use `{suggestion}` instead."
+            "{} trimwire update is a read-only check and no longer downloads or applies updates.\n\
+             Use {} instead.",
+            render::warn(),
+            render::accent(suggestion)
         );
         std::process::exit(2);
     }
@@ -558,12 +587,14 @@ fn apply_is_dry_in_test() -> bool {
 
 /// Print an apply refusal and return exit code 2.
 fn apply_refuse(msg: &str) -> i32 {
-    eprintln!("{msg}");
+    use super::render;
+    eprintln!("{} {msg}", render::bad());
     2
 }
 
 /// Apply path for `trimwire upgrade [--yes]`. Returns the process exit code.
 fn run_apply(yes: bool) -> i32 {
+    use super::render;
     // D2: self-replace is Linux-only in v1 (macOS Gatekeeper/notarization and the
     // Windows running-exe lock are out of scope — refuse, don't half-do it).
     if !cfg!(target_os = "linux") {
@@ -602,8 +633,9 @@ fn run_apply(yes: bool) -> i32 {
         Some(t) => t,
         None => {
             eprintln!(
-                "trimwire upgrade: couldn't reach GitHub to check the latest release \
-                 (fail-closed)."
+                "{} trimwire upgrade: couldn't reach GitHub to check the latest release \
+                 (fail-closed).",
+                render::bad()
             );
             return 1;
         }
@@ -612,8 +644,9 @@ fn run_apply(yes: bool) -> i32 {
     // restart check) — reject anything but an exact stable vMAJOR.MINOR.PATCH.
     if !upd::is_stable_release_tag(&tag) {
         eprintln!(
-            "trimwire upgrade: latest release tag '{tag}' is not a stable vMAJOR.MINOR.PATCH \
-             release — refusing to self-update (fail-closed)."
+            "{} trimwire upgrade: latest release tag '{tag}' is not a stable vMAJOR.MINOR.PATCH \
+             release — refusing to self-update (fail-closed).",
+            render::bad()
         );
         return 1;
     }
@@ -624,11 +657,17 @@ fn run_apply(yes: bool) -> i32 {
                 upd::parse_version(current).expect("own version parses"),
             ) => {}
         Some(_) => {
-            println!("trimwire is already up to date ({current}). Nothing to apply.");
+            println!(
+                "{} trimwire is already up to date ({current}). Nothing to apply.",
+                render::ok()
+            );
             return 0;
         }
         None => {
-            eprintln!("trimwire upgrade: couldn't parse the latest tag '{tag}' (fail-closed).");
+            eprintln!(
+                "{} trimwire upgrade: couldn't parse the latest tag '{tag}' (fail-closed).",
+                render::bad()
+            );
             return 1;
         }
     }
@@ -656,7 +695,7 @@ fn run_apply(yes: bool) -> i32 {
         if !confirm(&format!(
             "Upgrade trimwire {current} → {tag} and restart the service?"
         )) {
-            println!("Cancelled. Nothing was changed.");
+            println!("{} Cancelled. Nothing was changed.", render::bullet());
             return 0;
         }
     }
@@ -669,13 +708,20 @@ fn run_apply(yes: bool) -> i32 {
             Ok(bytes) => bytes,
             Err(ve) => {
                 eprintln!(
-                    "trimwire upgrade: download did NOT verify — {ve}\n→ refusing to apply (fail-closed)."
+                    "{} trimwire upgrade: download did {} — {ve}\n  {} refusing to apply (fail-closed).",
+                    render::bad(),
+                    render::error_text("NOT verify"),
+                    render::dim("→")
                 );
                 return 1;
             }
         },
         Err(e) => {
-            eprintln!("trimwire upgrade: {e}\n→ refusing to apply (fail-closed).");
+            eprintln!(
+                "{} trimwire upgrade: {e}\n  {} refusing to apply (fail-closed).",
+                render::bad(),
+                render::dim("→")
+            );
             return 1;
         }
     };
@@ -699,12 +745,14 @@ fn confirm(prompt: &str) -> bool {
 /// roll back on any failure. Linux-only body (callers gate non-Linux).
 #[cfg(target_os = "linux")]
 fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version: &str) -> i32 {
+    use super::render;
     // Test seam: stop before mutating anything (keeps the apply path fully
     // exercisable in integration tests without overwriting the test binary).
     if apply_is_dry_in_test() {
         println!(
-            "[test] verified — would replace {} and restart (test seam active, no changes made).",
-            exe.display()
+            "{} [test] verified — would replace {} and restart (test seam active, no changes made).",
+            render::ok(),
+            render::accent(&exe.display().to_string())
         );
         return 0;
     }
@@ -712,7 +760,11 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
     let new_bytes = match extract_trimwire(archive, &std::env::temp_dir()) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("trimwire upgrade: {e}\n→ nothing was changed (fail-closed).");
+            eprintln!(
+                "{} trimwire upgrade: {e}\n  {} nothing was changed (fail-closed).",
+                render::bad(),
+                render::dim("→")
+            );
             return 1;
         }
     };
@@ -722,7 +774,9 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
         Ok(b) => b,
         Err(e) => {
             eprintln!(
-                "trimwire upgrade: failed to replace the binary: {e}\n→ nothing was changed (fail-closed)."
+                "{} trimwire upgrade: failed to replace the binary: {e}\n  {} nothing was changed (fail-closed).",
+                render::bad(),
+                render::dim("→")
             );
             return 1;
         }
@@ -744,20 +798,26 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
             );
             let _ = std::fs::remove_file(&bak);
             println!(
-                "Updated trimwire {old_version} → {} and restarted the service ✓",
-                tag.trim_start_matches('v')
+                "{} Updated trimwire {old_version} → {} and restarted the service.",
+                render::ok(),
+                render::accent(tag.trim_start_matches('v'))
             );
             0
         }
         Err(restart_err) => {
             eprintln!(
-                "trimwire upgrade: the updated gateway did not come up healthy ({restart_err})."
+                "{} trimwire upgrade: the updated gateway did not come up healthy ({restart_err}).",
+                render::bad()
             );
-            eprintln!("→ rolling back to the previous binary…");
+            eprintln!(
+                "  {} rolling back to the previous binary…",
+                render::dim("→")
+            );
             match rollback(exe, &bak, addr, old_version) {
                 Ok(()) => {
                     eprintln!(
-                        "Rolled back to {old_version} and the service is healthy again. The update was NOT applied."
+                        "{} Rolled back to {old_version} and the service is healthy again. The update was NOT applied.",
+                        render::warn()
                     );
                     1
                 }
@@ -767,7 +827,11 @@ fn apply_verified(exe: &std::path::Path, archive: &[u8], tag: &str, old_version:
                 // The two variants need DIFFERENT actions; `rollback_guidance`
                 // renders the correct recovery instructions for each.
                 Err(rb_err) => {
-                    eprintln!("{}", rollback_guidance(&rb_err, exe, &bak));
+                    eprintln!(
+                        "{} {}",
+                        render::bad(),
+                        rollback_guidance(&rb_err, exe, &bak)
+                    );
                     3
                 }
             }

@@ -329,6 +329,7 @@ async fn run_model(
     corpus: &[CorpusSlice],
     out: Option<&Path>,
 ) -> ModelScore {
+    use super::render;
     let mut scores = Vec::with_capacity(corpus.len());
     for slice in corpus {
         let score = match call_model(lm, timeout_secs, build_prompt(&slice.slice)).await {
@@ -336,7 +337,7 @@ async fn run_model(
                 if let Some(dir) = out {
                     let path = dir.join(format!("{}__{}.txt", safe_tag(&lm.model), slice.id));
                     if let Err(e) = std::fs::write(&path, &summary) {
-                        eprintln!("⚠ could not write {}: {e}", path.display());
+                        eprintln!("{} could not write {}: {e}", render::warn(), path.display());
                     }
                 }
                 score_summary(slice, &summary)
@@ -360,6 +361,7 @@ async fn run_api_provider(
     max_calls: usize,
     out: Option<&Path>,
 ) -> ModelScore {
+    use super::render;
     let slices = &corpus[..max_calls.min(corpus.len())];
     let mut scores = Vec::with_capacity(slices.len());
     for slice in slices {
@@ -368,7 +370,7 @@ async fn run_api_provider(
                 if let Some(dir) = out {
                     let path = dir.join(format!("{}__{}.txt", safe_tag(&provider.id), slice.id));
                     if let Err(e) = std::fs::write(&path, &summary) {
-                        eprintln!("⚠ could not write {}: {e}", path.display());
+                        eprintln!("{} could not write {}: {e}", render::warn(), path.display());
                     }
                 }
                 score_summary(slice, &summary)
@@ -421,27 +423,37 @@ fn provider_route(base_url: &str, style: &str) -> String {
 /// network I/O.  When `yes` is true the warning is still printed so the user
 /// can see exactly what is about to be charged.
 fn api_safety_warning(provider: &SummarizerProviderConfig, corpus_len: usize, yes: bool) -> bool {
+    use super::render;
     eprintln!(
-        "⚠  API BENCHMARK — REAL MONEY WARNING\n\
-         \x20  This makes {corpus_len} real API call(s) to {} using model {:?}.\n\
+        "{}  API BENCHMARK — REAL MONEY WARNING\n\
+         \x20  This makes {corpus_len} real API call(s) to {} using model {}.\n\
          \x20  Charged to your {} key (NOT your Anthropic subscription).\n\
          \x20  API scores are NOT directly comparable to local-model scores\n\
          \x20  (corpus tuned for local summarizers; temperature/context differ).\n\
          \x20  Treat them as a directional sanity-check within the same model family.",
+        render::warn(),
         if provider.base_url.is_empty() {
             "(provider default URL)".to_owned()
         } else {
             provider.base_url.clone()
         },
-        provider.model,
+        render::accent(&format!("{:?}", provider.model)),
         provider.api_key_env,
     );
     if !yes {
         eprintln!(
-            "\n  DRY RUN — no API calls made.\n\
-             \x20  To run locally (no upload): trimwire summarizer benchmark --model {} --yes\n\
-             \x20  To run AND share the score: trimwire share benchmark --model {} --yes",
-            provider.id, provider.id,
+            "\n  {} DRY RUN — no API calls made.\n\
+             \x20  To run locally (no upload): {}\n\
+             \x20  To run AND share the score: {}",
+            render::dim("→"),
+            render::accent(&format!(
+                "trimwire summarizer benchmark --model {} --yes",
+                provider.id
+            )),
+            render::accent(&format!(
+                "trimwire share benchmark --model {} --yes",
+                provider.id
+            )),
         );
     }
     yes
@@ -527,17 +539,23 @@ fn model_annotation(tag: &str) -> &'static str {
 ///
 /// Caller MUST have already confirmed that stdin is a TTY before calling this.
 fn prompt_model_picker(installed: &[String], default_model: &str) -> PickerChoice {
+    use super::render;
     use std::io::Write as _;
 
     println!("Select a model to benchmark (installed ollama models):");
     println!();
     for (i, tag) in installed.iter().enumerate() {
         let ann = model_annotation(tag);
-        println!("  {:>2})  {tag}{ann}", i + 1);
+        println!(
+            "  {:>2})  {}{}",
+            i + 1,
+            render::accent(tag),
+            render::dim(ann)
+        );
     }
     println!();
-    println!("   a)  all installed");
-    println!("   q)  cancel (no benchmark)");
+    println!("   {}  all installed", render::accent("a)"));
+    println!("   {}  cancel (no benchmark)", render::accent("q)"));
     println!();
     print!("Choice [Enter = {default_model}]: ");
     let _ = std::io::stdout().flush();
@@ -575,6 +593,7 @@ pub fn benchmark(
     yes: bool,
     max_calls: Option<usize>,
 ) -> Result<()> {
+    use super::render;
     let cfg = Config::load().unwrap_or_else(|_| trimwire::config::profile_baseline("default"));
 
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -603,16 +622,21 @@ pub fn benchmark(
         match rt.block_on(super::fetch_ollama_tags(endpoint)) {
             Err(e) => {
                 eprintln!(
-                    "no ollama models found at {endpoint} ({e})\n\
-                     → pull one: `ollama pull qwen3.5:4b`, or pass --model <tag>"
+                    "{} no ollama models found at {endpoint} ({e})\n  \
+                     {} pull one: {}, or pass --model <tag>",
+                    render::warn(),
+                    render::dim("→"),
+                    render::accent("ollama pull qwen3.5:4b")
                 );
                 // Fall through: the default resolution below will pick up the
                 // configured/default model, or produce a clear ollama error per-slice.
             }
             Ok(installed) if installed.is_empty() => {
                 eprintln!(
-                    "no ollama models found at {endpoint} — pull one: \
-                     `ollama pull qwen3.5:4b`, or pass --model <tag>"
+                    "{} no ollama models found at {endpoint} — pull one: \
+                     {}, or pass --model <tag>",
+                    render::warn(),
+                    render::accent("ollama pull qwen3.5:4b")
                 );
                 // Fall through to default behaviour.
             }
@@ -630,7 +654,7 @@ pub fn benchmark(
                     PickerChoice::AllInstalled => all_installed = true,
                     PickerChoice::Default => models = vec![default_model],
                     PickerChoice::Cancel => {
-                        println!("benchmark cancelled.");
+                        println!("{} benchmark cancelled.", render::bullet());
                         return Ok(());
                     }
                 }
@@ -655,13 +679,17 @@ pub fn benchmark(
             Ok(installed) => {
                 for tag in installed {
                     if is_disqualified(&tag) {
-                        eprintln!("⚠ skipping {tag} (DISQUALIFIED for summarization)");
+                        eprintln!(
+                            "{} skipping {} (DISQUALIFIED for summarization)",
+                            render::warn(),
+                            render::accent(&tag)
+                        );
                         continue;
                     }
                     push(tag, &mut resolved);
                 }
             }
-            Err(e) => eprintln!("⚠ --all-installed: {e}"),
+            Err(e) => eprintln!("{} --all-installed: {e}", render::warn()),
         }
     }
     for m in models {
@@ -687,14 +715,22 @@ pub fn benchmark(
         if !is_provider(m) {
             if is_disqualified(m) {
                 eprintln!(
-                    "⚠ {m} is DISQUALIFIED for production summarization (hallucinates / overstates completed work) — benchmarking it anyway"
+                    "{} {} is DISQUALIFIED for production summarization (hallucinates / overstates completed work) — benchmarking it anyway",
+                    render::warn(),
+                    render::accent(m)
                 );
             } else if WARN_MODELS.contains(&m.as_str()) {
                 eprintln!(
-                    "⚠ {m} FAILED the harm gate (drops load-bearing facts) — a RAM opt-down, not an equal to qwen3.5:4b"
+                    "{} {} FAILED the harm gate (drops load-bearing facts) — a RAM opt-down, not an equal to qwen3.5:4b",
+                    render::warn(),
+                    render::accent(m)
                 );
             } else if !APPROVED_MODELS.contains(&m.as_str()) {
-                eprintln!("⚠ {m} is unvalidated — its summary fidelity has not been gut-read");
+                eprintln!(
+                    "{} {} is unvalidated — its summary fidelity has not been gut-read",
+                    render::warn(),
+                    render::accent(m)
+                );
             }
         }
     }
@@ -786,6 +822,7 @@ pub fn benchmark(
 /// configured `[share] benchmark_endpoint` AND `--yes` — upload them. Inert
 /// otherwise (dry run, no network I/O), mirroring `share stats`.
 fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
+    use super::render;
     use super::share::{
         BenchmarkPayload, BenchmarkShareInput, build_benchmark_payload,
         guard_benchmark_content_free, post,
@@ -802,15 +839,19 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
         );
     }
 
-    println!("trimwire share benchmark — anonymous, content-free per-model rows");
+    println!(
+        "{}",
+        render::strong("trimwire share benchmark — anonymous, content-free per-model rows")
+    );
     println!("  This is the ENTIRE payload (coarse buckets only; one row per model):\n");
     let mut bodies: Vec<String> = Vec::with_capacity(results.len());
     for r in results {
         // Skip placeholder rows from an API dry-run (no real data to share).
         if r.backend == "api-dry-run" {
             eprintln!(
-                "⚠ skipping dry-run row for {} (no API calls were made)",
-                r.model
+                "{} skipping dry-run row for {} (no API calls were made)",
+                render::warn(),
+                render::accent(&r.model)
             );
             continue;
         }
@@ -823,13 +864,15 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
         if failed_slices > 0 || error_kind != "none" {
             let scope = if r.full_corpus { "full" } else { "partial" };
             eprintln!(
-                "\n⚠ {} had {failed_slices} failed slice(s) (error_kind: {error_kind}).\n\
+                "\n{} {} had {failed_slices} failed slice(s) (error_kind: {error_kind}).\n\
                  \x20  This looks like a provider/config issue, not a clean model-quality result —\n\
-                 \x20  not uploading this row. Please open an issue with: trimwire --version, the\n\
+                 \x20  not uploading this row. Please open an issue with: {}, the\n\
                  \x20  command used, backend={}, provider_style={}, provider_route={}, error_kind={error_kind},\n\
                  \x20  and whether the run was {scope} corpus. Do NOT paste API keys, prompts,\n\
                  \x20  summaries, session content, raw URLs, or stack traces.",
-                r.model,
+                render::warn(),
+                render::accent(&r.model),
+                render::accent("trimwire --version"),
                 r.backend,
                 r.provider_style.as_deref().unwrap_or("none"),
                 r.provider_route.as_deref().unwrap_or("none"),
@@ -877,17 +920,21 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
         bodies.push(serde_json::to_string(&value)?);
     }
     println!(
-        "  No raw model names/tags (only coarse family + bucket), no provider ids/URLs/keys,\n\
-         \x20  no summaries, paths, or raw counts — just the rank-table columns + backend/\n\
-         \x20  provider route. API and local rows are tagged `backend` and ranked separately.\n\
-         \x20  See docs/TELEMETRY.md."
+        "{}",
+        render::dim(
+            "  No raw model names/tags (only coarse family + bucket), no provider ids/URLs/keys,\n\
+             \x20  no summaries, paths, or raw counts — just the rank-table columns + backend/\n\
+             \x20  provider route. API and local rows are tagged `backend` and ranked separately.\n\
+             \x20  See docs/TELEMETRY.md."
+        )
     );
 
     if bodies.is_empty() {
         println!(
-            "\n  Nothing to share — no real benchmark rows were produced (every requested\n\
+            "\n  {} Nothing to share — no real benchmark rows were produced (every requested\n\
              \x20  model was an API dry-run or unmatched). Re-run with a local model, or an\n\
-             \x20  API provider plus --yes, to generate scores."
+             \x20  API provider plus --yes, to generate scores.",
+            render::bullet()
         );
         return Ok(());
     }
@@ -896,15 +943,18 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
         // Only reachable if a self-hoster blanks both [share] benchmark_endpoint
         // and the built-in const (which ships pointing at api.trimwire.dev).
         println!(
-            "\n  No benchmark collector endpoint configured ([share] benchmark_endpoint = \"\"),\n\
+            "\n  {} No benchmark collector endpoint configured ([share] benchmark_endpoint = \"\"),\n\
              \x20  so this was a DRY RUN — nothing was sent. Set [share] benchmark_endpoint to\n\
-             \x20  a collector URL to enable uploads."
+             \x20  a collector URL to enable uploads.",
+            render::warn()
         );
         return Ok(());
     }
     if !yes {
         println!(
-            "\n  DRY RUN — re-run `trimwire share benchmark --yes` to upload the above to:\n  {endpoint}"
+            "\n  {} DRY RUN — re-run {} to upload the above to:\n  {endpoint}",
+            render::warn(),
+            render::accent("trimwire share benchmark --yes")
         );
         return Ok(());
     }
@@ -912,25 +962,36 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
         post(endpoint, body).context("upload benchmark row")?;
     }
     println!(
-        "\n  ✓ Shared {} row(s). Thank you — your anonymous numbers help everyone pick a model.",
+        "\n  {} Shared {} row(s). Thank you — your anonymous numbers help everyone pick a model.",
+        render::ok(),
         bodies.len()
     );
     Ok(())
 }
 
 fn print_table(results: &[ModelScore], corpus: &[CorpusSlice], out: Option<&Path>) {
+    use super::render;
     let has_api = results
         .iter()
         .any(|r| r.backend == "api" || r.backend == "api-dry-run");
     println!(
-        "trimwire summarizer benchmark — corpus v{CORPUS_VERSION}, {} slices\n",
-        corpus.len()
+        "{}\n",
+        render::strong(&format!(
+            "trimwire summarizer benchmark — corpus v{CORPUS_VERSION}, {} slices",
+            corpus.len()
+        ))
     );
+    // Header + separator are secondary chrome — dim, and padded to their final
+    // widths BEFORE colouring (an ANSI-wrapped string would otherwise count
+    // escape bytes toward the column width and break alignment).
     println!(
-        "{:<22} {:>7} {:>10} {:>11} {:>11} {:>8} {:>6}",
-        "model", "backend", "retention", "compression", "false-done", "usable", "FCS"
+        "{}",
+        render::dim(&format!(
+            "{:<22} {:>7} {:>10} {:>11} {:>11} {:>8} {:>6}",
+            "model", "backend", "retention", "compression", "false-done", "usable", "FCS"
+        ))
     );
-    println!("{}", "─".repeat(77));
+    println!("{}", render::dim(&"─".repeat(77)));
     for r in results {
         let total_needles: usize = r.slices.iter().map(|s| s.total).sum();
         let total_kept: usize = r.slices.iter().map(|s| s.kept).sum();
@@ -957,13 +1018,15 @@ fn print_table(results: &[ModelScore], corpus: &[CorpusSlice], out: Option<&Path
             format!("{:.0}", r.fcs)
         };
         let flag = if r.gated && r.backend != "api-dry-run" {
-            "  ⚠ gated"
+            format!("  {}", render::error_text("gated"))
         } else {
-            ""
+            String::new()
         };
+        // Model name is padded to its column width PLAIN first, then coloured —
+        // same reasoning as the header above.
         println!(
-            "{:<22} {:>7} {:>10} {:>11} {:>11} {:>8} {:>6}{flag}",
-            r.model,
+            "{} {:>7} {:>10} {:>11} {:>11} {:>8} {:>6}{flag}",
+            render::accent(&format!("{:<22}", r.model)),
             r.backend,
             retention,
             reduction,
@@ -977,48 +1040,70 @@ fn print_table(results: &[ModelScore], corpus: &[CorpusSlice], out: Option<&Path
         );
     }
 
-    // Per-model gate detail: which slice tripped, so the user knows WHY.
+    // Per-model gate detail: which slice tripped, so the user knows WHY. Every
+    // line here is by definition a failure reason, so it leads with `bad()`.
     for r in results {
         if !r.gated || r.backend == "api-dry-run" {
             continue;
         }
-        println!("\n{}: gated —", r.model);
+        println!("\n{}: gated —", render::accent(&r.model));
         for s in &r.slices {
             if let Some(e) = &s.error {
-                println!("  • {} — model error: {e}", s.id);
+                println!("  {} {} — model error: {e}", render::bad(), s.id);
             } else if s.false_done > 0 {
                 let trap = if s.is_trap { " (designated trap)" } else { "" };
                 println!(
-                    "  • {} — {} unsupported completion claim(s){trap}",
-                    s.id, s.false_done
+                    "  {} {} — {} unsupported completion claim(s){trap}",
+                    render::bad(),
+                    s.id,
+                    s.false_done
                 );
             } else if !s.usable {
-                println!("  • {} — no usable summary (empty or near-verbatim)", s.id);
+                println!(
+                    "  {} {} — no usable summary (empty or near-verbatim)",
+                    render::bad(),
+                    s.id
+                );
             }
         }
     }
 
     println!(
-        "\nFCS (faithful-compression score) = retention × compression (0–100), behind a false-done safety gate."
+        "{}",
+        render::dim(
+            "\nFCS (faithful-compression score) = retention × compression (0–100), behind a false-done safety gate."
+        )
     );
-    println!("This is a DIRECTIONAL sanity-check, not an authoritative quality ranking —");
-    println!("the APPROVED_MODELS list (a blind human gut-read) stays the authority.");
+    println!(
+        "{}",
+        render::dim("This is a DIRECTIONAL sanity-check, not an authoritative quality ranking —")
+    );
+    println!(
+        "{}",
+        render::dim("the APPROVED_MODELS list (a blind human gut-read) stays the authority.")
+    );
     if has_api {
         println!(
-            "\nNOTE: API-backend scores are NOT directly comparable to local-backend scores.\n\
-             The corpus is tuned for local summarizers (dense reasoning, tight length budget,\n\
-             free-form FACTS-FIRST prompt). Cloud models with larger context windows and\n\
-             different defaults may score differently for structural reasons unrelated to\n\
-             summarisation quality. Use API scores as a directional sanity-check within\n\
-             the same model family, not as a cross-backend ranking."
+            "{}",
+            render::dim(
+                "\nNOTE: API-backend scores are NOT directly comparable to local-backend scores.\n\
+                 The corpus is tuned for local summarizers (dense reasoning, tight length budget,\n\
+                 free-form FACTS-FIRST prompt). Cloud models with larger context windows and\n\
+                 different defaults may score differently for structural reasons unrelated to\n\
+                 summarisation quality. Use API scores as a directional sanity-check within\n\
+                 the same model family, not as a cross-backend ranking."
+            )
         );
     }
     match out {
         Some(dir) => println!(
             "Summaries saved to {} — skim them; the scores can't judge prose.",
-            dir.display()
+            render::accent(&dir.display().to_string())
         ),
-        None => println!("Pass --out <DIR> to save the summaries and skim them yourself."),
+        None => println!(
+            "Pass {} to save the summaries and skim them yourself.",
+            render::accent("--out <DIR>")
+        ),
     }
 }
 

@@ -10,17 +10,31 @@ use trimwire::sweep as engine;
 /// `trimwire sweep list` — show the session transcripts trimwire can clean, so
 /// you never have to hunt for a path.
 pub fn sweep_list() -> Result<()> {
+    use super::render;
     let files = engine::all_transcript_files();
     if files.is_empty() {
         match engine::sessions_root() {
             Some(root) => {
-                println!("no session transcripts found under {}", root.display());
-                println!("→ run `trimwire on`, then `claude` to create a session first.");
+                println!(
+                    "{} no session transcripts found under {}",
+                    render::bullet(),
+                    root.display()
+                );
+                println!(
+                    "  {} run {}, then {} to create a session first.",
+                    render::dim("→"),
+                    render::accent("trimwire on"),
+                    render::accent("claude")
+                );
             }
-            None => println!("could not locate Claude Code's sessions directory ($HOME unset)"),
+            None => println!(
+                "{} could not locate Claude Code's sessions directory ($HOME unset)",
+                render::bullet()
+            ),
         }
         return Ok(());
     }
+    println!("{}\n", render::strong("trimwire sweep list"));
     // Sub-agent sidechains accumulate on disk too; list them (labeled) so the
     // count and sizes are honest, instead of silently hiding them.
     let sub = files
@@ -29,9 +43,12 @@ pub fn sweep_list() -> Result<()> {
         .count();
     let main = files.len() - sub;
     if sub == 0 {
-        println!("{main} session transcript(s):");
+        println!("{} {main} session transcript(s):", render::bullet());
     } else {
-        println!("{main} session transcript(s) + {sub} sub-agent transcript(s):");
+        println!(
+            "{} {main} session transcript(s) + {sub} sub-agent transcript(s):",
+            render::bullet()
+        );
     }
     for f in &files {
         let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
@@ -40,9 +57,20 @@ pub fn sweep_list() -> Result<()> {
         } else {
             ""
         };
-        println!("  {:>9}  {}{}", human(size as i64), f.display(), tag);
+        println!(
+            "  {} {:>9}  {}{}",
+            render::bullet(),
+            human(size as i64),
+            f.display(),
+            tag
+        );
     }
-    println!("\nclean one: `trimwire sweep file <path>`   ·   clean all: `trimwire sweep all`");
+    println!(
+        "\n  {} clean one: {}   ·   clean all: {}",
+        render::dim("→"),
+        render::accent("trimwire sweep file <path>"),
+        render::accent("trimwire sweep all")
+    );
     Ok(())
 }
 
@@ -50,6 +78,7 @@ pub fn sweep_list() -> Result<()> {
 /// sessions safely abort (the file changed mid-sweep) and are reported, not
 /// fatal.
 pub fn sweep_all(dry_run: bool, yes: bool) -> Result<()> {
+    use super::render;
     // Include sub-agent sidechains: `build_swept` works record-by-record (no
     // cross-message pairing), so sidechain transcripts trim safely and would
     // otherwise pile up on disk uncleaned.
@@ -64,6 +93,7 @@ pub fn sweep_all(dry_run: bool, yes: bool) -> Result<()> {
     if !dry_run && !yes && !confirm_sweep_all(files.len())? {
         return Ok(());
     }
+    println!("{}\n", render::strong("trimwire sweep all"));
     let mut total_saved: i64 = 0;
     let mut swept = 0usize;
     let mut skipped = 0usize;
@@ -78,7 +108,8 @@ pub fn sweep_all(dry_run: bool, yes: bool) -> Result<()> {
                 total_saved += r.saved();
                 swept += 1;
                 println!(
-                    "  {} {}: saved {}",
+                    "  {} {} {}: saved {}",
+                    render::ok(),
                     verb(dry_run),
                     f.display(),
                     human(r.saved())
@@ -87,12 +118,13 @@ pub fn sweep_all(dry_run: bool, yes: bool) -> Result<()> {
             Ok(_) => {} // nothing to do for this file; stay quiet
             Err(e) => {
                 skipped += 1;
-                println!("  skipped {} ({e})", f.display());
+                println!("  {} skipped {} ({e})", render::warn(), f.display());
             }
         }
     }
     println!(
-        "\n{} {} file(s){}; total saved {}.",
+        "\n{} {} {} file(s){}; total saved {}.",
+        render::bullet(),
         verb(dry_run),
         swept,
         if skipped > 0 {
@@ -103,13 +135,14 @@ pub fn sweep_all(dry_run: bool, yes: bool) -> Result<()> {
         human(total_saved),
     );
     if dry_run {
-        println!("(dry-run — nothing written)");
+        println!("{}", render::dim("(dry-run — nothing written)"));
     }
     Ok(())
 }
 
 /// `trimwire sweep undo <path>` — restore a session from its latest backup.
 pub fn sweep_undo(path: PathBuf) -> Result<()> {
+    use super::render;
     let bak = engine::restore_backup(&path)?;
     // Append a human-readable timestamp by parsing the `.bak.<nanos>` suffix.
     let bak_ts = bak
@@ -128,7 +161,8 @@ pub fn sweep_undo(path: PathBuf) -> Result<()> {
         format!(" (backed up {bak_ts})")
     };
     println!(
-        "restored {} from {}{}",
+        "{} restored {} from {}{}",
+        render::ok(),
         path.display(),
         bak.display(),
         ts_note
@@ -169,9 +203,10 @@ fn format_unix_ts(secs: i64) -> String {
 
 /// `trimwire sweep file <path>` — clean (or validate / dry-run) one transcript.
 pub fn sweep_file(path: PathBuf, validate_only: bool, dry_run: bool) -> Result<()> {
+    use super::render;
     if validate_only {
         if engine::validate_file(&path)? {
-            println!("{}: valid", path.display());
+            println!("{} {}: valid", render::ok(), path.display());
             return Ok(());
         }
         bail!(
@@ -185,8 +220,9 @@ pub fn sweep_file(path: PathBuf, validate_only: bool, dry_run: bool) -> Result<(
     if dry_run {
         let r = engine::dry_run_file(&path)?;
         println!(
-            "dry-run {}: would save {} bytes ({} → {}); drop {} empty-thinking block(s), \
+            "{} dry-run {}: would save {} bytes ({} → {}); drop {} empty-thinking block(s), \
              purge {} failed input(s) across {} line(s) — nothing written",
+            render::bullet(),
             path.display(),
             r.saved(),
             r.orig_bytes,
@@ -204,8 +240,9 @@ pub fn sweep_file(path: PathBuf, validate_only: bool, dry_run: bool) -> Result<(
 
     let r = engine::sweep_file(&path)?;
     println!(
-        "swept {}: {} → {} bytes (saved {}); dropped {} empty-thinking block(s), \
+        "{} swept {}: {} → {} bytes (saved {}); dropped {} empty-thinking block(s), \
          purged {} failed input(s); backup {}",
+        render::ok(),
         path.display(),
         r.orig_bytes,
         r.final_bytes,
@@ -239,24 +276,29 @@ fn verb(dry_run: bool) -> &'static str {
 /// Confirm a live `sweep all`. Returns `Ok(true)` to proceed. Refuses (with
 /// guidance) when stdin isn't a terminal, so it never hangs in a pipe / CI.
 fn confirm_sweep_all(count: usize) -> Result<bool> {
+    use super::render;
     use std::io::{IsTerminal, Write};
     if !std::io::stdin().is_terminal() {
         println!(
-            "refusing to sweep {count} transcript(s) without confirmation — re-run with \
-             --yes (or --dry-run to preview)."
+            "{} refusing to sweep {count} transcript(s) without confirmation — re-run with \
+             {} (or {} to preview).",
+            render::warn(),
+            render::accent("--yes"),
+            render::accent("--dry-run")
         );
         return Ok(false);
     }
     print!(
         "About to clean {count} session transcript(s) on disk (backups are made; \
-         `trimwire sweep undo <file>` restores). Continue? [y/N] "
+         {} restores). Continue? [y/N] ",
+        render::accent("trimwire sweep undo <file>")
     );
     std::io::stdout().flush().ok();
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;
     let confirmed = matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes");
     if !confirmed {
-        println!("aborted — nothing changed.");
+        println!("{} aborted — nothing changed.", render::bullet());
     }
     Ok(confirmed)
 }

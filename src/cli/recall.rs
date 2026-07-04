@@ -24,6 +24,7 @@ pub fn recall(
     since: Option<String>,
     until: Option<String>,
 ) -> Result<()> {
+    use super::render;
     let config = Config::load().context("load config")?;
     if !config.ledger.enabled {
         if json {
@@ -32,7 +33,10 @@ pub fn recall(
                 serde_json::json!({"available": false, "reason": "ledger disabled"})
             );
         } else {
-            println!("ledger is disabled in config ([ledger] enabled = false); nothing to recall.");
+            println!(
+                "{} ledger is disabled in config ([ledger] enabled = false); nothing to recall.",
+                render::bullet()
+            );
         }
         return Ok(());
     }
@@ -43,7 +47,12 @@ pub fn recall(
                 serde_json::json!({"available": false, "reason": "ledger not created"})
             );
         } else {
-            println!("ledger not yet created — run `trimwire on`/`trimwire run` first.");
+            println!(
+                "{} ledger not yet created — run {}/{} first.",
+                render::bullet(),
+                render::accent("trimwire on"),
+                render::accent("trimwire run")
+            );
         }
         return Ok(());
     }
@@ -92,18 +101,28 @@ pub fn recall(
 
     if rows.is_empty() {
         match q {
-            Some(s) => println!("no sessions match \"{s}\"."),
+            Some(s) => println!("{} no sessions match \"{s}\".", render::bullet()),
             None => println!(
-                "no sessions recorded yet — run Claude Code through trimwire first \
-                 (`trimwire on`, then `claude`)."
+                "{} no sessions recorded yet — run Claude Code through trimwire first \
+                 ({}, then {}).",
+                render::bullet(),
+                render::accent("trimwire on"),
+                render::accent("claude")
             ),
         }
         return Ok(());
     }
 
+    println!("{}\n", render::strong("trimwire recall"));
     println!(
-        "recent sessions{}  (inspect one: trimwire stats --session <id>)",
+        "{} recent sessions{}",
+        render::bullet(),
         q.map(|s| format!(" matching \"{s}\"")).unwrap_or_default()
+    );
+    println!(
+        "  {} inspect one: {}",
+        render::dim("→"),
+        render::accent("trimwire stats --session <id>")
     );
     for r in &rows {
         // Strip the "claude-" prefix for width; the full id is shown verbatim so
