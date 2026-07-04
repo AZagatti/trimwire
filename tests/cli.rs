@@ -1828,16 +1828,21 @@ fn summarizer_setup_api_primary_with_local_fallback() {
 
 /// #118 (wow-review finding): when the primary is an API provider and ollama is
 /// reachable, the wizard SUGGESTS `local` as the fallback — so the FIRST fallback
-/// picker must DEFAULT to the recommended local model, not the "None" escape
+/// picker must DEFAULT to the RECOMMENDED local model, not the "None" escape
 /// hatch, so hitting Enter follows the on-screen suggestion (matches the
-/// `← recommended` marker too). We accept the fallback default with a blank line
-/// and assert `fallback = ["local"]` was written.
+/// `← recommended` marker too).
+///
+/// The fake reports TWO local models with the recommended one SECOND (`llama3`
+/// then `qwen3.5:4b`), so the written local model discriminates the two possible
+/// implementations: a correct "default = recommended" writes `qwen3.5:4b` (row
+/// 2), whereas a naive "default = first local" would write `llama3` (row 1).
 #[test]
 fn summarizer_setup_fallback_default_follows_local_suggestion() {
     use std::io::Write;
     use std::process::Stdio;
 
-    let fake = FakeOllama::start(&["qwen3.5:4b"]);
+    // Recommended model deliberately NOT first, so "recommended" ≠ "first local".
+    let fake = FakeOllama::start(&["llama3", "qwen3.5:4b"]);
     let dir = tempfile::tempdir().unwrap();
     let cfg_path = dir.path().join(".config/trimwire.toml");
     fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
@@ -1854,14 +1859,15 @@ fn summarizer_setup_fallback_default_follows_local_suggestion() {
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn summarizer setup");
-    // a=add; provider fields; 2=pick provider as primary; y=add a fallback;
-    // <blank>=ACCEPT the fallback default (must be the local model, not None);
+    // a=add; provider fields; 3=pick provider (row 3, after 2 locals) as primary;
+    // y=add a fallback; <blank>=ACCEPT the fallback default (must be the
+    // RECOMMENDED local qwen3.5:4b at row 2, NOT llama3 at row 1, NOT None);
     // <blank>/<blank>=local endpoint/model defaults; n=no more; y=write.
     child
         .stdin
         .take()
         .unwrap()
-        .write_all(b"a\ntestprov\nanthropic\n\ntest-model\n\nTESTPROV_KEY\ny\n2\ny\n\n\n\nn\ny\n")
+        .write_all(b"a\ntestprov\nanthropic\n\ntest-model\n\nTESTPROV_KEY\ny\n3\ny\n\n\n\nn\ny\n")
         .unwrap();
     let out = child.wait_with_output().expect("wait");
     let all = format!(
@@ -1875,10 +1881,59 @@ fn summarizer_setup_fallback_default_follows_local_suggestion() {
         cfg.contains("engine = \"testprov\""),
         "provider is primary; got:\n{cfg}"
     );
-    // The blank fallback line selected local via the new default (was "None").
+    // The blank fallback line selected local via the new default (was "None")...
     assert!(
         cfg.contains("fallback = [\"local\"]") && cfg.contains("[summarizer.local]"),
         "accepting the fallback default must pick the suggested local model; got:\n{cfg}"
+    );
+    // ...and it was the RECOMMENDED model (row 2), not the first local (llama3).
+    assert!(
+        cfg.contains("model    = \"qwen3.5:4b\"") && !cfg.contains("model    = \"llama3\""),
+        "the fallback default must be the RECOMMENDED local, not the first; got:\n{cfg}"
+    );
+}
+
+/// #118 regression (final-review finding): `summarizer status` for a FILE-ONLY
+/// provider (empty `api_key_env`) whose key file is missing must NOT print a
+/// dangling "…, or export ." hint — the env-var clause is only shown when the
+/// provider actually has an env var. A provider with `api_key_env = ""` is a
+/// legitimate, still-supported config shape.
+#[test]
+fn summarizer_status_file_only_provider_no_dangling_export_hint() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join(".config/trimwire.toml");
+    fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+    // engine = a provider with NO env var and a MISSING key file → key unresolved
+    // → the "NOT SET" remediation branch runs.
+    fs::write(
+        &cfg_path,
+        "[summarizer]\nengine = \"fileonly\"\n\n\
+         [[summarizer.providers]]\nid = \"fileonly\"\nstyle = \"anthropic\"\n\
+         base_url = \"https://api.anthropic.com\"\nmodel = \"claude-haiku-4-5\"\n\
+         api_key_env = \"\"\napi_key_file = \"/nonexistent/trimwire-test/key\"\n",
+    )
+    .unwrap();
+
+    let out = Command::new(bin())
+        .args(["summarizer", "status"])
+        .env("HOME", dir.path())
+        .env("XDG_CONFIG_HOME", cfg_path.parent().unwrap())
+        .output()
+        .expect("spawn summarizer status");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // The key is reported unset, and the remediation names the file...
+    assert!(
+        all.contains("NOT SET") && all.contains("api_key_file"),
+        "expected the key-unset remediation; got:\n{all}"
+    );
+    // ...but never suggests exporting an (empty-named) env var.
+    assert!(
+        !all.contains("or export"),
+        "file-only provider must not print a dangling env-var export hint; got:\n{all}"
     );
 }
 

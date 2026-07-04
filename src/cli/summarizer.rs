@@ -1373,13 +1373,21 @@ pub fn summarizer_status() -> Result<()> {
                                 render::bad(),
                                 render::error_text("NOT SET")
                             );
-                            println!(
-                                "      {}",
-                                render::dim(&format!(
+                            // Only mention the env-var fallback when the provider
+                            // actually has one — a file-only provider (api_key_env
+                            // = "") must not print a dangling "or export .".
+                            let hint = if p.api_key_env.is_empty() {
+                                format!(
+                                    "→ set api_key_file = \"~/.{}_key\" (works as a service).",
+                                    p.id
+                                )
+                            } else {
+                                format!(
                                     "→ set api_key_file = \"~/.{}_key\" (works as a service), or export {}.",
                                     p.id, p.api_key_env
-                                ))
-                            );
+                                )
+                            };
+                            println!("      {}", render::dim(&hint));
                         }
                     }
                 }
