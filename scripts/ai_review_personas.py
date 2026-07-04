@@ -302,42 +302,70 @@ def _norm(t: str) -> str:
     return re.sub(r"\W+", " ", (t or "").lower()).strip()[:70]
 
 
+_STOP = {"the", "a", "an", "in", "on", "of", "to", "is", "and", "or", "for", "with", "via", "by"}
+
+
+def _title_tokens(t: str) -> set:
+    return {w for w in re.findall(r"[a-z0-9]+", (t or "").lower()) if w not in _STOP and len(w) > 1}
+
+
+def _overlap(a: set, b: set) -> float:
+    """Overlap coefficient (|a∩b| / min size) — robust to one title being a longer
+    restatement of the other, which is exactly how two personas reword the same bug."""
+    if not a or not b:
+        return 0.0
+    return len(a & b) / min(len(a), len(b))
+
+
+_NEAR_DUP_THRESHOLD = 0.85   # high bar: catches reworded duplicates, keeps distinct bugs
+                             # (e.g. `T: Send` vs `T: Sync` overlap ~0.67 -> stays separate)
+
+
+def _same_issue(f: dict, g: dict) -> bool:
+    """Two findings are the same issue iff: same file, lines near (or absent), AND either the
+    same normalized title OR a high title-token overlap (the SAME bug reworded by a different
+    persona). Distinct bugs at the same line stay separate (low title overlap)."""
+    if f.get("file", "") != g.get("file", ""):
+        return False
+    lf, lg = f.get("line"), g.get("line")
+    if isinstance(lf, int) and isinstance(lg, int) and abs(lf - lg) > 3:
+        return False                                   # same file but far apart -> different instance
+    if _norm(f.get("title", "")) == _norm(g.get("title", "")):
+        return True
+    return _overlap(_title_tokens(f.get("title", "")), _title_tokens(g.get("title", ""))) >= _NEAR_DUP_THRESHOLD
+
+
 def aggregate(findings: list[dict]) -> tuple[list[dict], dict]:
-    """Deduplicate by (file, normalized-title) only. Two findings with the SAME
-    normalized title in the same file are the same issue reported twice — merge them,
-    keeping the HIGHEST severity and the RICHEST detail/suggestion/replacement, and
-    counting agreement in `consensus` (surfaced as the "N/M models" badge). Findings
-    with DIFFERENT titles are kept separate even when they share a file:line — two
-    distinct bugs can land on the same line and neither may be dropped."""
-    by_key: dict[tuple, dict] = {}
+    """Merge findings that are the SAME issue (see _same_issue: same file + near line + same-or-
+    highly-overlapping title — catching a bug reworded by different personas, which the per-persona
+    panel surfaces 2-3×). Keep the HIGHEST severity + RICHEST detail/suggestion/replacement, count
+    agreement in `consensus` (the "N/M models" badge) and accumulate `personas`. Genuinely distinct
+    bugs — even on the same line — stay separate (low title overlap)."""
+    kept: list[dict] = []
     for f in findings:
-        file = f.get("file", "")
-        title_key = _norm(f.get("title", ""))
-        key = (file, title_key)                       # collapse near-identical titles in same file
         p = f.get("persona")
-        if key in by_key:
-            existing = by_key[key]
-            existing["consensus"] += 1
-            if p and p not in existing["personas"]:
-                existing["personas"].append(p)
-            # Promote to the more severe verdict (a later `security` must not be lost
-            # behind an earlier `suggestion`); lower rank == more severe.
+        match = next((g for g in kept if _same_issue(f, g)), None)
+        if match is not None:
+            match["consensus"] += 1
+            if p and p not in match["personas"]:
+                match["personas"].append(p)
+            # Promote to the more severe verdict (a later `security` must not hide behind an
+            # earlier `suggestion`); lower rank == more severe. Keep the richest evidence.
             if SEV_RANK.get(f.get("severity", "suggestion"), 9) < \
-               SEV_RANK.get(existing.get("severity", "suggestion"), 9):
-                existing["severity"] = f.get("severity", existing.get("severity"))
-            # Keep the richest evidence regardless of which severity won.
-            if len(f.get("detail") or "") > len(existing.get("detail") or ""):
-                existing["detail"] = f.get("detail") or existing.get("detail")
-            if f.get("suggestion") and not existing.get("suggestion"):
-                existing["suggestion"] = f["suggestion"]
-            if f.get("replacement") and not existing.get("replacement"):
-                existing["replacement"] = f["replacement"]
+               SEV_RANK.get(match.get("severity", "suggestion"), 9):
+                match["severity"] = f.get("severity", match.get("severity"))
+            if len(f.get("detail") or "") > len(match.get("detail") or ""):
+                match["detail"] = f.get("detail") or match.get("detail")
+            if f.get("suggestion") and not match.get("suggestion"):
+                match["suggestion"] = f["suggestion"]
+            if f.get("replacement") and not match.get("replacement"):
+                match["replacement"] = f["replacement"]
             continue
         entry = dict(f)
         entry["consensus"] = 1
         entry["personas"] = [p] if p else []
-        by_key[key] = entry
-    out = sorted(by_key.values(), key=lambda x: SEV_RANK.get(x.get("severity", "suggestion"), 9))
+        kept.append(entry)
+    out = sorted(kept, key=lambda x: SEV_RANK.get(x.get("severity", "suggestion"), 9))
     stats = {"raw": len(findings), "after": len(out),
              "reduction_pct": round(100 * (1 - len(out) / max(1, len(findings))))}
     return out, stats

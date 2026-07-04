@@ -241,6 +241,34 @@ class TestPersonas(unittest.TestCase):
         self.assertEqual(len(out), 2)
         self.assertEqual({x["title"] for x in out}, {"unwrap panic", "auth bypass"})
 
+    def test_near_dup_merges_reworded_subset(self):
+        # same bug, one title a verbose restatement of the other -> merge (the cross-persona case)
+        a = {"file": "ci.yml", "line": 3, "title": "Action pinned by mutable v6 tag", "severity": "security", "persona": "GATEKEEPER"}
+        b = {"file": "ci.yml", "line": 3, "title": "Third-party action pinned by mutable v6 tag", "severity": "security", "persona": "SENTRY"}
+        out, _ = PZ.aggregate([a, b])
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["consensus"], 2)
+        self.assertEqual(set(out[0]["personas"]), {"GATEKEEPER", "SENTRY"})
+
+    def test_near_dup_keeps_distinct_bugs(self):
+        a = {"file": "a.rs", "line": 5, "title": "unwrap panics on empty input", "severity": "bug"}
+        b = {"file": "a.rs", "line": 5, "title": "data race on static counter", "severity": "bug"}
+        out, _ = PZ.aggregate([a, b])
+        self.assertEqual(len(out), 2)                    # unrelated titles -> both kept
+
+    def test_near_dup_keeps_send_vs_sync(self):
+        # subtle-but-distinct: Send vs Sync differ by one key word -> must NOT merge
+        a = {"file": "a.rs", "line": 1, "title": "Send bound insufficient here", "severity": "bug"}
+        b = {"file": "a.rs", "line": 1, "title": "Sync bound needed here", "severity": "bug"}
+        out, _ = PZ.aggregate([a, b])
+        self.assertEqual(len(out), 2)
+
+    def test_near_dup_respects_line_distance(self):
+        a = {"file": "a.rs", "line": 5, "title": "missing bounds check on index", "severity": "bug"}
+        b = {"file": "a.rs", "line": 80, "title": "missing bounds check on index", "severity": "bug"}
+        out, _ = PZ.aggregate([a, b])
+        self.assertEqual(len(out), 2)                    # same title but far apart -> different issue
+
     def test_aggregate_uses_consensus_not_dupes(self):
         d = {"file": "a.rs", "line": 1, "title": "t", "severity": "bug", "persona": "SENTINEL"}
         e = {"file": "a.rs", "line": 1, "title": "t", "severity": "bug", "persona": "WARDEN"}
