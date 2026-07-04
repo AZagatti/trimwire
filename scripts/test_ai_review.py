@@ -6,7 +6,9 @@ lose issues without anyone noticing. Stdlib only (matches ai_review.py).
 
 Run:  python3 scripts/test_ai_review.py      (or: pytest scripts/test_ai_review.py)
 """
+import json
 import os
+import re
 import sys
 import unittest
 from unittest import mock
@@ -304,6 +306,35 @@ class TestLegacyRouting(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=False):
             self._clear()
             self.assertFalse(R._use_legacy_panel())
+
+
+class TestRunPersonasDispatch(unittest.TestCase):
+    """run_personas must make ONE call PER PERSONA (not one composed call per lane) — the
+    validated recall win. Mock chat so no API is hit."""
+    def _fake_chat(self, calls):
+        def chat(provider, model, system, user, max_tokens=4000, extra=None):
+            m = re.search(r"Perspective: (\w+)", system)
+            pname = m.group(1) if m else "X"
+            calls.append(pname)
+            return json.dumps({"verdict": "comment", "findings": [
+                {"severity": "bug", "title": f"issue-{pname}", "file": "src/x.rs",
+                 "line": 1, "persona": pname}]})
+        return chat
+
+    def test_one_call_per_persona(self):
+        files = [{"filename": "src/x.rs", "patch": "@@\n+unsafe { foo(); }", "additions": 1}]
+        mods = PZ.relevant_modules(["src/x.rs"])
+        self.assertGreater(len(mods), 1)                 # a .rs file routes several personas
+        calls = []
+        with mock.patch.dict(os.environ, {}, clear=False), \
+                mock.patch.object(R, "chat", self._fake_chat(calls)):
+            os.environ.pop("AI_REVIEW_SAMPLES", None)
+            agg, panel = R.run_personas(files, "u", "reviewer", "")
+        # exactly one chat call per routed persona (not grouped/composed by lane)
+        self.assertEqual(len(calls), len(mods))
+        self.assertEqual(sorted(calls), sorted(m["name"] for m in mods))
+        self.assertEqual(len(panel), len(mods))
+        self.assertTrue(agg["findings"])                 # findings aggregated across personas
 
 
 class TestMultiSample(unittest.TestCase):
