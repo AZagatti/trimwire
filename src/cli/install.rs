@@ -106,8 +106,15 @@ pub fn install(boot: bool) -> Result<()> {
     // We do NOT touch the statusline here. See savings via `trimwire stats`, or
     // add a live bar explicitly with `trimwire statusline add`.
     use super::render;
-    let step =
-        |cmd: &str, why: &str| println!("  {:<34}  {}", render::accent(cmd), render::dim(why));
+    // Pad the PLAIN command before colouring — `{:<34}` on an escaped string
+    // counts invisible ANSI bytes and misaligns the column when colour is on.
+    let step = |cmd: &str, why: &str| {
+        println!(
+            "  {}  {}",
+            render::accent(&format!("{cmd:<34}")),
+            render::dim(why)
+        )
+    };
     println!();
     println!("{}", render::strong("Optional next steps"));
     step("trimwire stats", "see savings anytime");

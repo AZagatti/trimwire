@@ -1122,7 +1122,16 @@ pub fn summarizer_setup() -> Result<()> {
 /// without a shell export). Shared by the model-free and full paths.
 fn print_next_steps(answers: &SetupAnswers) {
     use super::render;
-    let cmd = |c: &str, why: &str| println!("    {:<30}  {}", render::accent(c), render::dim(why));
+    // Pad the PLAIN command to a fixed width BEFORE colouring — applying `{:<30}`
+    // to an already-escaped string counts the invisible ANSI bytes and breaks
+    // column alignment whenever colour is on.
+    let cmd = |c: &str, why: &str| {
+        println!(
+            "    {}  {}",
+            render::accent(&format!("{c:<30}")),
+            render::dim(why)
+        )
+    };
 
     println!();
     println!("  {}", render::strong("Next steps"));
