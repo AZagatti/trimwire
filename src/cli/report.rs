@@ -234,15 +234,16 @@ fn do_auto_report(session_arg: Option<&str>) -> Result<()> {
         None => return Ok(()), // nothing to do → silent
     };
 
-    // Check for anomaly. Only anomaly kind currently: post-prune HTTP errors.
-    let note = match anomaly_note(&report) {
-        Some(n) => n,
+    // Check for anomaly. Kinds (priority order): invalid-prune rollback (#138),
+    // then post-prune HTTP error. See `anomaly_note`.
+    let anomaly = match anomaly_note(&report) {
+        Some(a) => a,
         None => return Ok(()), // happy path → silent
     };
 
-    // Dedup: avoid filing the same issue twice for the same session.
+    // Dedup: avoid filing the same issue twice for the same session+kind.
     let dir = dedup_dir(db_path);
-    let fingerprint = format!("{}:post_prune_errors", report.session_id);
+    let fingerprint = format!("{}:{}", report.session_id, anomaly.kind);
     if already_filed(&dir, &fingerprint) {
         return Ok(());
     }
@@ -255,7 +256,7 @@ fn do_auto_report(session_arg: Option<&str>) -> Result<()> {
     let arch = std::env::consts::ARCH;
     let cache_line = best_effort_cache_line();
 
-    let title = "trimwire: post-prune HTTP error (auto-detected)";
+    let title = anomaly.title;
     let body = issue_body(
         tw_ver,
         &claude_ver,
@@ -263,7 +264,7 @@ fn do_auto_report(session_arg: Option<&str>) -> Result<()> {
         os,
         arch,
         cache_line.as_deref(),
-        Some(&note),
+        Some(&anomaly.note),
     );
 
     // Try to file via `gh issue create`, with a bounded wait: this runs from a
@@ -306,7 +307,7 @@ fn do_auto_report(session_arg: Option<&str>) -> Result<()> {
                 arch,
                 cache_line.as_deref(),
                 title,
-                Some(&note),
+                Some(&anomaly.note),
             );
             println!("trimwire: anomaly this session — file it: {fallback}");
         }
@@ -337,19 +338,46 @@ fn gh_create_issue_timed(
     }
 }
 
-/// Return an anomaly note if `report` has detectable anomalies, else `None`.
-///
-/// This is the single decision point for "should we file?". Structured to
-/// allow new anomaly kinds to be added without changing the auto-flow logic.
-pub(crate) fn anomaly_note(report: &SessionReport) -> Option<String> {
-    if report.post_prune_errors > 0 {
-        Some(format!(
-            "post-prune HTTP >=400 on {} request(s) this session",
-            report.post_prune_errors
-        ))
-    } else {
-        None
+/// A detected anomaly worth filing via `report --auto`. `kind` is a stable
+/// discriminator used in the dedup fingerprint (dedup is per session+kind);
+/// `title` is the GitHub issue title; `note` is the content-free description.
+pub(crate) struct Anomaly {
+    pub kind: &'static str,
+    pub title: &'static str,
+    pub note: String,
+}
+
+/// Return the anomaly to file for this session, else `None` — the single
+/// decision point for "should we file?". Kinds are checked in priority order;
+/// a new kind is added here without touching the auto-flow. Invalid-prune
+/// rollbacks (#138) are checked FIRST: a trimwire-caused invalid prune is the
+/// most diagnostic "trimwire malfunctioned" signal (post-prune HTTP errors can
+/// have upstream causes; a rollback is unambiguously our bug).
+pub(crate) fn anomaly_note(report: &SessionReport) -> Option<Anomaly> {
+    if report.invalid_prune_rollbacks > 0 {
+        return Some(Anomaly {
+            kind: "invalid_prune_rollbacks",
+            title: "trimwire: invalid prune rolled back (auto-detected)",
+            note: format!(
+                "trimwire rolled back a self-produced invalid prune on {} request(s) this \
+                 session — a strategy turned a VALID request into an orphaned/invalid one, so \
+                 the original body was forwarded. This is a trimwire bug (a client-malformed \
+                 body is declined silently and never counted here).",
+                report.invalid_prune_rollbacks
+            ),
+        });
     }
+    if report.post_prune_errors > 0 {
+        return Some(Anomaly {
+            kind: "post_prune_errors",
+            title: "trimwire: post-prune HTTP error (auto-detected)",
+            note: format!(
+                "post-prune HTTP >=400 on {} request(s) this session",
+                report.post_prune_errors
+            ),
+        });
+    }
+    None
 }
 
 /// Resolve the directory for the dedup file (`filed-issues`).
@@ -724,17 +752,36 @@ mod tests {
     #[test]
     fn anomaly_note_none_when_no_errors() {
         let rep = make_session_report("sess1", 0);
-        assert_eq!(anomaly_note(&rep), None);
+        assert!(anomaly_note(&rep).is_none());
     }
 
     #[test]
     fn anomaly_note_some_when_errors() {
         let rep = make_session_report("sess2", 3);
-        let note = anomaly_note(&rep);
-        assert!(note.is_some());
-        let note = note.unwrap();
-        assert!(note.contains("3"), "note must include the count");
-        assert!(note.contains("post-prune"));
+        let a = anomaly_note(&rep).expect("post-prune errors should yield an anomaly");
+        assert_eq!(a.kind, "post_prune_errors");
+        assert!(a.note.contains("3"), "note must include the count");
+        assert!(a.note.contains("post-prune"));
+    }
+
+    #[test]
+    fn anomaly_note_flags_invalid_prune_rollback() {
+        let mut rep = make_session_report("sess3", 0);
+        rep.invalid_prune_rollbacks = 2;
+        let a = anomaly_note(&rep).expect("a rollback should yield an anomaly");
+        assert_eq!(a.kind, "invalid_prune_rollbacks");
+        assert!(a.note.contains('2'), "note must include the count");
+        assert!(a.title.contains("rolled back"));
+    }
+
+    /// A rollback outranks a post-prune HTTP error (it's unambiguously our bug),
+    /// so it's the one auto-filed when both are present in a session.
+    #[test]
+    fn anomaly_note_prioritizes_rollback_over_http_error() {
+        let mut rep = make_session_report("sess4", 5);
+        rep.invalid_prune_rollbacks = 1;
+        let a = anomaly_note(&rep).unwrap();
+        assert_eq!(a.kind, "invalid_prune_rollbacks");
     }
 
     // ---------------------------------------------------------------------------
@@ -799,6 +846,7 @@ mod tests {
             ended_at: 0,
             per_model: vec![],
             post_prune_errors,
+            invalid_prune_rollbacks: 0,
         }
     }
 }

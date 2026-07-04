@@ -2291,6 +2291,7 @@ mod tests {
             upstream_timeouts: 0,
             post_prune_errors: 0,
             upstream_http_errors: 0,
+            invalid_prune_rollbacks: 0,
             db_path: std::path::PathBuf::from(":memory:"),
         }
     }

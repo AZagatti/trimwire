@@ -473,10 +473,30 @@ fn replay_decisions(messages: &[Value], state: &PruneState) -> Option<(Vec<Value
     Some((out, overwrote || removed))
 }
 
+/// #138 — pick the forward-original outcome for a rollback. When the INPUT was
+/// valid, the rollback is trimwire's fault (a strategy/replay orphaned a pair, or
+/// re-serialize failed) → [`BodyOutcome::RolledBack`], flagged for `report
+/// --auto`. When the input was already malformed, it's the client's fault →
+/// blameless [`BodyOutcome::Unchanged`]. Mirrors `strategies::apply_to_body`.
+fn rollback_outcome(input_valid: bool) -> BodyOutcome {
+    if input_valid {
+        BodyOutcome::RolledBack
+    } else {
+        BodyOutcome::Unchanged
+    }
+}
+
 /// Serialize `root` (with re-applied decisions) into a `Mutated` outcome. Tags a
 /// synthetic `stable_reprune` "fired" entry so the ledger records it as a pruning
 /// turn — not a no-op-that-changed-the-prefix (which is its cache-bust tripwire).
-fn finish(root: Value, original_bytes: usize, final_bytes: usize) -> BodyOutcome {
+/// A re-serialize failure is trimwire-caused, so it rolls back via
+/// [`rollback_outcome`] (#138), flagged when the input was valid.
+fn finish(
+    root: Value,
+    original_bytes: usize,
+    final_bytes: usize,
+    input_valid: bool,
+) -> BodyOutcome {
     match serde_json::to_vec(&root) {
         Ok(bytes) => BodyOutcome::Mutated {
             bytes,
@@ -489,7 +509,7 @@ fn finish(root: Value, original_bytes: usize, final_bytes: usize) -> BodyOutcome
                 },
             )],
         },
-        Err(_) => BodyOutcome::Unchanged,
+        Err(_) => rollback_outcome(input_valid),
     }
 }
 
@@ -650,6 +670,20 @@ pub fn stable_apply_to_body(
     let Some(messages) = root.get("messages").and_then(Value::as_array) else {
         return BodyOutcome::Unchanged;
     };
+    // #138: was the body trimwire RECEIVED valid? A rollback on an already-
+    // malformed input is the client's fault → never flagged. `normalize` above
+    // only repairs toward validity, so checking here (post-normalize) never
+    // mis-blames a repaired body.
+    let input_valid = PairingIndex::build(messages).validate().is_ok();
+    // Decline a malformed input up-front — forward the original bytes verbatim,
+    // exactly as the stateless `apply_to_body` does. Without this, the stable
+    // (replay) branch could replay checkpoint decisions onto the valid prefix and
+    // emit `Mutated`, forwarding a body that is STILL orphaned in its new tail
+    // (Anthropic 400) — trimwire mutating a body it can't safely prune. Past this
+    // point the input is known-valid, so any rollback below is trimwire-CAUSED.
+    if !input_valid {
+        return BodyOutcome::Unchanged;
+    }
 
     let len = messages.len();
 
@@ -700,7 +734,9 @@ pub fn stable_apply_to_body(
         // the replay can't normally orphan, but `replay_decisions` re-validates
         // and yields `None` so we forward the original body if it ever did.
         let Some((mut out, changed)) = replay_decisions(messages, state) else {
-            return BodyOutcome::Unchanged;
+            // Replaying the checkpoint's recorded decisions would orphan a pair:
+            // a trimwire replay bug (#138) → flag when the input was valid.
+            return rollback_outcome(input_valid);
         };
         // Always-on correctness sanitize: drop empty-thinking blocks Anthropic
         // rejects on resume. The stable prefix already has all thinking
@@ -717,7 +753,7 @@ pub fn stable_apply_to_body(
         let orig_len = serde_json::to_vec(messages).map(|v| v.len()).unwrap_or(0);
         let out_len = serde_json::to_vec(&out).map(|v| v.len()).unwrap_or(0);
         root["messages"] = Value::Array(out);
-        finish(root, orig_len, out_len)
+        finish(root, orig_len, out_len, input_valid)
     } else {
         // CHECKPOINT: full prune (== stateless apply_to_body), then record.
         // Detect a history rewrite (CC's own compaction) up front: initialized
@@ -748,7 +784,24 @@ pub fn stable_apply_to_body(
         let mut pruned = messages.clone();
         let fired = match strategies::run(&mut pruned, cfg) {
             Ok(f) => f,
-            Err(_) => return BodyOutcome::Unchanged, // orphan pre/post → forward original
+            // Full-prune orphaned a pair → forward original, FLAGGED (#138: input
+            // is known-valid past the guard above, so this is trimwire-caused).
+            // Restore the byte-forced snapshot first (mirrors the no-op restore
+            // below) so a rollback never leaves `state` half-drained — otherwise
+            // `result_decisions`/`checkpoint_prefix` would stay empty while
+            // `checkpoint_len`/`initialized` advanced, forcing a spurious
+            // re-checkpoint next turn.
+            Err(_) => {
+                if let Some((cl, init, results, inputs, thinking, prefix)) = rollback {
+                    state.checkpoint_len = cl;
+                    state.initialized = init;
+                    state.result_decisions = results;
+                    state.input_decisions = inputs;
+                    state.stripped_thinking = thinking;
+                    state.checkpoint_prefix = prefix;
+                }
+                return rollback_outcome(input_valid);
+            }
         };
         // Telemetry for the (deferred) minimum-savings gate (IMPROVEMENTS P0 #2): the
         // decision metric is the MARGINAL savings of re-checkpointing vs just replaying
@@ -828,7 +881,8 @@ pub fn stable_apply_to_body(
         root["messages"] = Value::Array(pruned);
         match serde_json::to_vec(&root) {
             Ok(bytes) => BodyOutcome::Mutated { bytes, fired },
-            Err(_) => BodyOutcome::Unchanged,
+            // Re-serialize of a mutated valid body failed → trimwire-caused (#138).
+            Err(_) => rollback_outcome(input_valid),
         }
     }
 }
@@ -913,8 +967,52 @@ mod tests {
 
     fn bytes_of(o: &BodyOutcome, original: &[u8]) -> Vec<u8> {
         match o {
-            BodyOutcome::Unchanged => original.to_vec(),
+            // Both forward the original body verbatim.
+            BodyOutcome::Unchanged | BodyOutcome::RolledBack => original.to_vec(),
             BodyOutcome::Mutated { bytes, .. } => bytes.clone(),
+        }
+    }
+
+    /// #138 — the classifier that decides blame for a forward-original rollback.
+    /// (The trimwire-caused rollback *branches* themselves are backstops for a
+    /// future orphaning strategy — no current strategy can orphan a valid body —
+    /// so this pins the decision logic they all funnel through.)
+    #[test]
+    fn rollback_outcome_classifies_by_input_validity() {
+        assert!(
+            matches!(rollback_outcome(true), BodyOutcome::RolledBack),
+            "valid input + rollback ⇒ trimwire's fault ⇒ flagged"
+        );
+        assert!(
+            matches!(rollback_outcome(false), BodyOutcome::Unchanged),
+            "invalid input ⇒ client's fault ⇒ blameless"
+        );
+    }
+
+    /// #138 — a CLIENT-malformed body (orphaned `tool_result`) routed through the
+    /// stateful reprune path must forward the original as `Unchanged`, never
+    /// `RolledBack`: the full-prune's `run()` rejects the orphaned input, and
+    /// `input_valid=false` classifies it as blameless.
+    #[test]
+    fn stable_client_malformed_input_is_unchanged_not_rolled_back() {
+        let body = serde_json::to_vec(&json!({
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 1024,
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_ghost",
+                     "content": "x".repeat(9000)}
+                ]},
+            ],
+        }))
+        .unwrap();
+        let mut state = PruneState::default();
+        match stable_apply_to_body(&body, &cfg(), &mut state, 8) {
+            BodyOutcome::Unchanged => {}
+            BodyOutcome::RolledBack => {
+                panic!("client-malformed input must NOT be flagged as a trimwire rollback")
+            }
+            BodyOutcome::Mutated { .. } => panic!("must not mutate a malformed input"),
         }
     }
 

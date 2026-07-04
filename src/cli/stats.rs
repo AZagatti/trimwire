@@ -203,6 +203,19 @@ pub fn stats(
         );
     }
 
+    // Invalid-prune rollbacks (#138): trimwire pruned a VALID request into an
+    // invalid one and forwarded the original. Unambiguously a trimwire bug (a
+    // client-malformed body is not counted here). Near-zero in practice; any
+    // non-zero count is worth reporting. Silent on the happy path / older ledgers.
+    if report.invalid_prune_rollbacks > 0 {
+        println!(
+            "  {} {} request(s) rolled back an invalid prune — a trimwire strategy produced \
+             an invalid body from a valid one (a bug); please run `trimwire report`.",
+            render::warn(),
+            report.invalid_prune_rollbacks,
+        );
+    }
+
     // Upstream failures (proxy couldn't reach / timed out on Anthropic). These
     // never produce a normal request row, so they'd be invisible otherwise. Shown
     // in the DEFAULT view ONLY when non-zero — they always matter when present, and
@@ -458,6 +471,15 @@ fn print_session_report(report: Option<SessionReport>, requested: &str, json: bo
              have caused a rejection; run `trimwire report` if a session broke.",
             render::warn(),
             report.post_prune_errors,
+        );
+    }
+    // Per-session invalid-prune rollbacks (#138), mirroring the all-time warning.
+    if report.invalid_prune_rollbacks > 0 {
+        println!(
+            "  {} {} request(s) rolled back an invalid prune — a trimwire strategy produced \
+             an invalid body from a valid one (a bug); please run `trimwire report`.",
+            render::warn(),
+            report.invalid_prune_rollbacks,
         );
     }
     Ok(())

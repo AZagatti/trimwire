@@ -127,7 +127,8 @@ async fn run() -> i32 {
         trimwire::strategies::BodyOutcome::Mutated { bytes, .. } => {
             serde_json::from_slice(bytes).unwrap()
         }
-        trimwire::strategies::BodyOutcome::Unchanged => root.clone(),
+        trimwire::strategies::BodyOutcome::Unchanged
+        | trimwire::strategies::BodyOutcome::RolledBack => root.clone(),
     };
     let pairing_ok = PairingIndex::build(warm_root["messages"].as_array().unwrap())
         .validate()
@@ -181,7 +182,8 @@ fn outcome_msg_bytes(o: &trimwire::strategies::BodyOutcome, original: &[u8]) -> 
     use serde_json::Value;
     let bytes = match o {
         trimwire::strategies::BodyOutcome::Mutated { bytes, .. } => bytes.clone(),
-        trimwire::strategies::BodyOutcome::Unchanged => original.to_vec(),
+        trimwire::strategies::BodyOutcome::Unchanged
+        | trimwire::strategies::BodyOutcome::RolledBack => original.to_vec(),
     };
     let v: Value = serde_json::from_slice(&bytes).unwrap();
     serde_json::to_vec(&v["messages"])

@@ -871,7 +871,8 @@ pub fn measure(body: &Value, cfg: &Config) -> Run {
 
     let body_bytes = serde_json::to_vec(body).expect("serialize body");
     let (unchanged, system_preserved) = match strategies::apply_to_body(&body_bytes, cfg) {
-        BodyOutcome::Unchanged => (true, true),
+        // A rollback forwards the original body → unchanged + system intact.
+        BodyOutcome::Unchanged | BodyOutcome::RolledBack => (true, true),
         BodyOutcome::Mutated { bytes, .. } => {
             let after: Value = serde_json::from_slice(&bytes).expect("parse mutated");
             (false, after.get("system") == body.get("system"))
@@ -1226,7 +1227,7 @@ fn stable_snapshot(
 ) -> Vec<Value> {
     let body = snapshot_body(messages, end);
     let bytes = match trimwire::reprune::stable_apply_to_body(&body, cfg, state, threshold) {
-        BodyOutcome::Unchanged => body,
+        BodyOutcome::Unchanged | BodyOutcome::RolledBack => body,
         BodyOutcome::Mutated { bytes, .. } => bytes,
     };
     serde_json::from_slice::<Value>(&bytes)

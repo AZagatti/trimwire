@@ -2138,7 +2138,8 @@ mod tests {
                     .unwrap()
                     .clone()
             }
-            crate::strategies::BodyOutcome::Unchanged => msgs2,
+            crate::strategies::BodyOutcome::Unchanged
+            | crate::strategies::BodyOutcome::RolledBack => msgs2,
         };
         (segs, replayed)
     }
