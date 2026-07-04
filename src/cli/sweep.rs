@@ -264,8 +264,9 @@ pub fn sweep_file(path: PathBuf, validate_only: bool, dry_run: bool) -> Result<(
     }
     if !now_valid {
         eprintln!(
-            "note: {} still has pre-existing issues sweep does not fix (it was already \
-             invalid before sweeping); the swept content was preserved as-is",
+            "{} {} still has pre-existing issues sweep does not fix (it was already invalid \
+             before sweeping); the swept content was preserved as-is",
+            render::warn(),
             path.display()
         );
     }

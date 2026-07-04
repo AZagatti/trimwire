@@ -18,12 +18,19 @@ const RC_MARKER_END: &str = "# <<< trimwire <<<";
 /// explicit, separate step (`trimwire statusline add`). install is idempotent,
 /// so you can re-run it freely.
 pub fn install(boot: bool) -> Result<()> {
+    use super::render;
+    println!("{}\n", render::strong("trimwire install"));
     let cfg_path = config::global_config_path();
     if super::write_config_if_absent(&cfg_path)? {
-        println!("wrote starter config: {}", cfg_path.display());
+        println!(
+            "{} wrote starter config: {}",
+            render::ok(),
+            render::accent(&cfg_path.display().to_string())
+        );
     } else {
         println!(
-            "config already exists: {} (left unchanged)",
+            "{} config already exists: {} (left unchanged)",
+            render::bullet(),
             cfg_path.display()
         );
     }
@@ -45,14 +52,29 @@ pub fn install(boot: bool) -> Result<()> {
                 Some(updated) => {
                     write_text_atomic(&rc, &updated)
                         .with_context(|| format!("write {}", rc.display()))?;
-                    println!("added trimwire env exports to {}", rc.display());
-                    println!("→ restart your shell or `source {}`", rc.display());
+                    println!(
+                        "{} added trimwire env exports to {}",
+                        render::ok(),
+                        rc.display()
+                    );
+                    println!(
+                        "  {} restart your shell or {}",
+                        render::dim("→"),
+                        render::accent(&format!("source {}", rc.display()))
+                    );
                 }
-                None => println!("shell rc already has the trimwire block: {}", rc.display()),
+                None => println!(
+                    "{} shell rc already has the trimwire block: {}",
+                    render::bullet(),
+                    rc.display()
+                ),
             }
         }
         None => {
-            println!("could not detect your shell rc — add these exports manually:");
+            println!(
+                "{} could not detect your shell rc — add these exports manually:",
+                render::warn()
+            );
             println!("{block}");
         }
     }
@@ -64,48 +86,72 @@ pub fn install(boot: bool) -> Result<()> {
         Ok(addr) => match super::service::install(addr, boot) {
             Ok(installed) => {
                 use super::service::Autostart;
-                println!("installed service: {}", installed.manager.label());
+                println!(
+                    "{} installed service: {}",
+                    render::ok(),
+                    installed.manager.label()
+                );
                 match installed.autostart {
-                    Autostart::Linger => {
-                        println!("→ starts on (re)boot, even before login — forget it's there.")
-                    }
+                    Autostart::Linger => println!(
+                        "  {} starts on (re)boot, even before login — forget it's there.",
+                        render::dim("→")
+                    ),
                     Autostart::Login => println!(
-                        "→ starts automatically when you log in. (Add `--boot` to also start \
-                         before login / survive logout.)"
+                        "  {} starts automatically when you log in. (Add {} to also start before \
+                         login / survive logout.)",
+                        render::dim("→"),
+                        render::accent("--boot")
                     ),
                     Autostart::LingerFailed => {
                         let user = std::env::var("USER").unwrap_or_else(|_| "$USER".to_owned());
                         println!(
-                            "→ starts at login; couldn't enable pre-login start automatically — \
-                             run once: loginctl enable-linger {user}"
+                            "  {} starts at login; couldn't enable pre-login start automatically — \
+                             run once: {}",
+                            render::dim("→"),
+                            render::accent(&format!("loginctl enable-linger {user}"))
                         );
                     }
                     Autostart::Manual => println!(
-                        "→ no socket activation here (no systemd/launchd); it won't auto-start — \
-                         run `trimwire on` to (re)start it."
+                        "  {} no socket activation here (no systemd/launchd); it won't auto-start — \
+                         run {} to (re)start it.",
+                        render::dim("→"),
+                        render::accent("trimwire on")
                     ),
                 }
                 if installed.gui_env {
                     println!(
-                        "→ also set the env for GUI-launched editors. If your IDE still bypasses \
-                         it, set ANTHROPIC_BASE_URL in its settings (see docs/TROUBLESHOOTING.md)."
+                        "  {} also set the env for GUI-launched editors. If your IDE still bypasses \
+                         it, set ANTHROPIC_BASE_URL in its settings (see docs/TROUBLESHOOTING.md).",
+                        render::dim("→")
                     );
                 }
                 println!(
-                    "turn it off any time with `trimwire off`; check it with `trimwire status`."
+                    "  {}",
+                    render::dim(
+                        "turn it off any time with `trimwire off`; check it with `trimwire status`."
+                    )
                 );
             }
             Err(e) => {
-                println!("could not install the background service ({e}).");
-                println!("→ run the gateway yourself with `trimwire run`.");
+                println!(
+                    "{} could not install the background service ({e}).",
+                    render::warn()
+                );
+                println!(
+                    "  {} run the gateway yourself with {}.",
+                    render::dim("→"),
+                    render::accent("trimwire run")
+                );
             }
         },
-        Err(_) => println!("could not parse listen address `{listen}`; skipped service install"),
+        Err(_) => println!(
+            "{} could not parse listen address `{listen}`; skipped service install",
+            render::warn()
+        ),
     }
 
     // We do NOT touch the statusline here. See savings via `trimwire stats`, or
     // add a live bar explicitly with `trimwire statusline add`.
-    use super::render;
     // Pad the PLAIN command before colouring — `{:<34}` on an escaped string
     // counts invisible ANSI bytes and misaligns the column when colour is on.
     let step = |cmd: &str, why: &str| {
@@ -171,30 +217,43 @@ pub fn install(boot: bool) -> Result<()> {
 
 /// `trimwire statusline add [--wrap]` — wire the savings bar into Claude Code.
 pub fn statusline_add(wrap: bool) -> Result<()> {
+    use super::render;
     match wire_statusline(wrap) {
-        StatuslineWire::Added => {
-            println!("added trimwire's savings bar to Claude Code's statusline.")
-        }
+        StatuslineWire::Added => println!(
+            "{} added trimwire's savings bar to Claude Code's statusline.",
+            render::ok()
+        ),
         StatuslineWire::Wrapped => println!(
-            "wrapped your existing statusline — trimwire now adds a row beneath it. \
-             (`trimwire statusline remove` restores your original.)"
+            "{} wrapped your existing statusline — trimwire now adds a row beneath it. \
+             ({} restores your original.)",
+            render::ok(),
+            render::accent("trimwire statusline remove")
         ),
         StatuslineWire::Exists => println!(
-            "you already have a statusline — left it untouched. Run \
-             `trimwire statusline wrap` to keep it and add trimwire's row beneath."
+            "{} you already have a statusline — left it untouched. Run {} to keep it and add \
+             trimwire's row beneath.",
+            render::bullet(),
+            render::accent("trimwire statusline wrap")
         ),
-        StatuslineWire::NoChange => println!("statusline already shows trimwire (no change)."),
+        StatuslineWire::NoChange => println!(
+            "{} statusline already shows trimwire (no change).",
+            render::bullet()
+        ),
         StatuslineWire::ParseError => println!(
-            "left ~/.claude/settings.json untouched (couldn't parse it — JSON comments?). \
-             Add the statusline yourself per CONFIGURATION.md."
+            "{} left ~/.claude/settings.json untouched (couldn't parse it — JSON comments?). \
+             Add the statusline yourself per CONFIGURATION.md.",
+            render::warn()
         ),
         StatuslineWire::NotObject => println!(
-            "~/.claude/settings.json isn't a JSON object — left it untouched. Fix it (it should \
-             be `{{ ... }}`) and re-run, or add the statusline yourself per CONFIGURATION.md."
+            "{} ~/.claude/settings.json isn't a JSON object — left it untouched. Fix it (it \
+             should be `{{ ... }}`) and re-run, or add the statusline yourself per CONFIGURATION.md.",
+            render::warn()
         ),
-        StatuslineWire::Skipped => {
-            println!("couldn't access Claude Code settings; see savings with `trimwire stats`.")
-        }
+        StatuslineWire::Skipped => println!(
+            "{} couldn't access Claude Code settings; see savings with {}.",
+            render::warn(),
+            render::accent("trimwire stats")
+        ),
     }
     Ok(())
 }

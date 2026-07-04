@@ -554,8 +554,10 @@ fn prompt_model_picker(installed: &[String], default_model: &str) -> PickerChoic
         );
     }
     println!();
-    println!("   {}  all installed", render::accent("a)"));
-    println!("   {}  cancel (no benchmark)", render::accent("q)"));
+    // Option keys stay plain (like the numbered rows) — accent is reserved for
+    // values/commands, matching summarizer.rs's picker.
+    println!("   a)  all installed");
+    println!("   q)  cancel (no benchmark)");
     println!();
     print!("Choice [Enter = {default_model}]: ");
     let _ = std::io::stdout().flush();

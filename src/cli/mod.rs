@@ -334,12 +334,14 @@ pub fn doctor(strict: bool) -> Result<()> {
         );
         println!();
         println!(
-            "→ run {} to set up the gateway, shell env, and starter config.",
-            render::accent("`trimwire install`")
+            "  {} run {} to set up the gateway, shell env, and starter config.",
+            render::dim("→"),
+            render::accent("trimwire install")
         );
         println!(
-            "→ run {} again after install to verify the setup.",
-            render::accent("`trimwire doctor`")
+            "  {} run {} again after install to verify the setup.",
+            render::dim("→"),
+            render::accent("trimwire doctor")
         );
         if strict {
             // Pre-install is an advisory state (not installed / gateway down / env

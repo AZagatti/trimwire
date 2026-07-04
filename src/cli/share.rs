@@ -2037,11 +2037,19 @@ fn with_trailing_newline(mut s: String) -> String {
 pub fn share_stats(yes: bool, force: bool) -> Result<()> {
     let config = Config::load().context("load config")?;
     if !config.ledger.enabled {
-        println!("ledger is disabled ([ledger] enabled = false) — nothing to share.");
+        println!(
+            "{} ledger is disabled ([ledger] enabled = false) — nothing to share.",
+            super::render::bullet()
+        );
         return Ok(());
     }
     if !ledger::resolve_path(&config.ledger.db_path).exists() {
-        println!("ledger not yet created — run `trimwire on`/`trimwire run` first.");
+        println!(
+            "{} ledger not yet created — run {}/{} first.",
+            super::render::bullet(),
+            super::render::accent("trimwire on"),
+            super::render::accent("trimwire run")
+        );
         return Ok(());
     }
 
