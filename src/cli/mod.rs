@@ -589,19 +589,22 @@ pub fn doctor(strict: bool) -> Result<()> {
                             // Recommend the key file first: the always-up service that
                             // `trimwire install` sets up can't see shell exports.
                             println!(
-                                "  → recommended: set `api_key_file = \"~/.{}_key\"` on this provider \
+                                "  {} recommended: set `api_key_file = \"~/.{}_key\"` on this provider \
                                  in trimwire.toml (works as a service — the default install; `chmod 600` it).",
+                                render::dim("→"),
                                 provider.id
                             );
                             if !provider.api_key_env.is_empty() {
                                 println!(
-                                    "  → or, for foreground `trimwire run` only: export {}=\"<your-api-key>\" \
+                                    "  {} or, for foreground `trimwire run` only: export {}=\"<your-api-key>\" \
                                      (add to ~/.zshrc/~/.bashrc to persist).",
+                                    render::dim("→"),
                                     provider.api_key_env
                                 );
                             }
                             println!(
-                                "  → then `trimwire off --stop && trimwire on` to restart the gateway with the new key."
+                                "  {} then `trimwire off --stop && trimwire on` to restart the gateway with the new key.",
+                                render::dim("→")
                             );
                         }
                     }

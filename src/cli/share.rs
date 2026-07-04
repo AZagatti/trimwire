@@ -2086,7 +2086,12 @@ pub fn share_stats(yes: bool, force: bool) -> Result<()> {
         "{} trimwire share stats — anonymous, content-free telemetry",
         super::render::header()
     );
-    println!("  This is the *entire* payload (coarse buckets only; see docs/TELEMETRY.md):\n");
+    println!(
+        "  {}\n",
+        super::render::dim(
+            "This is the *entire* payload (coarse buckets only; see docs/TELEMETRY.md):"
+        )
+    );
     println!("{body}\n");
     println!(
         "  No prompts, code, paths, ids, IPs, timestamps, or raw counts are in it,\n\

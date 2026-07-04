@@ -845,7 +845,10 @@ fn run_share(results: &[ModelScore], yes: bool, endpoint: &str) -> Result<()> {
         "{}",
         render::strong("trimwire share benchmark — anonymous, content-free per-model rows")
     );
-    println!("  This is the ENTIRE payload (coarse buckets only; one row per model):\n");
+    println!(
+        "  {}\n",
+        render::dim("This is the ENTIRE payload (coarse buckets only; one row per model):")
+    );
     let mut bodies: Vec<String> = Vec::with_capacity(results.len());
     for r in results {
         // Skip placeholder rows from an API dry-run (no real data to share).
