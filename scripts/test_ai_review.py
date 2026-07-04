@@ -432,6 +432,31 @@ class TestStrictMode(unittest.TestCase):
         self.assertNotIn("strict mode", out)
 
 
+class TestCrossFileCollapse(unittest.TestCase):
+    def test_same_issue_across_files_collapses_in_summary(self):
+        # a persona flagging the identical issue in 3 files -> ONE summary entry, +2 more
+        findings = [
+            {"severity": "security", "title": "Unpinned action tag", "file": "a.yml", "line": 3},
+            {"severity": "security", "title": "Unpinned action tag", "file": "b.yml", "line": 5},
+            {"severity": "security", "title": "unpinned action tag", "file": "c.yml", "line": 7},
+            {"severity": "bug", "title": "Different real bug", "file": "d.rs", "line": 1},
+        ]
+        out = R.render({}, {"findings": findings, "verdict": "comment"},
+                       [{"name": "X", "model": "x/y", "ok": True, "review": {}}], 4, 4)
+        # the repeated issue shows once with a "+2 more file(s)" note, not 3 times
+        self.assertEqual(out.count("Unpinned action tag"), 1)
+        self.assertIn("+2 more file(s)", out)
+        self.assertIn("Different real bug", out)          # distinct bug still shown
+
+    def test_collapse_keeps_highest_severity(self):
+        fs = [{"severity": "suggestion", "title": "same", "file": "a.rs", "line": 1},
+              {"severity": "security", "title": "same", "file": "b.rs", "line": 1}]
+        out = R._collapse_repeats(fs)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "security")
+        self.assertEqual(len(out[0]["_locs"]), 2)
+
+
 class TestRenderSafety(unittest.TestCase):
     def test_raw_panel_backticks_dont_break_fence(self):
         panel = [{"name": "X", "model": "x/y", "ok": True,

@@ -644,6 +644,35 @@ def _safe_replacement(s: object) -> str | None:
     return re.sub(r"`{3,}", lambda m: "​".join("`" * len(m.group(0))), s)
 
 
+def _collapse_repeats(findings: list[dict]) -> list[dict]:
+    """Collapse the SAME issue reported across MULTIPLE files (same normalized title,
+    different files) into ONE summary entry — kills cross-file repetition noise (a persona
+    flagging the identical pattern in N files: e.g. "duplicate pattern" once per language).
+    Keeps the highest-severity instance and records every location. This is SUMMARY display
+    only — findings.json (the inline comments) is untouched, so each file:line still gets its
+    own annotation. No recall loss: every distinct issue is still shown, just once."""
+    import ai_review_personas as pz
+    groups: dict = {}
+    order: list = []
+    for f in findings:
+        key = pz._norm(f.get("title", ""))
+        loc = f.get("file", "") + (f":{f['line']}" if f.get("line") else "")
+        g = groups.get(key)
+        if g is None:
+            g = dict(f)
+            g["_locs"] = [loc] if loc else []
+            groups[key] = g
+            order.append(key)
+        else:
+            if loc and loc not in g["_locs"]:
+                g["_locs"].append(loc)
+            if _rank(f) > _rank(g):                    # promote to the more severe instance
+                g["severity"] = f.get("severity", g.get("severity"))
+                if len(f.get("detail") or "") > len(g.get("detail") or ""):
+                    g["detail"] = f.get("detail") or g.get("detail")
+    return [groups[k] for k in order]
+
+
 def render(meta: dict, agg: dict, panel_results: list[dict],
            kept: int, total: int) -> str:
     if not isinstance(agg, dict):
@@ -678,6 +707,9 @@ def render(meta: dict, agg: dict, panel_results: list[dict],
                          if f.get("severity") == "security" or (f.get("consensus") or 1) >= 2]
         hidden = len(findings) - len(kept_findings)
         findings = kept_findings
+    # Collapse the same issue repeated across many files into one summary entry (dominant
+    # noise source with per-persona review; inline comments keep per-file annotation).
+    findings = _collapse_repeats(findings)
     if not findings and strict and hidden:
         lines += [f"Strict mode: no consensus/security findings "
                   f"({hidden} solo finding(s) hidden — see raw panel below). ✅", ""]
@@ -687,9 +719,11 @@ def render(meta: dict, agg: dict, panel_results: list[dict],
         lines.append("### Findings")
         for f in sorted(findings, key=lambda x: (-_rank(x), -(x.get("consensus") or 1))):
             emoji, tag = SEV.get(f.get("severity", "suggestion"), ("•", str(f.get("severity", ""))))
-            loc = _md_safe(f.get("file", ""))
-            if f.get("line"):
-                loc += f":{f['line']}"
+            locs = f.get("_locs") or ([f.get("file", "") + (f":{f['line']}" if f.get("line") else "")]
+                                      if f.get("file") else [])
+            loc = _md_safe(locs[0]) if locs else ""
+            if len(locs) > 1:
+                loc += f"` +{len(locs) - 1} more file(s)`"   # cross-file repeat collapsed
             consensus = f.get("consensus")
             badge = f" · {consensus}/{ok_count} models" if consensus else ""
             lines.append(f"\n{emoji} `{tag}` **{_md_safe(f.get('title', ''))}**{badge}")
