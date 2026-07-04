@@ -279,7 +279,11 @@ def _first_json_object(text: str) -> str:
     raise ValueError("no complete JSON object found")
 
 
-_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+# Salvage-only: neutralize ALL C0 control chars (incl. literal \n \t \r) inside a recovered
+# fragment before json.loads — a model that emits raw newlines inside a string value (e.g. a
+# multi-line `detail` with an inline code block) produces invalid JSON that only salvage can
+# recover; replacing the control chars with spaces is a lossy-but-correct recovery there.
+_CTRL_RE = re.compile(r"[\x00-\x1f]")
 
 
 def parse_json(text: str) -> dict:
@@ -291,7 +295,12 @@ def parse_json(text: str) -> dict:
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\n", "", text)
-        text = re.sub(r"\n```.*$", "", text, flags=re.DOTALL).strip()
+        # Strip the CLOSING fence only. Target the LAST ``` (via rfind), not a greedy
+        # `.*$` from the first: a `detail` value can legitimately contain an inner ```code```
+        # block with real newlines, and a greedy DOTALL strip truncates the whole JSON at
+        # that inner fence (dropping every finding, salvage included).
+        last = text.rfind("\n```")
+        text = (text[:last] if last != -1 else text).strip()
     for candidate in (text, None):
         try:
             src = candidate if candidate is not None else _first_json_object(text)

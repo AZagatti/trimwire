@@ -237,6 +237,27 @@ Walk EVERY `uses:` action ref and EVERY manifest dependency line INDIVIDUALLY an
 - Order-dependent: shared static/global mutable state across tests without reset
 - #[ignore] without an explanation of why / when it re-enables; resource created without cleanup""",
     },
+    {
+        # Coverage-ENUMERATION pass. `solo=True` => runs as its OWN dedicated call (never paired),
+        # preserving the standalone structured enumeration that the bench validated at 0 false
+        # positives — it recovers a false-coverage issue class the free-form SCOUT checklist
+        # structurally cannot (bench: pathA_enum probe, 1/4 all-missed GTs recovered, 0 FP).
+        "name": "SURVEYOR", "lane": "glm", "always": True, "needs_code": True, "solo": True,
+        "role": "Coverage enumeration — untested changes, coverage regressions & false coverage.",
+        "checklist": """Do NOT free-associate findings. Work the diff in TWO explicit steps.
+STEP 1 — ENUMERATE (read BOTH '+' and '-' lines). Mentally list every item in these classes the diff touches:
+  - new or signature-changed PUBLIC symbol (fn/struct/enum/method/trait/env-var/config key)
+  - new BRANCH: match arm, enum variant, provider/backend type, config flag, error path
+  - TEST change: a test/case/param/scenario/env ADDED, and any test/case/param/scenario REMOVED or NARROWED (read the '-' lines)
+STEP 2 — for EACH enumerated item, rule on coverage; emit a finding (severity "test") ONLY for a real gap:
+  - a new public symbol or branch with NO test in THIS diff exercising THAT specific item -> title "<item> is untested"
+  - a test/case/param/env present on a '-' line and not re-added on a '+' line -> coverage REGRESSION: title "<scenario> no longer exercised"
+  - an integration/e2e test that runs a LOCAL / mock / in-memory / trivial path while it NAMES a real feature
+    (cloud creds, network, routing, real IO) -> FALSE coverage: the test passes but proves nothing about <feature>
+Be exhaustive over the enumeration — do not stop at the first gap; walk every enumerated item.
+ZERO-tolerance for ungrounded findings: if you cannot point to the exact changed line, do NOT emit it (set `line`
+to that line). `title` = the uncovered item in a few words; `detail` = what is not exercised + the concrete risk.""",
+    },
 ]
 
 # --- Router ------------------------------------------------------------------
@@ -286,14 +307,17 @@ def group_by_model(modules: list[dict]) -> dict[str, list[dict]]:
 _CLUSTER = {"SENTINEL": "correctness", "FERRUS": "correctness", "PYTHIA": "correctness",
             "CHRONICLER": "correctness", "SCOUT": "correctness", "WARDEN": "security",
             "GATEKEEPER": "security", "SENTRY": "security", "VANGUARD": "frontend",
-            "ARGUS": "frontend", "PACER": "frontend", "SCRIBE": "docs"}
+            "ARGUS": "frontend", "PACER": "frontend", "SCRIBE": "docs", "SURVEYOR": "coverage"}
 
 
 def group_correlated_pairs(modules: list[dict]) -> list[list[dict]]:
     """Pair CORRELATED personas on the same resolved model, MAX 2 per call. Returns a list of
-    module-lists, each 1-2 personas. Correlated-first so a pair shares a domain lens."""
-    out: list[list[dict]] = []
-    for ms in group_by_model(modules).values():
+    module-lists, each 1-2 personas. Correlated-first so a pair shares a domain lens. A module
+    marked `solo` (e.g. SURVEYOR, whose structured enumeration is diluted by pairing) is pulled
+    out first into its OWN single-module call and never paired."""
+    out: list[list[dict]] = [[m] for m in modules if m.get("solo")]
+    rest = [m for m in modules if not m.get("solo")]
+    for ms in group_by_model(rest).values():
         ms = sorted(ms, key=lambda m: (_CLUSTER.get(m["name"], "z"), m["name"]))
         for i in range(0, len(ms), 2):
             out.append(ms[i:i + 2])

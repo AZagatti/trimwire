@@ -34,6 +34,17 @@ class TestParseJson(unittest.TestCase):
         obj = R.parse_json('```json\n{"verdict": "approve", "findings": []}\n```\nThanks!')
         self.assertEqual(obj["verdict"], "approve")
 
+    def test_fenced_with_inner_code_block_in_detail(self):
+        # A fenced response whose `detail` contains an inner ```code``` block with real
+        # newlines must NOT be truncated at that inner fence (regression: greedy DOTALL strip
+        # dropped every finding). The closing fence is the LAST ```, not the first.
+        raw = ('```json\n{"findings": [{"severity": "bug", "file": "a.rs", "line": 5, '
+               '"title": "unwrap panic", "detail": "call site:\n```rust\nfoo.unwrap()\n```\n'
+               'panics"}]}\n```')
+        obj = R.parse_json(raw)
+        self.assertEqual(len(obj["findings"]), 1)
+        self.assertEqual(obj["findings"][0]["title"], "unwrap panic")
+
     def test_prose_wrapped(self):
         o = R.parse_json('Here is my review:\n{"verdict":"approve","findings":[]}\nThanks!')
         self.assertEqual(o["verdict"], "approve")
@@ -210,6 +221,25 @@ class TestPersonas(unittest.TestCase):
     def test_group_by_model_merges_same_lane(self):
         mods = [m for m in PZ.MODULES if m["name"] in ("SENTINEL", "FERRUS")]  # both GLM
         self.assertEqual(len(PZ.group_by_model(mods)), 1)
+
+    def test_surveyor_routes_on_code_not_docs(self):
+        # SURVEYOR (coverage enumeration) fires on any code PR, not on docs-only.
+        self.assertIn("SURVEYOR", {m["name"] for m in PZ.relevant_modules(["src/x.rs"])})
+        self.assertIn("SURVEYOR", {m["name"] for m in PZ.relevant_modules(["scripts/a.py"])})
+        self.assertNotIn("SURVEYOR", {m["name"] for m in PZ.relevant_modules(["README.md"])})
+
+    def test_surveyor_runs_solo_never_paired(self):
+        # A `solo` module must be its own single-module call, never grouped with another persona,
+        # even though it shares the GLM lane with SENTINEL/FERRUS/SCOUT.
+        mods = PZ.relevant_modules(["src/x.rs", "tests/a.rs", "Cargo.toml"])
+        groups = PZ.group_correlated_pairs(mods)
+        surv = [g for g in groups if any(m["name"] == "SURVEYOR" for m in g)]
+        self.assertEqual(len(surv), 1)
+        self.assertEqual([m["name"] for m in surv[0]], ["SURVEYOR"])  # alone
+        # solo-extraction must not drop or duplicate any module
+        self.assertEqual(sorted(m["name"] for g in groups for m in g),
+                         sorted(m["name"] for m in mods))
+        self.assertTrue(all(len(g) <= 2 for g in groups))
 
     def test_aggregate_dedups_identical(self):
         d = {"file": "a.rs", "line": 1, "title": "same bug", "severity": "bug"}
