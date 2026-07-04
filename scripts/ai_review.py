@@ -778,16 +778,17 @@ def _temperature_bands(samples: int) -> list[float]:
 
 # --- Main --------------------------------------------------------------------
 def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
-    """Routed persona review: route checklist modules by the changed files, group by model-lane,
-    make one composed call per lane, then DETERMINISTICALLY dedup findings (no LLM aggregator —
-    the holistic bench showed the LLM merge is a lossy recall leak + the raw union is duplicate-heavy).
-    Returns (agg, panel_results) shaped for render(); (None, None) if nothing routes -> legacy fallback."""
+    """Routed persona review: route checklist modules by the changed files, make ONE call PER
+    PERSONA on its assigned model lane (dedicated context beats composing several personas into
+    one call — fair bench: separate 7/11 > composed 6/11 on FERRUS — and it parallelizes same-lane
+    personas), then DETERMINISTICALLY dedup findings (no LLM aggregator — the holistic bench showed
+    the LLM merge is a lossy recall leak + the raw union is duplicate-heavy; cross-persona agreement
+    now surfaces as real consensus). Returns (agg, panel_results); (None, None) if nothing routes."""
     import ai_review_personas as pz  # committed sibling module (router + modules + dedup + prompts)
     paths = [f.get("filename", "") for f in files]
     mods = pz.relevant_modules(paths)
     if not mods:
         return None, None
-    groups = pz.group_by_model(mods)  # {model_key: [modules]} -> one call per distinct model
     # Doc-currency: bundle a current-framework cheatsheet for frontend personas — models may
     # predate the framework version (observed: wrong Svelte-5 facts), and GHA can't call a live
     # docs source, so we inject a committed, periodically-refreshed sheet.
@@ -830,8 +831,12 @@ def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
             return {"name": label, "model": lane["model"],
                     "ok": False, "error": f"{type(exc).__name__}: {exc}", "findings": []}
 
-    # jobs = every lane × every temperature band; cap concurrency (z.ai throttles >~5).
-    jobs = [(ml, t) for ml in groups.values() for t in bands]
+    # ONE call PER PERSONA (not composed per lane) × every temperature band. The fair bench
+    # showed a dedicated, uncluttered context lets each persona name the exact root cause
+    # (separate 7/11 > composed 6/11 on FERRUS); it also parallelizes the GLM lane's personas
+    # instead of one big composed call. Concurrency capped at 6 (z.ai throttles >~5, and only
+    # ~4 personas share the GLM lane so at most ~4 z.ai calls run at once).
+    jobs = [([m], t) for m in mods for t in bands]
     with cf.ThreadPoolExecutor(max_workers=min(len(jobs), 6)) as ex:
         results = list(ex.map(one, jobs))
     all_findings = [f for r in results for f in r["findings"] if r["ok"]]
