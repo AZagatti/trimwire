@@ -337,32 +337,31 @@ class TestLegacyRouting(unittest.TestCase):
 
 
 class TestRunPersonasDispatch(unittest.TestCase):
-    """run_personas must make ONE call PER PERSONA (not one composed call per lane) — the
-    validated recall win. Mock chat so no API is hit."""
+    """run_personas dispatches CORRELATED PERSONA PAIRS (≤2/call), not one-per-persona and not
+    one-composed-per-lane — the bench sweet spot. Mock chat so no API is hit."""
     def _fake_chat(self, calls):
         def chat(provider, model, system, user, max_tokens=4000, extra=None):
-            m = re.search(r"Perspective: (\w+)", system)
-            pname = m.group(1) if m else "X"
-            calls.append(pname)
+            names = re.findall(r"Perspective: (\w+)", system)   # a call may carry 1-2 personas
+            calls.append(names)
             return json.dumps({"verdict": "comment", "findings": [
-                {"severity": "bug", "title": f"issue-{pname}", "file": "src/x.rs",
-                 "line": 1, "persona": pname}]})
+                {"severity": "bug", "title": f"issue-{names[0]}", "file": "src/x.rs",
+                 "line": 1, "persona": names[0]}]})
         return chat
 
-    def test_one_call_per_persona(self):
+    def test_calls_are_correlated_pairs(self):
         files = [{"filename": "src/x.rs", "patch": "@@\n+unsafe { foo(); }", "additions": 1}]
         mods = PZ.relevant_modules(["src/x.rs"])
-        self.assertGreater(len(mods), 1)                 # a .rs file routes several personas
+        self.assertGreater(len(mods), 1)
         calls = []
         with mock.patch.dict(os.environ, {}, clear=False), \
                 mock.patch.object(R, "chat", self._fake_chat(calls)):
             os.environ.pop("AI_REVIEW_SAMPLES", None)
             agg, panel = R.run_personas(files, "u", "reviewer", "")
-        # exactly one chat call per routed persona (not grouped/composed by lane)
-        self.assertEqual(len(calls), len(mods))
-        self.assertEqual(sorted(calls), sorted(m["name"] for m in mods))
-        self.assertEqual(len(panel), len(mods))
-        self.assertTrue(agg["findings"])                 # findings aggregated across personas
+        # fewer calls than personas (some paired), each call carries at most 2, all covered once
+        self.assertLessEqual(len(calls), len(mods))
+        self.assertTrue(all(1 <= len(c) <= 2 for c in calls))
+        self.assertEqual(sorted(n for c in calls for n in c), sorted(m["name"] for m in mods))
+        self.assertTrue(agg["findings"])
 
 
 class TestMultiSample(unittest.TestCase):

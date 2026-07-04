@@ -278,6 +278,28 @@ def group_by_model(modules: list[dict]) -> dict[str, list[dict]]:
     return groups
 
 
+# Correlated-domain clusters — group_correlated_pairs keeps ≤2 personas of the SAME cluster per
+# call (correlated-first). The sweet spot between per-persona (1/call: low dilution but ~34% more
+# noise from every persona re-scanning the whole diff) and full-composed (3-4/call: attention
+# dilution that starves the weakest persona). Bench (multi-domain big PRs): max-2 STRICTLY dominates
+# composed (higher recall AND precision) and beats per-persona on precision at ~equal recall.
+_CLUSTER = {"SENTINEL": "correctness", "FERRUS": "correctness", "PYTHIA": "correctness",
+            "CHRONICLER": "correctness", "SCOUT": "correctness", "WARDEN": "security",
+            "GATEKEEPER": "security", "SENTRY": "security", "VANGUARD": "frontend",
+            "ARGUS": "frontend", "PACER": "frontend", "SCRIBE": "docs"}
+
+
+def group_correlated_pairs(modules: list[dict]) -> list[list[dict]]:
+    """Pair CORRELATED personas on the same resolved model, MAX 2 per call. Returns a list of
+    module-lists, each 1-2 personas. Correlated-first so a pair shares a domain lens."""
+    out: list[list[dict]] = []
+    for ms in group_by_model(modules).values():
+        ms = sorted(ms, key=lambda m: (_CLUSTER.get(m["name"], "z"), m["name"]))
+        for i in range(0, len(ms), 2):
+            out.append(ms[i:i + 2])
+    return out
+
+
 if __name__ == "__main__":
     # Quick sanity: show routing for representative PR shapes.
     cases = {

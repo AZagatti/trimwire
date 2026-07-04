@@ -812,12 +812,12 @@ def _temperature_bands(samples: int) -> list[float]:
 
 # --- Main --------------------------------------------------------------------
 def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
-    """Routed persona review: route checklist modules by the changed files, make ONE call PER
-    PERSONA on its assigned model lane (dedicated context beats composing several personas into
-    one call — fair bench: separate 7/11 > composed 6/11 on FERRUS — and it parallelizes same-lane
-    personas), then DETERMINISTICALLY dedup findings (no LLM aggregator — the holistic bench showed
-    the LLM merge is a lossy recall leak + the raw union is duplicate-heavy; cross-persona agreement
-    now surfaces as real consensus). Returns (agg, panel_results); (None, None) if nothing routes."""
+    """Routed persona review: route checklist modules by the changed files, call CORRELATED PERSONA
+    PAIRS (≤2/call on the shared model — the bench sweet spot: less noise than 1-persona-per-call,
+    no attention dilution from 3-4-way composition), then DETERMINISTICALLY dedup findings (no LLM
+    aggregator — the holistic bench showed the LLM merge is a lossy recall leak + the raw union is
+    duplicate-heavy; cross-persona agreement surfaces as real consensus). Returns (agg, panel_results);
+    (None, None) if nothing routes."""
     import ai_review_personas as pz  # committed sibling module (router + modules + dedup + prompts)
     paths = [f.get("filename", "") for f in files]
     mods = pz.relevant_modules(paths)
@@ -865,12 +865,13 @@ def run_personas(files: list[dict], user: str, persona: str, rules_block: str):
             return {"name": label, "model": lane["model"],
                     "ok": False, "error": f"{type(exc).__name__}: {exc}", "findings": []}
 
-    # ONE call PER PERSONA (not composed per lane) × every temperature band. The fair bench
-    # showed a dedicated, uncluttered context lets each persona name the exact root cause
-    # (separate 7/11 > composed 6/11 on FERRUS); it also parallelizes the GLM lane's personas
-    # instead of one big composed call. Concurrency capped at 6 (z.ai throttles >~5, and only
-    # ~4 personas share the GLM lane so at most ~4 z.ai calls run at once).
-    jobs = [([m], t) for m in mods for t in bands]
+    # CORRELATED PAIRS (≤2 personas/call) × every temperature band — the bench sweet spot:
+    # per-persona (1/call) had ~34% more noise from every persona re-scanning the whole diff,
+    # full-composed (3-4/call) diluted attention and starved the weakest persona; max-2 pairs
+    # correlated personas so they share a domain lens without either failure. On multi-domain
+    # big PRs it dominated composed on recall+precision and beat per-persona on precision at
+    # ~equal recall. Concurrency capped at 6 (z.ai throttles >~5).
+    jobs = [(g, t) for g in pz.group_correlated_pairs(mods) for t in bands]
     with cf.ThreadPoolExecutor(max_workers=min(len(jobs), 6)) as ex:
         results = list(ex.map(one, jobs))
     all_findings = [f for r in results for f in r["findings"] if r["ok"]]
