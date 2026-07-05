@@ -357,6 +357,29 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
             raw
         }
     };
+    // Advisory base_url sanity (never blocks — you can still configure a URL that
+    // isn't reachable yet). Catches the two common typos: no scheme/host, and the
+    // double-`/v1` trap (trimwire always appends `/v1/messages` or
+    // `/v1/chat/completions`, so a base_url ending in `/v1` doubles up — for BOTH
+    // styles, not just OpenRouter).
+    {
+        let u = base_url.trim_end_matches('/');
+        let host = u
+            .strip_prefix("https://")
+            .or_else(|| u.strip_prefix("http://"));
+        let has_host = host.is_some_and(|h| !h.split('/').next().unwrap_or("").is_empty());
+        if !has_host {
+            println!(
+                "  {} base_url {base_url:?} doesn't look like a full URL (expected http(s)://host) — it may fail at first use.",
+                render::warn()
+            );
+        } else if u.ends_with("/v1") {
+            println!(
+                "  {} base_url ends in /v1 — trimwire appends the /v1/… path itself, so this doubles up. Drop the trailing /v1.",
+                render::warn()
+            );
+        }
+    }
 
     // Model
     let model_hint = match style.as_str() {
@@ -404,6 +427,47 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
             Some(trimmed)
         }
     };
+    // Advisory key-file check (never blocks — a not-yet-created file is fine; the
+    // whole point is to authenticate a service that can't see shell exports). This
+    // catches at SETUP time what `doctor` would otherwise only surface later: a
+    // typo'd/missing path, or a secret readable by others. Mirrors doctor's
+    // perms check; `resolve_path` expands a leading `~`.
+    if let Some(path) = api_key_file.as_deref() {
+        let resolved = trimwire::ledger::resolve_path(path);
+        match std::fs::metadata(&resolved) {
+            Ok(_meta) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mode = _meta.permissions().mode() & 0o777;
+                    if mode & 0o077 != 0 {
+                        println!(
+                            "  {} {} is mode {:o} — readable by others; run `chmod 600 {}`",
+                            render::warn(),
+                            resolved.display(),
+                            mode,
+                            resolved.display()
+                        );
+                    }
+                }
+            }
+            Err(_) => {
+                println!(
+                    "  {} {} doesn't exist yet — fine if you haven't created it. When you do:",
+                    render::warn(),
+                    resolved.display()
+                );
+                println!(
+                    "    {}",
+                    render::accent(&format!(
+                        "printf '%s' \"<key>\" > {} && chmod 600 {}",
+                        resolved.display(),
+                        resolved.display()
+                    ))
+                );
+            }
+        }
+    }
 
     // Env-var NAME — the fallback / foreground path. Always recorded (default
     // derived from the provider id, e.g. `zai` → `ZAI_API_KEY`) so the provider

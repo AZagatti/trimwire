@@ -1008,6 +1008,126 @@ fn summarizer_setup_api_provider_writes_provider_block_without_key() {
     );
 }
 
+/// Spawn the API-provider wizard with a full stdin script and return (success,
+/// combined stdout+stderr, written-config-or-empty). `base_url` and `key_file`
+/// are the two fields #148 validates; the rest are fixed. All #148 warnings are
+/// ADVISORY, so the config must always be written.
+#[cfg(unix)]
+fn run_provider_wizard(base_url: &str, key_file: &str) -> (bool, String, String) {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join(".config/trimwire.toml");
+    fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+    // Empty fake ollama → no local models → the added provider is item 1.
+    let fake = FakeOllama::start(&[]);
+    let mut child = Command::new(bin())
+        .args(["summarizer", "setup"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env("TRIMWIRE_OLLAMA_ENDPOINT", fake.endpoint())
+        .env_remove("TESTPROV_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn summarizer setup");
+    // a=add; id; style; base_url; model; key file; env; y=add; 1=primary; n; y=write.
+    let script = format!(
+        "a\ntestprov\nanthropic\n{base_url}\ntest-model\n{key_file}\nTESTPROV_KEY\ny\n1\nn\ny\n"
+    );
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(script.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().expect("wait");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let cfg = fs::read_to_string(&cfg_path).unwrap_or_default();
+    (out.status.success(), all, cfg)
+}
+
+/// #148: a key-file path that doesn't exist yet gets an ADVISORY warning at setup
+/// (with the exact create+chmod line) — but the config is still written (a
+/// not-yet-created key file is a legitimate "configure now, start later" flow).
+#[cfg(unix)]
+#[test]
+fn summarizer_setup_warns_on_missing_key_file_but_still_writes() {
+    // ~/.testprov_key resolves under the temp HOME → does not exist.
+    let (ok, all, cfg) = run_provider_wizard("", "~/.testprov_key");
+    assert!(ok, "advisory warning must not block; got: {all}");
+    assert!(
+        all.contains("doesn't exist yet") && all.contains("chmod 600"),
+        "expected a missing-key-file advisory with a fix line; got: {all}"
+    );
+    assert!(
+        cfg.contains("[[summarizer.providers]]") && cfg.contains("api_key_file"),
+        "config still written despite the advisory; got:\n{cfg}"
+    );
+}
+
+/// #148: a key file that exists but is world/group-readable (mode 0644) gets a
+/// perms advisory pointing at `chmod 600` — non-blocking.
+#[cfg(unix)]
+#[test]
+fn summarizer_setup_warns_on_loose_key_file_perms() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let keyfile = dir.path().join("loose_key");
+    fs::write(&keyfile, "secret").unwrap();
+    fs::set_permissions(&keyfile, fs::Permissions::from_mode(0o644)).unwrap();
+
+    let (ok, all, cfg) = run_provider_wizard("", keyfile.to_str().unwrap());
+    assert!(ok, "advisory warning must not block; got: {all}");
+    assert!(
+        all.contains("mode 644") && all.contains("chmod 600"),
+        "expected a loose-perms advisory; got: {all}"
+    );
+    assert!(
+        cfg.contains("[[summarizer.providers]]"),
+        "config written; got:\n{cfg}"
+    );
+}
+
+/// #148: a base_url with no scheme/host is flagged (advisory) but still written.
+#[cfg(unix)]
+#[test]
+fn summarizer_setup_warns_on_malformed_base_url_but_still_writes() {
+    let (ok, all, cfg) = run_provider_wizard("api.example.com", "");
+    assert!(ok, "advisory warning must not block; got: {all}");
+    assert!(
+        all.contains("doesn't look like a full URL"),
+        "expected a malformed-base_url advisory; got: {all}"
+    );
+    assert!(
+        cfg.contains("api.example.com"),
+        "the entered base_url is written verbatim (advisory, not corrected); got:\n{cfg}"
+    );
+}
+
+/// #148: a base_url ending in `/v1` (the double-path trap) is flagged (advisory)
+/// but written verbatim — trimwire appends the `/v1/…` path itself.
+#[cfg(unix)]
+#[test]
+fn summarizer_setup_warns_on_double_v1_base_url_but_still_writes() {
+    let (ok, all, cfg) = run_provider_wizard("https://openrouter.ai/api/v1", "");
+    assert!(ok, "advisory warning must not block; got: {all}");
+    assert!(
+        all.contains("Drop the trailing /v1"),
+        "expected a double-/v1 advisory; got: {all}"
+    );
+    assert!(
+        cfg.contains("https://openrouter.ai/api/v1"),
+        "base_url written verbatim (advisory); got:\n{cfg}"
+    );
+}
+
 /// #145 regression: `summarizer setup`'s entry ollama probe must be BOUNDED — a
 /// filtered/hung endpoint (accepts the connection, never responds) must fail fast
 /// into the "unreachable" path, not hang the wizard forever. The probe has a 5s
