@@ -364,18 +364,25 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
     // styles, not just OpenRouter).
     {
         let u = base_url.trim_end_matches('/');
-        let host = u
-            .strip_prefix("https://")
-            .or_else(|| u.strip_prefix("http://"));
+        // Scheme match is case-insensitive (RFC 3986) — `HTTPS://…` is valid; take
+        // the host substring from the ORIGINAL so its case is preserved.
+        let lower = u.to_ascii_lowercase();
+        let host = if lower.starts_with("https://") {
+            Some(&u["https://".len()..])
+        } else if lower.starts_with("http://") {
+            Some(&u["http://".len()..])
+        } else {
+            None
+        };
         let has_host = host.is_some_and(|h| !h.split('/').next().unwrap_or("").is_empty());
         if !has_host {
             println!(
-                "  {} base_url {base_url:?} doesn't look like a full URL (expected http(s)://host) — it may fail at first use.",
+                "  {} base_url '{base_url}' doesn't look like a full URL (expected http(s)://host) — it may fail at first use.",
                 render::warn()
             );
         } else if u.ends_with("/v1") {
             println!(
-                "  {} base_url ends in /v1 — trimwire appends the /v1/… path itself, so this doubles up. Drop the trailing /v1.",
+                "  {} base_url ends in /v1 — trimwire appends /v1/… itself, so this would double up; drop the trailing /v1.",
                 render::warn()
             );
         }
@@ -452,9 +459,12 @@ fn wizard_add_api_provider(existing_ids: &[&str]) -> Result<ProviderEntry> {
                 }
             }
             Err(_) => {
+                // A not-yet-created key file is the COMMON, expected path (you're
+                // told to create it in another terminal) — a neutral bullet, not an
+                // amber warning, so the ⚠ tier stays reserved for real problems.
                 println!(
                     "  {} {} doesn't exist yet — fine if you haven't created it. When you do:",
-                    render::warn(),
+                    render::bullet(),
                     resolved.display()
                 );
                 println!(

@@ -1012,7 +1012,6 @@ fn summarizer_setup_api_provider_writes_provider_block_without_key() {
 /// combined stdout+stderr, written-config-or-empty). `base_url` and `key_file`
 /// are the two fields #148 validates; the rest are fixed. All #148 warnings are
 /// ADVISORY, so the config must always be written.
-#[cfg(unix)]
 fn run_provider_wizard(base_url: &str, key_file: &str) -> (bool, String, String) {
     use std::io::Write;
     use std::process::Stdio;
@@ -1056,7 +1055,6 @@ fn run_provider_wizard(base_url: &str, key_file: &str) -> (bool, String, String)
 /// #148: a key-file path that doesn't exist yet gets an ADVISORY warning at setup
 /// (with the exact create+chmod line) — but the config is still written (a
 /// not-yet-created key file is a legitimate "configure now, start later" flow).
-#[cfg(unix)]
 #[test]
 fn summarizer_setup_warns_on_missing_key_file_but_still_writes() {
     // ~/.testprov_key resolves under the temp HOME → does not exist.
@@ -1074,7 +1072,6 @@ fn summarizer_setup_warns_on_missing_key_file_but_still_writes() {
 
 /// #148: a key file that exists but is world/group-readable (mode 0644) gets a
 /// perms advisory pointing at `chmod 600` — non-blocking.
-#[cfg(unix)]
 #[test]
 fn summarizer_setup_warns_on_loose_key_file_perms() {
     use std::os::unix::fs::PermissionsExt;
@@ -1096,7 +1093,6 @@ fn summarizer_setup_warns_on_loose_key_file_perms() {
 }
 
 /// #148: a base_url with no scheme/host is flagged (advisory) but still written.
-#[cfg(unix)]
 #[test]
 fn summarizer_setup_warns_on_malformed_base_url_but_still_writes() {
     let (ok, all, cfg) = run_provider_wizard("api.example.com", "");
@@ -1113,18 +1109,47 @@ fn summarizer_setup_warns_on_malformed_base_url_but_still_writes() {
 
 /// #148: a base_url ending in `/v1` (the double-path trap) is flagged (advisory)
 /// but written verbatim — trimwire appends the `/v1/…` path itself.
-#[cfg(unix)]
 #[test]
 fn summarizer_setup_warns_on_double_v1_base_url_but_still_writes() {
     let (ok, all, cfg) = run_provider_wizard("https://openrouter.ai/api/v1", "");
     assert!(ok, "advisory warning must not block; got: {all}");
     assert!(
-        all.contains("Drop the trailing /v1"),
+        all.contains("drop the trailing /v1"),
         "expected a double-/v1 advisory; got: {all}"
     );
     assert!(
         cfg.contains("https://openrouter.ai/api/v1"),
         "base_url written verbatim (advisory); got:\n{cfg}"
+    );
+}
+
+/// #148 negative case: a well-formed base_url (scheme+host, no trailing `/v1`) and
+/// a proper `0600` key file produce NO advisory warnings — guards against a
+/// future false-positive regression that would nag on a valid setup.
+#[test]
+fn summarizer_setup_valid_provider_inputs_emit_no_advisories() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let keyfile = dir.path().join("good_key");
+    fs::write(&keyfile, "secret").unwrap();
+    fs::set_permissions(&keyfile, fs::Permissions::from_mode(0o600)).unwrap();
+
+    let (ok, all, cfg) = run_provider_wizard("https://api.example.com", keyfile.to_str().unwrap());
+    assert!(ok, "valid setup should succeed; got: {all}");
+    for phrase in [
+        "doesn't look like a full URL",
+        "drop the trailing /v1",
+        "doesn't exist yet",
+        "readable by others",
+    ] {
+        assert!(
+            !all.contains(phrase),
+            "valid inputs must not trigger the advisory {phrase:?}; got: {all}"
+        );
+    }
+    assert!(
+        cfg.contains("[[summarizer.providers]]"),
+        "config written; got:\n{cfg}"
     );
 }
 
