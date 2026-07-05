@@ -95,18 +95,34 @@ pub(super) async fn fetch_ollama_tags(endpoint: &str) -> Result<Vec<String>> {
 /// command, so erring generous is safe.
 pub(super) const OLLAMA_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Run `fut` to completion on a one-shot current-thread runtime, then tear the
+/// runtime down with a **bounded** shutdown so an orphaned `getaddrinfo`
+/// `spawn_blocking` (hyper's default resolver) can't hang the caller (#145/#150).
+///
+/// Every CLI site that hand-rolled `Builder::new_current_thread()…block_on(fut)`
+/// and let the runtime drop implicitly should use this instead: the implicit
+/// `Drop` calls `BlockingPool::shutdown(None)`, which blocks **forever** joining
+/// any still-running blocking-pool thread (a stuck DNS lookup), defeating any
+/// `tokio::time::timeout` the future itself carries. `shutdown_timeout` waits
+/// briefly, then leaks the straggler instead of blocking. The caller is
+/// responsible for wrapping `fut` in a `tokio::time::timeout` where the network
+/// op needs an *observable* cap (the timer must be built inside `fut`, i.e.
+/// within the runtime context, or it panics with "no timer running").
+pub(super) fn run_bounded<F: std::future::Future>(fut: F) -> Result<F::Output> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build one-shot runtime")?;
+    let out = rt.block_on(fut);
+    rt.shutdown_timeout(std::time::Duration::from_millis(100));
+    Ok(out)
+}
+
 /// Synchronous, BOUNDED ollama-tags fetch — the safe entry point every CLI probe
 /// site (`summarizer setup`, `summarizer benchmark`, `benchmark --all-installed`)
-/// must use instead of hand-rolling `rt.block_on(fetch_ollama_tags(..))`.
-///
-/// Two independent bounds, because one alone is insufficient (#145):
-/// 1. `tokio::time::timeout` around the fetch caps the *observable* latency; and
-/// 2. `rt.shutdown_timeout` caps the runtime teardown — the shared hyper client
-///    resolves DNS via an **uncancellable** `spawn_blocking` `getaddrinfo`, so if
-///    resolution (not just connect) is what's stuck, dropping the fetch future
-///    leaves that thread running and the runtime's *implicit* `Drop` would block
-///    forever joining it. `shutdown_timeout` waits briefly then LEAKS the
-///    straggler thread instead of hanging the caller.
+/// must use instead of hand-rolling `rt.block_on(fetch_ollama_tags(..))`. Bounds
+/// both the observable latency (`tokio::time::timeout`) and the runtime teardown
+/// (via [`run_bounded`]) — see #145.
 ///
 /// Returns the model list, or an `Err` (timeout / unreachable / bad response) the
 /// caller renders as a friendly "configure now, start ollama later" message.
@@ -114,17 +130,9 @@ pub(super) fn fetch_ollama_tags_blocking(
     endpoint: &str,
     timeout: std::time::Duration,
 ) -> Result<Vec<String>> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("build ollama-probe runtime")?;
-    // Build the `timeout` future INSIDE the async block — as a bare `block_on`
-    // argument it would register its timer before the runtime is entered and panic.
-    let out =
-        rt.block_on(async { tokio::time::timeout(timeout, fetch_ollama_tags(endpoint)).await });
-    // Bound the teardown so an orphaned getaddrinfo thread can't hang us (see above).
-    rt.shutdown_timeout(std::time::Duration::from_millis(100));
-    match out {
+    // Build the `timeout` future INSIDE the async block — as a bare argument it
+    // would register its timer before the runtime is entered and panic.
+    match run_bounded(async { tokio::time::timeout(timeout, fetch_ollama_tags(endpoint)).await })? {
         Ok(inner) => inner,
         Err(_elapsed) => anyhow::bail!(
             "timed out after {}s connecting to {endpoint} (is it firewalled?)",
