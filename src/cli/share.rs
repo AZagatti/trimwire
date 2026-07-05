@@ -2192,44 +2192,67 @@ pub fn share_stats(yes: bool, force: bool) -> Result<()> {
 /// runtime keeps the sync CLI path runtime-free elsewhere. `https_or_http`
 /// means an `http://localhost` collector works for local testing too.
 pub(super) fn post(endpoint: &str, body: &str) -> Result<()> {
-    use http_body_util::{BodyExt, Full};
+    // 15s: a few KB of JSON over the public internet — covers a slow network +
+    // TLS + a real round trip while still failing fast for an unattended run.
+    const POST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+    post_with_timeout(endpoint, body, POST_TIMEOUT)
+}
+
+/// The bounded upload, timeout parameterized so tests can exercise the
+/// hung-endpoint path fast. Bound the whole upload (#150): the shared
+/// `build_client()` has no connect timeout, so a filtered/hung collector host
+/// (or a bad `[share] endpoint` override) would otherwise hang `share stats` /
+/// `share benchmark --yes` forever — and in the benchmark case, once per model
+/// in a loop.
+fn post_with_timeout(endpoint: &str, body: &str, timeout: std::time::Duration) -> Result<()> {
+    use http_body_util::{BodyExt, Full, Limited};
     use hyper::Request;
     use hyper::body::Bytes;
     use trimwire::proxy::upstream::build_client;
 
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("build runtime")?;
-    rt.block_on(async {
-        let client = build_client();
-        let req = Request::builder()
-            .method("POST")
-            .uri(endpoint)
-            .header("content-type", "application/json")
-            .body(Full::new(Bytes::from(body.to_owned())))
-            .context("build request")?;
-        let resp = client.request(req).await.context("send request")?;
-        let status = resp.status();
-        if !status.is_success() {
-            // Surface a short prefix of the collector's reason (e.g. which field
-            // it rejected) so a failed upload is debuggable, not just "HTTP 400".
-            let bytes = resp
-                .into_body()
-                .collect()
-                .await
-                .map(|b| b.to_bytes())
-                .unwrap_or_default();
-            let take = bytes.len().min(256);
-            let snippet = String::from_utf8_lossy(&bytes[..take]);
-            let snippet = snippet.trim();
-            if snippet.is_empty() {
-                anyhow::bail!("collector returned HTTP {status}");
+    // Cap the error-body read so a hostile/broken collector can't stream forever.
+    const MAX_ERR_BODY: usize = 64 * 1024;
+
+    // `run_bounded` pairs the block_on with a bounded runtime teardown so an
+    // orphaned getaddrinfo thread can't hang us on the runtime's Drop (see #145).
+    let out = super::run_bounded(async {
+        tokio::time::timeout(timeout, async {
+            let client = build_client();
+            let req = Request::builder()
+                .method("POST")
+                .uri(endpoint)
+                .header("content-type", "application/json")
+                .body(Full::new(Bytes::from(body.to_owned())))
+                .context("build request")?;
+            let resp = client.request(req).await.context("send request")?;
+            let status = resp.status();
+            if !status.is_success() {
+                // Surface a short prefix of the collector's reason (e.g. which
+                // field it rejected) so a failed upload is debuggable.
+                let bytes = Limited::new(resp.into_body(), MAX_ERR_BODY)
+                    .collect()
+                    .await
+                    .map(|b| b.to_bytes())
+                    .unwrap_or_default();
+                let take = bytes.len().min(256);
+                let snippet = String::from_utf8_lossy(&bytes[..take]);
+                let snippet = snippet.trim();
+                if snippet.is_empty() {
+                    anyhow::bail!("collector returned HTTP {status}");
+                }
+                anyhow::bail!("collector returned HTTP {status}: {snippet}");
             }
-            anyhow::bail!("collector returned HTTP {status}: {snippet}");
-        }
-        Ok(())
-    })
+            Ok(())
+        })
+        .await
+    })?;
+    match out {
+        Ok(inner) => inner,
+        Err(_elapsed) => anyhow::bail!(
+            "upload timed out after {}s connecting to {endpoint} (is the network reachable?)",
+            timeout.as_secs()
+        ),
+    }
 }
 
 /// `trimwire share benchmark [--yes]` — score the configured summarizer model and
@@ -2244,6 +2267,55 @@ mod tests {
     use super::*;
     use serde_json::Value;
     use trimwire::ledger::{CacheStability, ResponseMetrics};
+
+    /// #150: the collector upload must be BOUNDED — a black-hole endpoint (accepts
+    /// the connection, never responds) must fail fast, not hang `share stats` /
+    /// `share benchmark --yes`. Uses a short timeout so the test is quick; asserts
+    /// an `Err("… timed out …")` well within a bounded window.
+    #[test]
+    fn post_is_bounded_on_a_hung_endpoint() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        let handle = std::thread::spawn(move || {
+            let mut held: Vec<std::net::TcpStream> = Vec::new();
+            while !stop2.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((s, _)) => held.push(s), // hold open, never respond
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        let start = Instant::now();
+        let res = post_with_timeout(
+            &format!("http://127.0.0.1:{port}"),
+            "{}",
+            Duration::from_millis(300),
+        );
+        let elapsed = start.elapsed();
+        stop.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+
+        assert!(res.is_err(), "black-hole upload must error, got {res:?}");
+        assert!(
+            res.unwrap_err().to_string().contains("timed out"),
+            "expected a timeout error"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "upload was not bounded ({elapsed:?}) — timeout/shutdown regressed"
+        );
+    }
 
     #[test]
     fn upsert_share_enabled_appends_inserts_and_replaces() {

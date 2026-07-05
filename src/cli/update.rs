@@ -69,11 +69,9 @@ fn fetch_latest_tag() -> Option<String> {
     use trimwire::proxy::upstream::build_client;
 
     let url = format!("{}/repos/{}/releases/latest", api_base(), upd::REPO);
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .ok()?;
-    rt.block_on(async {
+    // `run_bounded` pairs block_on with a bounded runtime teardown so an orphaned
+    // getaddrinfo thread can't hang `doctor`/`update` on the runtime's Drop (#145).
+    super::run_bounded(async {
         tokio::time::timeout(Duration::from_secs(6), async {
             let client = build_client();
             let req = Request::builder()
@@ -105,6 +103,9 @@ fn fetch_latest_tag() -> Option<String> {
         .ok()
         .flatten()
     })
+    // run_bounded's Err (runtime build failure) also collapses to None (fail-safe).
+    .ok()
+    .flatten()
 }
 
 /// If a newer release than the running build exists, return its tag. `None` when
@@ -342,11 +343,9 @@ fn verify_latest_release(pinned_tag: Option<String>) -> std::result::Result<DryR
     let sha_url = format!("{archive_url}.sha256");
     let sig_url = format!("{archive_url}.minisig");
 
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("runtime: {e}"))?;
-    rt.block_on(async {
+    // `run_bounded` pairs block_on with a bounded runtime teardown so an orphaned
+    // getaddrinfo thread can't hang `upgrade` on the runtime's Drop (#145).
+    super::run_bounded(async {
         let client = trimwire::proxy::upstream::build_client();
         let dl = |u: String| {
             let c = client.clone();
@@ -373,6 +372,7 @@ fn verify_latest_release(pinned_tag: Option<String>) -> std::result::Result<DryR
             result,
         })
     })
+    .map_err(|e| format!("runtime: {e}"))?
 }
 
 /// `--dry-run`: verify the latest release without changing anything. Returns the
