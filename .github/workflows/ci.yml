@@ -40,6 +40,11 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        # Save the cache only from main: PRs restore the warm main cache but don't
+        # each write their own, avoiding cache-slot churn / LRU eviction under the
+        # 10 GB/repo limit (rust-cache's recommended busy-repo pattern).
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
@@ -68,6 +73,20 @@ jobs:
       # which would also build the ~10 dev-only examples.)
       - name: cargo build (release; bin + CI examples in one compile)
         run: cargo build --release --bins --example longitudinal_harm --example bench
+
+      # Binary-size regression guard. Lives here (not in cross-platform) because
+      # this is the one job that builds `--release` cheaply on a warm cache, and
+      # Linux is the tightest platform (~98% of the 12 MB budget). Bloat is
+      # almost always cross-platform (a new/heavier dep), so guarding one platform
+      # catches real regressions; platform-specific size drift is caught at
+      # release time. (Moved off cross-platform so that job can drop its release
+      # build — see #147.)
+      - name: Binary size regression guard
+        run: |
+          SIZE=$(stat -c%s target/release/trimwire)
+          MAX=$((12 * 1024 * 1024))
+          echo "binary size: ${SIZE} bytes (limit: ${MAX})"
+          [ "$SIZE" -le "$MAX" ]
 
       - name: longitudinal degradation harness (offline, deterministic)
         run: cargo run --release --example longitudinal_harm
@@ -109,7 +128,10 @@ jobs:
 
   msrv:
     name: MSRV (1.85)
-    runs-on: ubuntu-latest
+    # ARM64 runners are free for public repos and faster per-core (same rationale
+    # as the `check` job). MSRV is a rustc-VERSION gate, not an ISA gate, so the
+    # runner architecture doesn't affect what it proves (#147).
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -117,11 +139,16 @@ jobs:
       # (and edition 2024's floor) can't silently drift on a dep bump.
       - uses: dtolnay/rust-toolchain@c93f4f9c67595668add93d3d6895795ce52d8c2d # 1.85.0
       # No rust-cache here: the MSRV build must be COLD so a dep that quietly raised its real MSRV can't pass on a stale cached build-script artifact (audit P1-3).
-      - run: cargo build --locked
-      # Compile + run the tests on the floor too: a dep or test-only construct
-      # that needs a newer rustc must fail here, not at a user's `cargo test`.
-      # (Measured: nextest here was a net LOSS — extra install + a separate
-      # doctest compile outweigh the parallel run, since the cost is the compile.)
+      #
+      # Compile + RUN the tests on the floor: a dep or test-only construct that
+      # needs a newer rustc must fail here, not at a user's `cargo test`. This one
+      # step compiles the lib, bins, dev-deps, and test targets (at the test
+      # profile) AND runs them — so a separate `cargo build --locked` was pure
+      # redundancy (it produced dev-profile lib+bin artifacts that `cargo test`
+      # immediately recompiled at the test profile's opt-level 2 — see
+      # `[profile.test]` in Cargo.toml) and was dropped (#147). nextest is
+      # deliberately NOT used here: measured a net loss (extra install + a separate
+      # doctest compile outweigh the parallel run, since the cost is the compile).
       - run: cargo test --locked --no-fail-fast
 
   audit:
@@ -209,6 +236,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Lint the per-OS cfg paths (macOS launchd FFI, windows cmd) that the
       # ubuntu-only `check` job never compiles.
       - run: cargo clippy --all-targets -- -D warnings
@@ -224,57 +253,14 @@ jobs:
         uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
         with:
           tool: nextest
+      # This RUNS the whole suite (unit + integration) on each OS — including the
+      # cross-platform `tests/binary_smoke.rs` (the binary runs + `trimwire daemon`
+      # binds a port). There is deliberately NO separate `cargo build` + shell
+      # daemon-smoke: those checks now live in the test suite nextest already
+      # builds. A second binary build couldn't reuse nextest's artifacts anyway
+      # (feature unification differs → recompiles the hyper stack; on Windows the
+      # old `cargo build --release` was ~104-113s of pure duplication).
+      # Release-profile compile + binary size are covered by the `check` job and
+      # release.yml (the shipped artifacts). See #147.
       - name: cargo nextest run
         run: cargo nextest run --no-fail-fast
-
-      - run: cargo build --release
-      - name: Binary size (Unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          SIZE=$(stat -c%s target/release/trimwire 2>/dev/null || stat -f%z target/release/trimwire)
-          MAX=$((12 * 1024 * 1024))
-          echo "binary size: ${SIZE} bytes (limit: ${MAX})"
-          [ "$SIZE" -le "$MAX" ]
-
-      - name: Daemon smoke (Unix)
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: |
-          TRIMWIRE_LEDGER__ENABLED=false target/release/trimwire daemon --listen 127.0.0.1:8765 &
-          PID=$!
-          ok=0
-          for _ in $(seq 1 25); do
-            if python3 -c "import socket; socket.create_connection(('127.0.0.1',8765),timeout=1)" 2>/dev/null; then ok=1; break; fi
-            sleep 0.2
-          done
-          kill "$PID" 2>/dev/null || true
-          [ "$ok" = 1 ] || { echo "FAIL: daemon did not listen"; exit 1; }
-          echo "daemon smoke OK"
-
-      - name: Binary size (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $size = (Get-Item target/release/trimwire.exe).Length
-          $max = 12 * 1024 * 1024
-          Write-Output "binary size: $size bytes (limit: $max)"
-          if ($size -gt $max) { Write-Error "binary too large"; exit 1 }
-
-      - name: Daemon smoke (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $env:TRIMWIRE_LEDGER__ENABLED = "false"
-          $p = Start-Process -FilePath "target/release/trimwire.exe" `
-                 -ArgumentList "daemon","--listen","127.0.0.1:8765" -PassThru
-          $ok = $false
-          for ($i = 0; $i -lt 25; $i++) {
-            try {
-              $tc = New-Object Net.Sockets.TcpClient
-              $tc.Connect("127.0.0.1", 8765); $tc.Close()
-              $ok = $true; break
-            } catch { Start-Sleep -Milliseconds 200 }
-          }
-          Stop-Process -Id $p.Id -Force
-          if (-not $ok) { Write-Error "FAIL: daemon did not listen"; exit 1 }
-          Write-Output "daemon smoke OK"
