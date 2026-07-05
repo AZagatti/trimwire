@@ -1,16 +1,18 @@
-//! Runtime bypass toggle — the state behind `trimwire off` / `trimwire on`.
+//! Runtime bypass toggle — the state behind `trimwire pause` / `trimwire resume`.
 //!
-//! `trimwire off` should mean "stop pruning my sessions", NOT "break every
+//! `trimwire pause` should mean "stop pruning my sessions", NOT "break every
 //! Claude call". Because `trimwire install` bakes `ANTHROPIC_BASE_URL` into the
 //! shell rc (and `environment.d` / a launchd env agent), a shell can't be
 //! un-pointed at the gateway after the fact — so stopping the gateway would
-//! strand every request on a dead socket.
+//! strand every request on a dead socket. (That full disengage — stop the
+//! gateway AND strip the wiring — is what `trimwire off` does; `pause` is the
+//! lightweight, keep-the-path toggle.)
 //!
 //! Instead we keep the always-up gateway serving and flip a **runtime sentinel**
 //! it consults per request: when the sentinel file exists, the gateway forwards
-//! `/v1/messages` bodies UNMODIFIED to Anthropic (zero pruning), so `off` is a
+//! `/v1/messages` bodies UNMODIFIED to Anthropic (zero pruning), so `pause` is a
 //! true bypass — the socket stays live in every shell and GUI app with no env or
-//! rc surgery. `on` removes the sentinel and pruning resumes on the next turn.
+//! rc surgery. `resume` removes the sentinel and pruning resumes on the next turn.
 //!
 //! State, not config: bypass is a live on/off flip a running daemon must observe
 //! without a restart, so it's a file the gateway `stat`s — not a `Config` field

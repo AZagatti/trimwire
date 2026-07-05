@@ -7,10 +7,11 @@
 //!
 //! See `ARCHITECTURE.md` for the design, `SPIKE.md` for the rationale.
 
-/// Runtime bypass toggle behind `trimwire off` / `trimwire on`: a sentinel file
-/// the gateway consults per request so `off` forwards unmodified (a true bypass)
-/// instead of stranding the shell's `ANTHROPIC_BASE_URL` on a dead socket. See
-/// `src/bypass.rs`.
+/// Runtime bypass toggle behind `trimwire pause` / `trimwire resume`: a sentinel
+/// file the gateway consults per request so `pause` forwards unmodified (a true
+/// bypass) instead of stranding the shell's `ANTHROPIC_BASE_URL` on a dead
+/// socket. (`trimwire off` fully disengages instead — stops the gateway and
+/// strips the wiring.) See `src/bypass.rs`.
 pub mod bypass;
 pub mod config;
 pub mod error;

@@ -192,15 +192,57 @@ fn listen_addr() -> Result<std::net::SocketAddr> {
 /// `trimwire on` — resume pruning: clear the bypass sentinel and (re)start the
 /// always-up gateway service.
 pub fn on() -> Result<()> {
-    // Clear bypass first so that even if the service is already up (the common
-    // case — `on` after `off` never stopped it), pruning resumes immediately.
-    // If we CAN'T clear it, don't go on to claim "pruning active": the sentinel
-    // would still force the gateway to forward unmodified. Report honestly and
-    // stop, so the success line never lies about the pruning state.
+    use trimwire::config::Config;
+    println!("{}\n", render::strong("trimwire on"));
+
+    // (Re-)wire the persistent path so a prior full `off` is undone: the shell-rc
+    // export + the GUI/login env hook. Both are idempotent — in the common case
+    // (path already wired) they're silent no-ops. New shells/GUI apps route
+    // through the gateway again; the CURRENT shell needs a re-source (printed
+    // only when we actually add the block).
+    let listen = Config::load()
+        .map(|c| c.server.listen)
+        .unwrap_or_else(|_| "127.0.0.1:8765".to_owned());
+    let base_url = format!("http://{listen}");
+    // A failed rc edit is NON-fatal: the gateway can still come up and pruning can
+    // resume — don't block the whole re-engage on a cosmetic rc write.
+    match install::wire_rc(&base_url) {
+        Ok(install::RcWire::Added(rc)) => {
+            println!(
+                "{} re-added the trimwire env exports to {}",
+                render::ok(),
+                rc.display()
+            );
+            println!(
+                "  {} restart your shell or {} so this shell routes through trimwire.",
+                render::dim("→"),
+                render::accent(&format!("source {}", rc.display()))
+            );
+        }
+        // Already wired (the normal case) or no detectable rc — stay quiet.
+        Ok(install::RcWire::AlreadyPresent(_)) | Ok(install::RcWire::NoShell(_)) => {}
+        Err(e) => {
+            println!(
+                "{} couldn't update your shell rc ({e}) — add the export by hand if needed:",
+                render::warn()
+            );
+            println!(
+                "  {} export ANTHROPIC_BASE_URL='{base_url}'",
+                render::dim("→")
+            );
+        }
+    }
+    if let Ok(addr) = listen.parse() {
+        let _ = service::wire_gui_env(addr); // best-effort GUI/login env
+    }
+
+    // Clear bypass so pruning is actually active (not merely passthrough). If we
+    // CAN'T clear it, don't claim "pruning active": the sentinel would still force
+    // passthrough. Report honestly and stop.
     if let Err(e) = trimwire::bypass::disable() {
-        println!("{} couldn't clear bypass: {e}", render::bad());
+        println!("{} couldn't clear the pause sentinel: {e}", render::bad());
         println!(
-            "  {} pruning is still OFF — the {} sentinel remains. Fix the error above, then re-run {}.",
+            "  {} pruning is still paused — the {} sentinel remains. Fix the error above, then re-run {}.",
             render::dim("→"),
             trimwire::bypass::sentinel_path().display(),
             render::accent("trimwire on")
@@ -227,99 +269,157 @@ pub fn on() -> Result<()> {
     Ok(())
 }
 
-/// `trimwire off` — stop pruning. By default this is a **true bypass**: the
-/// gateway keeps serving but forwards every request UNMODIFIED to Anthropic, so
-/// the shell's `ANTHROPIC_BASE_URL` still resolves and Claude Code keeps working
-/// with zero pruning. `--stop` instead hard-stops the gateway process (the old
-/// kill-switch behavior — power users / freeing the port).
-pub fn off(stop: bool) -> Result<()> {
-    if stop {
-        let had_bypass = trimwire::bypass::is_active();
-        // Hard stop — degrade gracefully rather than a raw anyhow "Error:" blast.
-        match service::off() {
-            Ok(()) => {
-                println!("{} trimwire gateway stopped.", render::ok());
-                // Now that the gateway is down, clear any bypass sentinel so a
-                // later restart-by-other-means (socket activation, `systemctl
-                // start`, launchd RunAtLoad) doesn't silently come back bypassed.
-                // Only on a SUCCESSFUL stop: if the stop failed we leave the state
-                // untouched (still "off" if it was bypassing), which matches the
-                // user's intent better than flipping the running gateway back to
-                // pruning.
-                if had_bypass {
-                    if trimwire::bypass::disable().is_ok() {
-                        println!("  {}", render::dim("(also cleared the bypass sentinel.)"));
-                    } else {
-                        println!(
-                            "  {}",
-                            render::dim(&format!(
-                                "(note: couldn't clear the bypass sentinel — remove {} by hand.)",
-                                trimwire::bypass::sentinel_path().display()
-                            ))
-                        );
-                    }
-                }
-                println!(
-                    "  {} your shell still exports ANTHROPIC_BASE_URL, so Claude Code can't reach \
-                     Anthropic until you {} (restart it) — or use plain {} next time, which \
-                     bypasses to Anthropic without stopping.",
-                    render::dim("→"),
-                    render::accent("trimwire on"),
-                    render::accent("trimwire off")
-                );
-            }
-            Err(e) => {
-                println!("{} couldn't stop the service: {e}", render::warn());
-                println!(
-                    "  {} is it installed/running? check {}. If you never ran {}, there's \
-                     nothing to stop.",
-                    render::dim("→"),
-                    render::accent("trimwire status"),
-                    render::accent("trimwire install")
-                );
-            }
-        }
-        return Ok(());
+/// `trimwire off` — full disengage. Stops the gateway AND strips trimwire from
+/// the request path everywhere new processes read it (the shell-rc export + the
+/// GUI/login env hook), so Claude Code talks **straight to `api.anthropic.com`**
+/// — re-enabling host-gated features like Remote Control (#159/#160). A running
+/// shell already exported `ANTHROPIC_BASE_URL` and a child process can't unset it
+/// in the parent, so we print the one line that fixes the current shell.
+///
+/// To only pause pruning while keeping the proxy in the path, use `trimwire
+/// pause` / `resume`. To fully re-engage, `trimwire on`.
+pub fn off() -> Result<()> {
+    println!("{}\n", render::strong("trimwire off"));
+
+    // 1. Stop the gateway. Non-fatal on failure — we still strip the wiring so
+    //    the path ends up clean either way.
+    match service::off() {
+        Ok(()) => println!("{} stopped the trimwire gateway.", render::ok()),
+        Err(e) => println!(
+            "{} couldn't stop the gateway ({e}) — continuing to unwire the path.",
+            render::warn()
+        ),
     }
 
-    // Default: bypass. Keep the gateway serving (so ANTHROPIC_BASE_URL stays
-    // live) and flip the runtime sentinel the gateway reads per request.
+    // 2. Remove the persistent base-url wiring new processes read. A failed rc
+    //    edit is NON-fatal: keep going so we still clear the sentinel and tell the
+    //    user how to finish by hand (the gateway is already down, so leaving the
+    //    export pointing at it would otherwise strand them silently).
+    service::remove_gui_env_files();
+    match install::unwire_rc() {
+        Ok(install::RcUnwire::Removed(rc)) => println!(
+            "{} removed the trimwire env exports from {}",
+            render::ok(),
+            rc.display()
+        ),
+        Ok(install::RcUnwire::NotPresent(rc)) => println!(
+            "{} no trimwire block in {} — already clear.",
+            render::bullet(),
+            rc.display()
+        ),
+        Ok(install::RcUnwire::NoShell) => {}
+        Err(e) => {
+            println!(
+                "{} couldn't edit your shell rc ({e}) — the trimwire export is still there.",
+                render::warn()
+            );
+            println!(
+                "  {} delete the {} block by hand so new shells go straight to Anthropic.",
+                render::dim("→"),
+                render::accent("# >>> trimwire >>>")
+            );
+        }
+    }
+
+    // 3. Clear the pause sentinel too — moot with the gateway down, but it keeps
+    //    the state clean so a later `trimwire on` starts pruning, not paused.
+    let _ = trimwire::bypass::disable();
+
+    // 4. The current shell still has ANTHROPIC_BASE_URL exported; we can't unset a
+    //    parent's env from here — hand the user the exact line.
+    let unset = if install::is_fish_shell() {
+        "set -e ANTHROPIC_BASE_URL"
+    } else {
+        "unset ANTHROPIC_BASE_URL"
+    };
+    println!();
+    println!(
+        "{} new shells now talk straight to api.anthropic.com — Remote Control works again.",
+        render::ok()
+    );
+    println!(
+        "  {} to fix THIS shell now, run: {}",
+        render::dim("→"),
+        render::accent(unset)
+    );
+    println!(
+        "  {} re-engage any time with {}.",
+        render::dim("→"),
+        render::accent("trimwire on")
+    );
+    println!(
+        "  {} only wanted to pause pruning? {} keeps the gateway in the path (no rc changes).",
+        render::dim("→"),
+        render::accent("trimwire pause")
+    );
+    Ok(())
+}
+
+/// `trimwire pause` — stop pruning but keep the gateway in the request path,
+/// forwarding every request UNMODIFIED to Anthropic. Fast, no shell/rc changes;
+/// `trimwire resume` flips it back. (This is the old default `trimwire off`
+/// behavior; `off` now fully disengages.)
+pub fn pause() -> Result<()> {
     match trimwire::bypass::enable() {
         Ok(()) => {
             println!(
-                "{} trimwire is off — sessions go straight to Anthropic, unmodified (no pruning).",
+                "{} trimwire paused — requests pass through unmodified (no pruning).",
                 render::ok()
             );
-            // Bypass only takes effect if the gateway is actually serving (it
-            // reads the sentinel per request). If it was hard-stopped, the socket
-            // is dead and ANTHROPIC_BASE_URL has nothing to connect to — say so
-            // rather than imply Claude will keep working. Best-effort probe; we do
-            // NOT auto-start (that would surprise `off` and shell the service
-            // manager) — `trimwire on` is the one command that both starts it and
-            // resumes pruning.
+            // Passthrough only works if the gateway is actually serving (it reads
+            // the sentinel per request). Best-effort probe; don't auto-start.
             if let Ok(addr) = listen_addr() {
                 if !service::healthz_ok(addr) {
                     println!(
-                        "{} but the gateway isn't running right now — run {} to start it so \
-                         requests actually reach Anthropic.",
+                        "{} but the gateway isn't running — {} to start it, or {} to leave the path entirely.",
+                        render::warn(),
+                        render::accent("trimwire on"),
+                        render::accent("trimwire off")
+                    );
+                }
+            }
+            println!(
+                "  {} {} to resume pruning.",
+                render::dim("→"),
+                render::accent("trimwire resume")
+            );
+        }
+        Err(e) => {
+            println!("{} couldn't pause: {e}", render::warn());
+            println!(
+                "  {} to leave the path entirely instead, run {}.",
+                render::dim("→"),
+                render::accent("trimwire off")
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `trimwire resume` — resume pruning after a `pause` (clears the pause
+/// sentinel). Does not touch the service or the wiring; use `trimwire on` for a
+/// full (re-)engage.
+pub fn resume() -> Result<()> {
+    match trimwire::bypass::disable() {
+        Ok(()) => {
+            println!("{} trimwire resumed — pruning active.", render::ok());
+            if let Ok(addr) = listen_addr() {
+                if !service::healthz_ok(addr) {
+                    println!(
+                        "{} but the gateway isn't running — run {} to start it.",
                         render::warn(),
                         render::accent("trimwire on")
                     );
                 }
             }
-            println!(
-                "  {} {} to resume pruning. ({} stops the gateway entirely.)",
-                render::dim("→"),
-                render::accent("trimwire on"),
-                render::accent("trimwire off --stop")
-            );
         }
         Err(e) => {
-            println!("{} couldn't switch to bypass: {e}", render::warn());
+            println!("{} couldn't resume: {e}", render::warn());
             println!(
-                "  {} stop the gateway instead with {}.",
+                "  {} the {} sentinel remains — remove it by hand, or run {}.",
                 render::dim("→"),
-                render::accent("trimwire off --stop")
+                trimwire::bypass::sentinel_path().display(),
+                render::accent("trimwire on")
             );
         }
     }
@@ -508,6 +608,14 @@ pub fn doctor(strict: bool) -> Result<()> {
                         "{} ANTHROPIC_BASE_URL points at the gateway ({v})",
                         render::ok()
                     );
+                    // #159: Claude Code's Remote Control only runs when the base
+                    // URL is literally api.anthropic.com. Note the trade-off + the
+                    // one command that steps fully out of the path.
+                    println!(
+                        "  {} Remote Control is disabled while routed through trimwire — run {} to fully disengage (direct to Anthropic).",
+                        render::dim("→"),
+                        render::accent("trimwire off")
+                    );
                 }
                 Ok(v) => {
                     println!(
@@ -538,13 +646,13 @@ pub fn doctor(strict: bool) -> Result<()> {
         }
     }
 
-    // Bypass state (from `trimwire off`): the gateway is serving but forwarding
+    // Bypass state (from `trimwire pause`): the gateway is serving but forwarding
     // unmodified. Advisory, not a failure — it's a deliberate user choice — so it
     // never flips the exit code (matching the "all strategies disabled" note).
     if trimwire::bypass::is_active() {
         println!(
-            "{} bypass ON (`trimwire off`) — the gateway forwards unmodified; NO pruning. \
-             Run `trimwire on` to resume.",
+            "{} bypass ON (`trimwire pause`) — the gateway forwards unmodified; NO pruning. \
+             Run `trimwire resume` to prune again.",
             render::warn()
         );
     }
@@ -695,7 +803,7 @@ pub fn doctor(strict: bool) -> Result<()> {
                                 );
                             }
                             println!(
-                                "  {} then `trimwire off --stop && trimwire on` to restart the gateway with the new key.",
+                                "  {} then bounce the gateway so it picks up the new key: `trimwire off && trimwire on`.",
                                 render::dim("→")
                             );
                         }

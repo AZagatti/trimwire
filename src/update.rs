@@ -162,7 +162,7 @@ pub fn manual_update_guidance() -> String {
      \x20     https://github.com/AZagatti/trimwire/releases/latest\n\
      \n\
      Then restart the service so the new binary serves:\n\
-     \x20     trimwire off --stop && trimwire on"
+     \x20     trimwire off && trimwire on"
         .to_owned()
 }
 
