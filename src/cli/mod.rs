@@ -109,13 +109,50 @@ pub(super) const OLLAMA_PROBE_TIMEOUT: std::time::Duration = std::time::Duration
 /// op needs an *observable* cap (the timer must be built inside `fut`, i.e.
 /// within the runtime context, or it panics with "no timer running").
 pub(super) fn run_bounded<F: std::future::Future>(fut: F) -> Result<F::Output> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("build one-shot runtime")?;
-    let out = rt.block_on(fut);
-    rt.shutdown_timeout(std::time::Duration::from_millis(100));
-    Ok(out)
+    let rt = BoundedRuntime::new(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("build one-shot runtime")?,
+    );
+    Ok(rt.block_on(fut))
+    // `rt` drops here → bounded `shutdown_timeout`.
+}
+
+/// How long a bounded runtime teardown waits for the blocking pool before it
+/// leaks the straggler. Long enough for a healthy pool to drain, short enough
+/// that a wedged `getaddrinfo` can't stall process exit.
+const RUNTIME_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// A tokio runtime that ALWAYS tears down via `shutdown_timeout` on drop, rather
+/// than the implicit `Drop` (`BlockingPool::shutdown(None)`) that blocks forever
+/// joining a stuck `getaddrinfo` (#145/#150). Wrap any ad-hoc CLI runtime that
+/// drives network I/O in this: because teardown is guaranteed on `Drop`, it
+/// stays correct across loops, `block_on` reuse, and early `?`-returns — the
+/// exact shapes a bare `rt.shutdown_timeout(..)` at the end of a function misses
+/// (#152). `Deref`s to the runtime, so `rt.block_on(..)` is unchanged.
+pub(super) struct BoundedRuntime(Option<tokio::runtime::Runtime>);
+
+impl BoundedRuntime {
+    pub(super) fn new(rt: tokio::runtime::Runtime) -> Self {
+        Self(Some(rt))
+    }
+}
+
+impl std::ops::Deref for BoundedRuntime {
+    type Target = tokio::runtime::Runtime;
+    fn deref(&self) -> &Self::Target {
+        // Only `Drop` takes the runtime, so it is always present while borrowable.
+        self.0.as_ref().expect("runtime present until drop")
+    }
+}
+
+impl Drop for BoundedRuntime {
+    fn drop(&mut self) {
+        if let Some(rt) = self.0.take() {
+            rt.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
+        }
+    }
 }
 
 /// Synchronous, BOUNDED ollama-tags fetch — the safe entry point every CLI probe
@@ -744,13 +781,34 @@ pub fn doctor(strict: bool) -> Result<()> {
     Ok(())
 }
 
+/// Resolve `hostport` to its first socket address, bounded by `timeout`.
+///
+/// `ToSocketAddrs::to_socket_addrs` is a synchronous, uncancellable
+/// `getaddrinfo` with no built-in cap; a hostname on a wedged resolver blocks
+/// the calling thread indefinitely. We run it on a detached helper thread and
+/// give up after `timeout`, returning `None` (the caller treats that as
+/// "unreachable"). If the resolver never returns, the helper thread leaks —
+/// the same bounded tradeoff as a runtime's `shutdown_timeout` straggler. See #153.
+fn resolve_first_addr(
+    hostport: &str,
+    timeout: std::time::Duration,
+) -> Option<std::net::SocketAddr> {
+    use std::net::ToSocketAddrs;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let hostport = hostport.to_owned();
+    std::thread::spawn(move || {
+        // `send` fails only if the receiver already timed out and hung up; ignore.
+        let _ = tx.send(hostport.to_socket_addrs().ok().and_then(|mut it| it.next()));
+    });
+    rx.recv_timeout(timeout).ok().flatten()
+}
+
 /// Best-effort blocking probe (mirrors `service::healthz_ok`): is `model` present in
 /// ollama's `/api/tags` at `endpoint`? `None` = ollama unreachable / non-200;
 /// `Some(true|false)` once it answered. Sync TCP so it runs in `doctor` without a
 /// tokio runtime; substring match on the tags JSON is enough for a doctor hint.
 fn ollama_has_model(endpoint: &str, model: &str) -> Option<bool> {
     use std::io::{Read, Write};
-    use std::net::ToSocketAddrs;
     let hostport = endpoint
         .trim_end_matches('/')
         .trim_start_matches("https://")
@@ -761,7 +819,12 @@ fn ollama_has_model(endpoint: &str, model: &str) -> Option<bool> {
     } else {
         format!("{hostport}:11434")
     };
-    let addr = with_port.to_socket_addrs().ok()?.next()?;
+    // Bound the DNS step (#153): `to_socket_addrs` is a synchronous, unbounded
+    // `getaddrinfo`. For the default `localhost` literal it's instant, but a
+    // custom endpoint on a broken resolver would hang `doctor` here — before the
+    // bounded `connect_timeout` below ever runs. Cap it; a timeout reads as
+    // "unreachable" (`None`), same as a refused connect.
+    let addr = resolve_first_addr(&with_port, std::time::Duration::from_millis(700))?;
     let mut s =
         std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(700)).ok()?;
     let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(1500)));
@@ -1079,6 +1142,75 @@ mod tests {
                 .sliding_window
                 .denylist_tools
                 .contains(&"*screenshot*".to_owned())
+        );
+    }
+
+    /// #153: `resolve_first_addr` bounds the DNS step. A literal loopback address
+    /// resolves instantly and returns `Some`; the whole call must complete well
+    /// inside the timeout (proves it isn't blocking on a real `getaddrinfo`).
+    #[test]
+    fn resolve_first_addr_resolves_a_loopback_literal_fast() {
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        let addr = resolve_first_addr("127.0.0.1:11434", Duration::from_secs(2));
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "literal is instant"
+        );
+        let addr = addr.expect("loopback literal resolves");
+        assert_eq!(addr.port(), 11434);
+        assert!(addr.ip().is_loopback());
+    }
+
+    /// #153: a near-zero timeout must return `None` rather than block. Even if the
+    /// helper thread hasn't produced an answer yet, the caller gives up promptly —
+    /// this is the doctor-doesn't-hang guarantee for a wedged resolver.
+    #[test]
+    fn resolve_first_addr_gives_up_on_a_tiny_timeout() {
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        // Zero timeout: recv_timeout returns immediately with no value.
+        let addr = resolve_first_addr("127.0.0.1:11434", Duration::from_millis(0));
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "a tiny timeout must not block"
+        );
+        assert!(addr.is_none(), "no answer within the timeout → None");
+    }
+
+    /// #152: `BoundedRuntime` `Deref`s to the runtime (so `block_on` is unchanged)
+    /// and its `Drop` runs the BOUNDED `shutdown_timeout`, not the implicit `Drop`
+    /// that blocks forever joining the blocking pool. Fire a `spawn_blocking`
+    /// straggler that far outlives the 100ms teardown budget, then drop the guard
+    /// on an early `?`-return: teardown must return in well under the straggler's
+    /// sleep. A bare `Runtime` would block ~5s joining it — so reverting the guard
+    /// makes this test hang past its 2s bound and fail. That's the regression edge.
+    #[test]
+    fn bounded_runtime_teardown_is_bounded_despite_a_straggler() {
+        use std::time::{Duration, Instant};
+        fn inner() -> Result<()> {
+            let rt = BoundedRuntime::new(
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?,
+            );
+            // Value path works via Deref.
+            assert_eq!(rt.block_on(async { 21 + 21 }), 42);
+            // Fire-and-forget a blocking-pool straggler; do NOT await it. Dropping
+            // the handle detaches the task, which keeps running. The implicit
+            // runtime Drop would block ~5s joining it — the guard's
+            // `shutdown_timeout(100ms)` must leak it and return promptly instead.
+            let _straggler = rt.spawn_blocking(|| std::thread::sleep(Duration::from_secs(5)));
+            // Early return: `rt` drops here → bounded teardown, straggler or not.
+            anyhow::bail!("early out");
+        }
+        let start = Instant::now();
+        assert!(inner().is_err());
+        let elapsed = start.elapsed();
+        // 100ms budget + generous CI slack; a bare-Runtime regression blocks ~5s.
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "teardown not bounded ({elapsed:?}) — BoundedRuntime::Drop regressed"
         );
     }
 }
