@@ -1,0 +1,58 @@
+# THROWAWAY probe (perf/ci-windows-lld branch only) — measures whether rust-lld
+# speeds up the Windows link step vs the default MSVC link.exe. Two jobs, identical
+# except the linker. Each primes a full test build, changes ONE source line, then
+# times the incremental "recompile trimwire crate + relink all 8 binaries" step —
+# the exact steady-state cost a normal PR pays on a warm cache. The delta between
+# the two "measured relink" steps is the pure link-time saving. Delete after measuring.
+name: zz-lld-probe
+
+on:
+  push:
+    branches: [perf/ci-windows-lld]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_MULTIPLEXING: "false"
+
+jobs:
+  relink-default:
+    name: windows relink (default link.exe)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      # Prime: build the full test graph once (lib + bin + 6 integration test
+      # crates) at the test profile — the same artifacts nextest links in CI.
+      - name: prime (full test build)
+        run: cargo test --no-run --locked
+      - name: touch lib.rs (force crate recompile + relink of all dependents)
+        shell: bash
+        run: printf '\n// ci-relink-probe %s\n' "$GITHUB_RUN_ID" >> src/lib.rs
+      - name: MEASURED relink (default linker)
+        run: cargo test --no-run --locked
+
+  relink-lld:
+    name: windows relink (rust-lld)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld.exe
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          components: llvm-tools # guarantees rust-lld.exe is present
+      # Prime ALSO proves lld links our aws-lc-sys / ring / bundled-sqlite graph
+      # on native x86_64-pc-windows-msvc at all (the main correctness risk).
+      - name: prime (full test build, lld)
+        run: cargo test --no-run --locked
+      - name: touch lib.rs (force crate recompile + relink of all dependents)
+        shell: bash
+        run: printf '\n// ci-relink-probe %s\n' "$GITHUB_RUN_ID" >> src/lib.rs
+      - name: MEASURED relink (rust-lld)
+        run: cargo test --no-run --locked
