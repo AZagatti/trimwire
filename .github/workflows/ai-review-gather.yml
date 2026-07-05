@@ -1,0 +1,80 @@
+# Stage 1 of the AI code review. Runs in the PR's (untrusted) context with NO
+# secrets and a read-only token — safe even for fork PRs. It only captures the
+# diff + PR metadata as an artifact; the privileged stage (ai-review-post.yml)
+# does the LLM calls and posts the comment. See .github/ai-review/README.md.
+name: AI Review - Gather
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read   # gh api .../pulls/{n}/files + gh pr view need this (else 403)
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gather:
+    # Anti-spam / cost control:
+    #  - drafts are skipped (review when marked ready)
+    #  - bots and 'skip-ai-review'-labelled PRs are skipped
+    #  - only repo-trusted authors auto-run (owner/member/collaborator). CONTRIBUTOR
+    #    is NOT trusted here — it's earned by a single past merged PR, so a returning
+    #    outside author could otherwise trigger repeated LLM spend + diff exfiltration
+    #    to third-party APIs. Outside authors get reviewed via the manual workflow (a
+    #    maintainer dispatches it) or GitHub's built-in fork-PR approval gate.
+    if: >-
+      github.event.pull_request.draft == false &&
+      !endsWith(github.event.pull_request.user.login, '[bot]') &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-ai-review') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Capture PR diff + metadata
+        # All PR-controlled values are passed via env (never interpolated into
+        # the script) to avoid shell injection from a malicious title/branch.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Opt-in low-noise mode: maintainer adds the 'ai-review-strict' label to
+          # show only multi-model-consensus findings (security is always shown).
+          STRICT: ${{ contains(github.event.pull_request.labels.*.name, 'ai-review-strict') }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          gh api "repos/$REPO/pulls/$PR/files" --paginate \
+            > artifacts/pr-files.json
+          # Capture the body to a file first so a gh failure fails the step,
+          # instead of process-substituting a silent empty body into the artifact.
+          # --repo is required: this job doesn't check out the repo, so gh can't infer
+          # it from local git (gh pr view without --repo -> "not a git repository").
+          gh pr view "$PR" --repo "$REPO" --json body -q '.body // ""' > artifacts/pr-body.txt
+          jq -n \
+            --arg number "$PR" \
+            --arg title  "$TITLE" \
+            --arg author "$AUTHOR" \
+            --arg base   "$BASE_SHA" \
+            --arg head   "$HEAD_SHA" \
+            --arg repo   "$REPO" \
+            --argjson strict "${STRICT:-false}" \
+            --rawfile body artifacts/pr-body.txt \
+            '{number: ($number|tonumber), title: $title, author: $author,
+              base_sha: $base, head_sha: $head, repo: $repo, body: $body,
+              strict: $strict}' \
+            > artifacts/pr-meta.json
+
+      - name: Upload review input
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ai-review-input
+          path: artifacts/
+          retention-days: 1

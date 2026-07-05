@@ -1,0 +1,201 @@
+# Stage 2 of the AI code review. Triggered by the gather workflow finishing.
+# Runs in the BASE repo context (trusted code from the default branch), so it can
+# read secrets and post comments. It NEVER checks out or executes PR head code —
+# the only PR-derived input is the text diff inside the downloaded artifact, which
+# is treated as untrusted data. This is the safe alternative to pull_request_target.
+name: AI Review - Post
+
+on:
+  workflow_run:
+    workflows: ["AI Review - Gather"]
+    types: [completed]
+
+permissions:
+  contents: read       # checkout the trusted base repo (script + prompts)
+  actions: read        # download the gather artifact
+  checks: read         # read existing CI check-run results (grounding)
+  pull-requests: write # post/update the review comment
+
+# Serialize posts for the same source branch so two runs can't both create the
+# sticky comment (duplicate-comment race).
+concurrency:
+  group: ai-review-post-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  post:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout base repo (trusted)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 1
+
+      - name: Download gather artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: ai-review-input
+          path: artifacts
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Capture existing CI results (best effort — no re-run)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          HEAD=$(jq -r '.head_sha // ""' artifacts/pr-meta.json)
+          [ -n "$HEAD" ] || exit 0
+          # Fold this PR head's check-run conclusions into a signal the reviewer reads
+          # (clippy/tests/audit already ran in ci.yml — we consume, never re-run).
+          gh api "repos/$REPO/commits/$HEAD/check-runs" --paginate \
+            -q '.check_runs[] | "\(.name): \(.conclusion // .status)"' \
+            2>/dev/null | sort -u > artifacts/ci-signals.txt || true
+          echo "ci-signals:"; cat artifacts/ci-signals.txt 2>/dev/null || echo "(none yet)"
+          # Pull line-level annotations CI already produced (clippy/ruff/test/audit) so the
+          # reviewer defers to + root-causes them rather than re-flagging. Includes FAILED
+          # runs AND any run carrying annotations (warning-level clippy/ruff on a passing
+          # build) — those are exactly the FPs we want the reviewer to skip. Annotations,
+          # not raw logs: lighter, already file:line-scoped. Capped; untrusted -> data.
+          gh api "repos/$REPO/commits/$HEAD/check-runs" --paginate \
+            -q '.check_runs[] | select(.conclusion == "failure" or ((.output.annotations_count // 0) > 0)) | .id' \
+            2>/dev/null | head -8 | \
+          while read -r id; do
+            gh api "repos/$REPO/check-runs/$id/annotations" --paginate \
+              -q '.[] | "\(.path):\(.start_line): \(.annotation_level): \(.message)"' 2>/dev/null || true
+          done | head -c 6000 > artifacts/ci-failure-logs.txt || true
+          echo "ci-failure-logs: $(wc -c < artifacts/ci-failure-logs.txt 2>/dev/null || echo 0) bytes"
+
+      - name: Run multi-model review
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ARTIFACTS_DIR: artifacts
+          # Opt-in recall boost: set repo variable AI_REVIEW_SAMPLES=2..5 to sample each
+          # lane N times at spread temperatures and union the findings (~Nx cost, more
+          # noise). Default 1 = single deterministic pass (current low-noise posture).
+          AI_REVIEW_SAMPLES: ${{ vars.AI_REVIEW_SAMPLES || '1' }}
+        run: python3 scripts/ai_review.py
+
+      - name: Post inline review comments (best effort — sticky comment is the fallback)
+        continue-on-error: true
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            let findings = [];
+            try { findings = JSON.parse(fs.readFileSync('findings.json', 'utf8')); }
+            catch (e) { core.info('no findings.json; skipping inline comments'); return; }
+            if (!Array.isArray(findings) || findings.length === 0) return;
+            const meta = JSON.parse(fs.readFileSync('artifacts/pr-meta.json', 'utf8'));
+            const prNumber = Number(meta.number);
+            if (!Number.isInteger(prNumber) || prNumber < 1) return;
+            const { owner, repo } = context.repo;
+            // Only lines present in the PR diff (RIGHT side) are commentable; posting on any
+            // other line 422s the whole review. Build the commentable set from each file patch.
+            const files = await github.paginate(
+              github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber });
+            const commentable = new Map();
+            for (const f of files) {
+              if (!f.patch) continue;
+              const set = new Set(); let right = 0;
+              for (const ln of f.patch.split('\n')) {
+                const m = ln.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                if (m) { right = parseInt(m[1], 10); continue; }
+                if (ln.startsWith('+')) { set.add(right); right++; }
+                else if (ln.startsWith('-')) { /* removed line has no RIGHT number */ }
+                else { right++; }
+              }
+              commentable.set(f.filename, set);
+            }
+            const emoji = { security: '🔒', bug: '🚨', suggestion: '💡', test: '🧪', inconsistent: '🔄', question: '❓' };
+            const comments = [];
+            for (const f of findings) {
+              const line = Number(f.line);
+              if (!f.file || !Number.isInteger(line) || line < 1) continue;
+              const set = commentable.get(f.file);
+              if (!set || !set.has(line)) continue;
+              let b = `${emoji[f.severity] || '•'} **${f.title || 'finding'}**`;
+              if (f.detail) b += `\n\n${f.detail}`;
+              if (f.suggestion) b += `\n\n**Suggestion:** ${f.suggestion}`;
+              // One-click committable fix: a ```suggestion block replaces the commented line.
+              if (typeof f.replacement === 'string' && f.replacement.trim())
+                b += '\n\n```suggestion\n' + f.replacement.replace(/\s+$/, '') + '\n```';
+              // Hidden marker so the weekly accepted/FP tracker can attribute this comment
+              // to its persona(s) later (invisible in rendered markdown). Sanitize to keep
+              // it a single well-formed marker a finding can't spoof.
+              const personas = Array.isArray(f.personas)
+                ? f.personas.filter(p => /^[A-Z0-9_]+$/.test(p)).join(',') : '';
+              const consensus = Number.isInteger(f.consensus) ? f.consensus : '';
+              if (personas)
+                b += `\n\n<!-- ai-review-meta personas=${personas} consensus=${consensus} -->`;
+              comments.push({ path: f.file, line, side: 'RIGHT', body: b });
+            }
+            if (comments.length === 0) { core.info('no findings on diff lines; sticky comment only'); return; }
+            // meta.head_sha comes from the artifact; cross-check it against the event's
+            // authoritative head SHA before trusting it as commit_id (mirrors the sticky
+            // step's guard so a poisoned artifact can't retarget the review).
+            const expectedSha = context.payload.workflow_run.head_sha;
+            if (meta.head_sha && expectedSha && meta.head_sha !== expectedSha) {
+              core.warning(`head_sha mismatch (artifact=${meta.head_sha} event=${expectedSha}); skipping inline comments`);
+              return;
+            }
+            await github.rest.pulls.createReview({
+              owner, repo, pull_number: prNumber, commit_id: meta.head_sha,
+              event: 'COMMENT', comments: comments.slice(0, 40),
+            });
+            core.info(`posted ${Math.min(comments.length, 40)} inline comments`);
+
+      - name: Post sticky comment
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            // `github`, `context`, and `core` are pre-injected globals provided by
+            // actions/github-script — they are NOT undefined and must not be require()'d.
+            const fs = require('fs');
+            const MARKER = '<!-- ai-code-review -->';
+            const meta = JSON.parse(fs.readFileSync('artifacts/pr-meta.json', 'utf8'));
+            const prNumber = Number(meta.number);
+            if (!Number.isInteger(prNumber) || prNumber < 1) {
+              core.setFailed(`invalid PR number in artifact: ${meta.number}`);
+              return;
+            }
+            // Cross-check the artifact's PR number against a server-authoritative
+            // lookup by head SHA. workflow_run.pull_requests is always EMPTY for
+            // fork PRs, so it can't be trusted here — associate via the commit
+            // instead (works for forks too), so a poisoned artifact can't redirect
+            // the comment to a different PR.
+            const headSha = context.payload.workflow_run.head_sha;
+            const assoc = await github.paginate(
+              github.rest.repos.listPullRequestsAssociatedWithCommit,
+              { ...context.repo, commit_sha: headSha }
+            );
+            if (assoc.length > 0 && !assoc.some(pr => pr.number === prNumber)) {
+              core.setFailed(
+                `PR number mismatch: artifact=${prNumber} not among SHA-associated PRs [${assoc.map(p => p.number).join(', ')}]`);
+              return;
+            }
+            const body = fs.readFileSync('review.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number: prNumber }
+            );
+            // Only update OUR bot's comment — a contributor can't pre-post the marker
+            // to hijack the sticky slot.
+            const existing = comments.find(
+              c => c.body && c.body.includes(MARKER) && c.user && c.user.type === 'Bot'
+            );
+            if (existing) {
+              await github.rest.issues.updateComment(
+                { owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment(
+                { owner, repo, issue_number: prNumber, body });
+            }

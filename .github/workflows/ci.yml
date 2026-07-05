@@ -81,8 +81,11 @@ jobs:
         run: cargo package --locked
 
       - name: actionlint (workflow lint)
+        # Pin the installer script to an immutable commit SHA (== tag v1.7.12) instead
+        # of the mutable tag, so curl|bash can't run changed content. (taiki-e/install-
+        # action doesn't package actionlint, so the upstream script is the way in.)
         run: |
-          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash)
+          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash)
           ./actionlint
 
       - name: shellcheck installer scripts
@@ -155,6 +158,41 @@ jobs:
         run: make phase0
       - name: parity fixtures are current
         run: make phase0-verify
+
+  ai-review-checks:
+    name: AI-review lint + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
+      # Deterministic gate for the review engine's own Python (the completeness layer:
+      # the LLM reviewer is advisory, these checks are non-negotiable).
+      - name: ruff (AI-review scripts)
+        run: uvx ruff check scripts/ai_review.py scripts/ai_review_personas.py scripts/ai_review_verify.py scripts/ai_review_track.py scripts/test_ai_review.py scripts/test_ai_review_verify.py scripts/test_ai_review_track.py
+      - name: AI-review unit tests (stdlib)
+        run: |
+          python3 scripts/test_ai_review.py
+          python3 scripts/test_ai_review_verify.py
+          python3 scripts/test_ai_review_track.py
+
+  semver:
+    name: SemVer (public API vs base)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0   # need history so --baseline-rev can build the base
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
+        with:
+          tool: cargo-semver-checks
+      # PR-vs-base (not crates.io): flag only breaking public-API changes THIS PR introduces.
+      # The deterministic completeness layer for the FERRUS semver gap the LLM can't reliably catch.
+      - name: cargo semver-checks (vs base)
+        run: cargo semver-checks --baseline-rev "${{ github.event.pull_request.base.sha }}"
 
   cross-platform:
     name: cross-platform build

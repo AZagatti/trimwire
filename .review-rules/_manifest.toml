@@ -1,0 +1,31 @@
+# Path-glob → persona + rule files for the AI reviewer's "memory".
+# The reviewer loads `base` (always) plus every category whose globs match the PR's
+# changed files; the highest-priority match (lowest number) sets the ONE shared
+# panel persona. Keep rule files as tight bullet lists — dense beats verbose.
+#
+# trimwire is Rust-first but multi-domain: an Astro site, a Cloudflare Worker
+# collector (TS), a Python benchmark harness, and CI. Each gets its own lens.
+
+[base]
+globs = []            # always loaded
+priority = 0
+
+[rust]
+globs = ["**/*.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "clippy.toml", "deny.toml"]
+priority = 1
+persona = "senior Rust engineer reviewing a transparent LLM-proxy CLI"
+
+[typescript]
+globs = ["site/**", "collector/**", "**/*.ts", "**/*.tsx", "**/*.svelte", "**/*.astro", "**/*.mjs", "package.json"]
+priority = 2
+persona = "senior TypeScript engineer (Astro site + Cloudflare Worker)"
+
+[python]
+globs = ["benchmark/**", "scripts/**/*.py", "**/*.py", "pyproject.toml", "requirements*.txt"]
+priority = 3
+persona = "senior Python engineer reviewing offline tooling"
+
+[ci]
+globs = [".github/**", "Makefile", "lefthook.yml", "**/*.sh", "release-plz.toml"]
+priority = 4
+persona = "release/CI engineer"
