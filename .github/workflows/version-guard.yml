@@ -1,0 +1,60 @@
+# Guard: the package `version` in Cargo.toml is owned by release-plz.
+#
+# release-plz bumps the version in its release PR (branch `release-plz-*`), and
+# merging THAT PR is what tags + publishes. But `release-plz.yml` also runs
+# `command: release` on every push to main, which publishes ANY unpublished
+# Cargo.toml version — so a MANUAL bump merged in an ordinary PR gets auto-shipped
+# to crates.io, bypassing the release PR. That is exactly how v0.4.0 went out with a
+# hand-written 1-line changelog (see PR #166).
+#
+# This job fails any NON-release-plz PR that changes the `version` line, so a bump
+# can only reach main through release-plz's release PR. Advisory guardrail against
+# accidental hand-bumps, not a security control. Make it a required check in the
+# branch ruleset to actually block merges.
+name: Version guard
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  version-guard:
+    name: version bump owned by release-plz
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Is this release-plz's own release PR?
+        id: gate
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [[ "$HEAD_REF" == release-plz-* ]]; then
+            echo "release-plz release PR ($HEAD_REF) — a version bump is expected here."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (full history — need the base commit)
+        if: steps.gate.outputs.skip == 'false'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Fail if the Cargo.toml `version` line changed
+        if: steps.gate.outputs.skip == 'false'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base_ver="$(git show "$BASE_SHA:Cargo.toml" | grep -m1 -E '^version = ' || true)"
+          head_ver="$(grep -m1 -E '^version = ' Cargo.toml || true)"
+          echo "base $BASE_SHA: ${base_ver:-<none>}"
+          echo "head:           ${head_ver:-<none>}"
+          if [[ "$base_ver" != "$head_ver" ]]; then
+            echo "::error file=Cargo.toml::The package version changed in a non-release-plz PR (${base_ver} -> ${head_ver}). The version is owned by release-plz — do not hand-bump it. Let release-plz's release PR (branch release-plz-*) carry the bump; merging that PR is what tags + publishes. See AGENTS.md / 'What NOT to do'."
+            exit 1
+          fi
+          echo "OK: package version unchanged."
