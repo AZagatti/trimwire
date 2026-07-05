@@ -13,6 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING**: `SummarizerProviderConfig` and `StaleInputCapConfig` are now `#[non_exhaustive]`. Earlier releases had silently added public fields to these structs — a SemVer break at an unchanged `0.3.16` (caught by a new `cargo-semver-checks` CI gate). Bumping to `0.4.0` makes the public-API change explicit; `#[non_exhaustive]` lets future config fields be added without another breaking release.
 
+### Added
+
+- *(cli)* research-led UX overhaul of wizard/doctor/status/install ([#118](https://github.com/AZagatti/trimwire/pull/118)) ([#146](https://github.com/AZagatti/trimwire/pull/146))
+- *(anomaly)* detect + report invalid-prune rollbacks ([#138](https://github.com/AZagatti/trimwire/pull/138)) ([#142](https://github.com/AZagatti/trimwire/pull/142))
+- *(cli)* make `trimwire off` a true bypass, not a dead socket ([#114](https://github.com/AZagatti/trimwire/pull/114)) ([#140](https://github.com/AZagatti/trimwire/pull/140))
+- *(anomaly)* make trims legible to the agent + detect/report trimwire anomalies ([#135](https://github.com/AZagatti/trimwire/pull/135))
+- *(stale_input_cap)* age-gate authoring content with a recoverable marker ([#122](https://github.com/AZagatti/trimwire/pull/122)) ([#130](https://github.com/AZagatti/trimwire/pull/130))
+- *(summarizer)* resolve provider API key from api_key_file (fixes #111) ([#115](https://github.com/AZagatti/trimwire/pull/115))
+
+### Fixed
+
+- *(cli)* bound the collector upload + share the runtime-teardown fix ([#150](https://github.com/AZagatti/trimwire/pull/150)) ([#154](https://github.com/AZagatti/trimwire/pull/154))
+- *(cli)* bound the summarizer-setup ollama probe with a timeout ([#145](https://github.com/AZagatti/trimwire/pull/145)) ([#149](https://github.com/AZagatti/trimwire/pull/149))
+- *(bloat_cap)* give Read its own recent window to close the 4–16 KB Read gap ([#121](https://github.com/AZagatti/trimwire/pull/121)) ([#137](https://github.com/AZagatti/trimwire/pull/137))
+- *(pruning)* safety hardening — keep_recent .max(1) clamp, snapshot glob, NotebookEdit exempt ([#129](https://github.com/AZagatti/trimwire/pull/129))
+- *(stale_reads)* age-gate supersession elision so live reads aren't trimmed ([#113](https://github.com/AZagatti/trimwire/pull/113)) ([#120](https://github.com/AZagatti/trimwire/pull/120))
+- *(deps)* bump anyhow 1.0.102 → 1.0.103 (RUSTSEC-2026-0190) ([#117](https://github.com/AZagatti/trimwire/pull/117))
+
+### Other
+
+- *(bloat_cap)* enable the stub_age ladder at 16 in the default profile ([#126](https://github.com/AZagatti/trimwire/pull/126)) ([#139](https://github.com/AZagatti/trimwire/pull/139))
+- *(bloat_cap)* age-gate Task/Agent subagent results instead of permanent exemption ([#124](https://github.com/AZagatti/trimwire/pull/124)) ([#136](https://github.com/AZagatti/trimwire/pull/136))
+- *(stale_input_cap)* shape-reduce old successful Task/Agent inputs ([#125](https://github.com/AZagatti/trimwire/pull/125)) ([#134](https://github.com/AZagatti/trimwire/pull/134))
+
 ## [0.3.16](https://github.com/AZagatti/trimwire/compare/v0.3.15...v0.3.16) - 2026-06-24
 
 ### Other
