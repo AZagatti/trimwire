@@ -820,6 +820,16 @@ pub fn stable_apply_to_body(
         .flatten();
 
         let byte_forced = big_new_tail && append_only && grew <= threshold && !prefix_changed;
+        // Load-bearing invariant: a byte-forced re-checkpoint is append-only with an
+        // unchanged prefix, so it can NEVER coincide with a history rewrite. Several
+        // arguments below rely on this (the byte-forced rollback snapshot doesn't cover
+        // `state.summary`, which only `apply_checkpoint_summary` clears — and only when
+        // `prefix_changed`). Assert it so a future edit to either predicate can't silently
+        // break the mutual exclusion.
+        debug_assert!(
+            !(prefix_changed && byte_forced),
+            "byte_forced requires !prefix_changed by construction"
+        );
         let rollback = byte_forced.then(|| {
             (
                 state.checkpoint_len,
@@ -1853,13 +1863,16 @@ mod tests {
         );
     }
 
-    /// #144 nit1 — the marginal-vs-replay DEBUG telemetry must read the OLD decisions
-    /// BEFORE the byte-forced `rollback` drains them (`std::mem::take`). This pins the
-    /// mechanism: replaying the recorded decisions on the grown array yields a
-    /// materially SMALLER body than replaying against an emptied state, so computing the
-    /// metric AFTER the drain would diff the pruned body against the RAW (untrimmed)
-    /// body and mis-report the marginal savings. The fix captures the replay length
-    /// pre-drain; this proves the pre/post values genuinely differ.
+    /// #144 nit1 (MECHANISM) — isolates *why* the telemetry must read decisions before
+    /// the byte-forced `rollback` drains them: replaying the recorded decisions on the
+    /// grown array yields a materially SMALLER body than replaying against an emptied
+    /// state (which equals the raw body). So a metric computed AFTER the drain diffs the
+    /// pruned body against RAW and over-reports. This is a unit test of `replay_decisions`
+    /// in isolation — it pins the mechanism, not the telemetry call site itself. (An
+    /// end-to-end capture of the logged `marginal_saved` was prototyped but dropped: it
+    /// requires a DEBUG tracing subscriber, and `tracing`'s process-global callsite
+    /// interest cache makes such a capture race with other tests in a parallel binary —
+    /// a flaky test is worse than none for DEBUG-only telemetry with no runtime effect.)
     #[test]
     fn marginal_replay_must_read_decisions_before_byte_forced_drain() {
         let cfg = read_fix_cfg(65_536);
@@ -1901,6 +1914,34 @@ mod tests {
             "intact replay ({intact_len}) is smaller than the drained/raw body ({drained_len}); \
              reading the marginal metric AFTER the drain would diff against raw and over-report"
         );
+    }
+
+    /// #144 nit2 (WIRING) — `compute_decisions`/`commit_checkpoint` thread three
+    /// same-shaped collections positionally, so a swapped argument would type-check
+    /// silently. Install three DISTINGUISHABLE sets and assert each lands in its own
+    /// `PruneState` field (result vs input vs thinking), plus the pointer/prefix.
+    #[test]
+    fn commit_checkpoint_installs_each_set_in_its_own_field() {
+        let mut state = PruneState::default();
+        let mut results = HashMap::new();
+        results.insert("res".to_owned(), json!("R"));
+        let mut inputs = HashMap::new();
+        inputs.insert("inp".to_owned(), json!("I"));
+        let mut thinking = HashSet::new();
+        thinking.insert("thk".to_owned());
+        let prefix = vec![json!({"role": "user", "content": "p"})];
+
+        commit_checkpoint(&mut state, results, inputs, thinking, 7, prefix.clone());
+
+        assert!(state.initialized);
+        assert_eq!(state.checkpoint_len, 7);
+        assert_eq!(state.checkpoint_prefix, prefix);
+        // Each set in its OWN field — catches an argument-order swap.
+        assert_eq!(state.result_decisions.get("res"), Some(&json!("R")));
+        assert_eq!(state.input_decisions.get("inp"), Some(&json!("I")));
+        assert!(state.stripped_thinking.contains("thk"));
+        assert!(!state.result_decisions.contains_key("inp"));
+        assert!(!state.input_decisions.contains_key("res"));
     }
 
     /// THE cache-stability guarantee for thinking_strip: across consecutive
