@@ -1,9 +1,15 @@
-# Manual, on-demand review — from the Actions UI, enter a PR number and the exact
-# models you want (any OpenRouter ids), then run. Handy for big/high-stakes PRs where
-# you want to throw heavier models (Opus 4.8, GPT-5.5, …) at the diff.
+# Manual, on-demand review — from the Actions UI, enter a PR number and run.
 # Because workflow_dispatch requires write access, the trigger is inherently trusted
 # (only maintainers can run it), so — unlike the auto flow — this is a single job that
 # gathers + reviews + posts.
+#
+# `engine` picks WHICH reviewer runs:
+#   personas    (default) = the routed-persona system (SURVEYOR + the bench-tuned prompt config),
+#                the same engine as the auto flow. The model_* / aggregator inputs are IGNORED
+#                (personas use fixed per-lane models). Use this for a normal review.
+#   legacy-panel = the older N-generalist panel + LLM aggregator, driven by the model_* inputs
+#                below — handy when you want to throw specific heavy models (Opus 4.8, GPT-5.5, …)
+#                at a big/high-stakes diff.
 name: AI Review - Manual
 
 on:
@@ -12,21 +18,27 @@ on:
       pr:
         description: "PR number to review (e.g. 141)"
         required: true
-      # Type full OpenRouter ids (provider/model) — one key reaches everything. Leave a
-      # slot blank to use fewer models. Defaults = a solid cheap panel; for a heavy
-      # review use e.g. anthropic/claude-opus-4.8, openai/gpt-5.5, google/gemini-3.5-flash.
-      # A bad id fails the run in ~1s (see the "Validate model ids" step).
+      engine:
+        description: "Review engine (personas = routed-persona system; legacy-panel = generalist panel below)"
+        type: choice
+        default: "personas"
+        options:
+          - personas
+          - legacy-panel
+      # The four model inputs below apply ONLY to engine=legacy-panel (ignored for personas).
+      # Type full OpenRouter ids (provider/model) — one key reaches everything. Leave a slot
+      # blank to use fewer models. A bad id fails the run in ~1s (see "Validate model ids").
       model_1:
-        description: "Panel model 1 — full OpenRouter id, e.g. anthropic/claude-opus-4.8"
+        description: "[legacy-panel] Panel model 1 — full OpenRouter id, e.g. anthropic/claude-opus-4.8"
         default: "deepseek/deepseek-v3.2"
       model_2:
-        description: "Panel model 2 — OpenRouter id, e.g. openai/gpt-5.5 (blank to skip)"
+        description: "[legacy-panel] Panel model 2 — OpenRouter id, e.g. openai/gpt-5.5 (blank to skip)"
         default: "openai/gpt-5-mini"
       model_3:
-        description: "Panel model 3 — OpenRouter id (blank to skip)"
+        description: "[legacy-panel] Panel model 3 — OpenRouter id (blank to skip)"
         default: "google/gemini-3.5-flash"
       aggregator:
-        description: "Aggregator — full OpenRouter id, e.g. google/gemini-3.5-flash"
+        description: "[legacy-panel] Aggregator — full OpenRouter id, e.g. google/gemini-3.5-flash"
         default: "google/gemini-3.5-flash"
 
 permissions:
@@ -48,6 +60,7 @@ jobs:
           fetch-depth: 1
 
       - name: Validate model ids (fail fast on a typo)
+        if: ${{ inputs.engine == 'legacy-panel' }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           M1: ${{ inputs.model_1 }}
@@ -97,7 +110,11 @@ jobs:
               base_sha: $base, head_sha: $head, repo: $repo, body: $body}' \
             > artifacts/pr-meta.json
 
+      # Only in legacy-panel mode: exporting AI_REVIEW_PANEL/AGGREGATOR is what makes
+      # ai_review.py take the legacy generalist path (_use_legacy_panel). In personas mode
+      # we deliberately DON'T set them, so the routed-persona engine runs instead.
       - name: Build panel from inputs
+        if: ${{ inputs.engine == 'legacy-panel' }}
         env:
           M1: ${{ inputs.model_1 }}
           M2: ${{ inputs.model_2 }}
