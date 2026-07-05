@@ -222,6 +222,27 @@ class TestPersonas(unittest.TestCase):
         mods = [m for m in PZ.MODULES if m["name"] in ("SENTINEL", "FERRUS")]  # both GLM
         self.assertEqual(len(PZ.group_by_model(mods)), 1)
 
+    def test_system_prompt_has_reasoning_example_and_anchor(self):
+        # The bench-winning config (N=4): think-first _reasoning + one worked example (schema) +
+        # per-checklist "return empty" anchor. Lock all three into the composed system prompt.
+        sysp = PZ.build_system([m for m in PZ.MODULES if m["name"] == "SENTINEL"])
+        self.assertIn("_reasoning", sysp)                                   # P1 think-first
+        self.assertIn("Example of a well-formed finding", sysp)             # P5 worked example
+        self.assertIn("return an empty findings array for this perspective", sysp)  # P4 anchor
+        # dev-notes kept (P3 reverted — removing them measured net-negative)
+        gk = PZ.build_system([m for m in PZ.MODULES if m["name"] == "GATEKEEPER"])
+        self.assertIn("LOW bench evidence", gk)
+
+    def test_gatekeeper_scoped_to_gha_workflows(self):
+        # GATEKEEPER's checklist is GHA-workflow-specific; it must fire on workflow YAML but
+        # NOT on generic project YAML (docker-compose / k8s), which used to burn a call + noise.
+        self.assertIn("GATEKEEPER",
+                      {m["name"] for m in PZ.relevant_modules([".github/workflows/ci.yml"])})
+        self.assertNotIn("GATEKEEPER",
+                         {m["name"] for m in PZ.relevant_modules(["docker-compose.yml"])})
+        self.assertNotIn("GATEKEEPER",
+                         {m["name"] for m in PZ.relevant_modules(["k8s/deployment.yaml"])})
+
     def test_surveyor_routes_on_code_not_docs(self):
         # SURVEYOR (coverage enumeration) fires on any code PR, not on docs-only.
         self.assertIn("SURVEYOR", {m["name"] for m in PZ.relevant_modules(["src/x.rs"])})
