@@ -186,18 +186,14 @@ pub enum OllamaProbe {
     Unreachable(String),
 }
 
-/// Probe ollama synchronously: build a tiny tokio runtime for the async hyper
-/// call — mirrors the pattern used in `benchmark.rs` (`rt.block_on`).
+/// Probe ollama synchronously via the shared BOUNDED fetch — so a filtered/hung
+/// or slow-remote endpoint fails fast into the "unreachable → configure now,
+/// start ollama later" flow instead of hanging the wizard forever (#145). The
+/// timeout + runtime-teardown bounds live in `fetch_ollama_tags_blocking`.
 fn probe_ollama(endpoint: &str) -> OllamaProbe {
-    match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Err(e) => OllamaProbe::Unreachable(format!("could not build runtime: {e}")),
-        Ok(rt) => match rt.block_on(super::fetch_ollama_tags(endpoint)) {
-            Ok(tags) => OllamaProbe::Reachable(tags),
-            Err(e) => OllamaProbe::Unreachable(e.to_string()),
-        },
+    match super::fetch_ollama_tags_blocking(endpoint, super::OLLAMA_PROBE_TIMEOUT) {
+        Ok(tags) => OllamaProbe::Reachable(tags),
+        Err(e) => OllamaProbe::Unreachable(e.to_string()),
     }
 }
 

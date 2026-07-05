@@ -621,7 +621,9 @@ pub fn benchmark(
         } else {
             cfg.summarizer.local.endpoint.as_str()
         };
-        match rt.block_on(super::fetch_ollama_tags(endpoint)) {
+        // Bounded fetch (#145): an unbounded probe here would hang the picker on a
+        // filtered/slow endpoint — same root cause as `summarizer setup`.
+        match super::fetch_ollama_tags_blocking(endpoint, super::OLLAMA_PROBE_TIMEOUT) {
             Err(e) => {
                 eprintln!(
                     "{} no ollama models found at {endpoint} ({e})\n  \
@@ -677,7 +679,12 @@ pub fn benchmark(
         }
     };
     if all_installed {
-        match rt.block_on(super::fetch_ollama_tags(&cfg.summarizer.local.endpoint)) {
+        // Bounded fetch (#145): `--all-installed` is scriptable/non-interactive, so
+        // an unbounded probe on a filtered endpoint would hang an unattended run.
+        match super::fetch_ollama_tags_blocking(
+            &cfg.summarizer.local.endpoint,
+            super::OLLAMA_PROBE_TIMEOUT,
+        ) {
             Ok(installed) => {
                 for tag in installed {
                     if is_disqualified(&tag) {

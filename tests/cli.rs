@@ -879,6 +879,46 @@ impl FakeOllama {
         }
     }
 
+    /// A "black-hole" server: it `accept()`s connections (so the TCP handshake
+    /// completes) but never reads the request or writes a response — it just
+    /// holds each socket open. This reproduces a *filtered/hung* endpoint (the
+    /// #145 case) deterministically and portably: the client connects fine, then
+    /// blocks forever waiting on the response, so the probe must rely on its own
+    /// timeout to give up. (A true SYN black hole can't be simulated on loopback,
+    /// where the kernel always answers SYNs — hanging the *response* exercises the
+    /// same `timeout(block_on(..))` bound and is a strictly stronger test.)
+    fn start_blackhole() -> Self {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        listener.set_nonblocking(true).unwrap();
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        let handle = std::thread::spawn(move || {
+            // Keep accepted sockets ALIVE (never respond) so the client hangs on
+            // the response; keep polling `stop` so Drop's join() returns cleanly.
+            let mut held: Vec<std::net::TcpStream> = Vec::new();
+            while !stop2.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((s, _)) => held.push(s), // hold it open, send nothing
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+            // `held` sockets close here at teardown.
+        });
+        FakeOllama {
+            stop,
+            handle: Some(handle),
+            port,
+        }
+    }
+
     fn endpoint(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
     }
@@ -965,6 +1005,72 @@ fn summarizer_setup_api_provider_writes_provider_block_without_key() {
     assert!(
         cfg.contains("listen = \"127.0.0.1:9999\""),
         "unrelated [server] preserved; got:\n{cfg}"
+    );
+}
+
+/// #145 regression: `summarizer setup`'s entry ollama probe must be BOUNDED — a
+/// filtered/hung endpoint (accepts the connection, never responds) must fail fast
+/// into the "unreachable" path, not hang the wizard forever. The probe has a 5s
+/// timeout; we cap the whole run at 15s and — crucially — poll `try_wait` so that
+/// if the timeout ever regresses this test FAILS with a clear message instead of
+/// hanging the suite. stdin is closed, so the wizard cancels right after the
+/// probe (we only care that the probe returns; not that setup completes). See the
+/// fast `fetch_ollama_tags_blocking` unit test for the shared-helper coverage that
+/// also protects `summarizer benchmark`.
+#[test]
+fn summarizer_setup_ollama_probe_is_bounded_on_a_hung_endpoint() {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let fake = FakeOllama::start_blackhole();
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = Command::new(bin())
+        .args(["summarizer", "setup"])
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env("TRIMWIRE_OLLAMA_ENDPOINT", fake.endpoint())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn summarizer setup");
+
+    // Wait for the child, but never longer than 15s (≫ the 5s probe timeout +
+    // process/stdio overhead, with slack for a cold Windows-runner exe scan). If
+    // it's still alive at the deadline the probe hung → kill it and fail loudly
+    // rather than block the whole test suite forever.
+    let start = Instant::now();
+    let hung = loop {
+        match child.try_wait().expect("try_wait") {
+            Some(_status) => break false,
+            None if start.elapsed() > Duration::from_secs(15) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break true;
+            }
+            None => std::thread::sleep(Duration::from_millis(50)),
+        }
+    };
+    let elapsed = start.elapsed();
+
+    let mut all = String::new();
+    if let Some(mut so) = child.stdout.take() {
+        let _ = so.read_to_string(&mut all);
+    }
+    if let Some(mut se) = child.stderr.take() {
+        let _ = se.read_to_string(&mut all);
+    }
+
+    assert!(
+        !hung,
+        "summarizer setup hung ({elapsed:?}) on a black-hole ollama endpoint — the \
+         probe timeout regressed. output so far:\n{all}"
+    );
+    // Positively confirm it took the timeout branch (not a fast refuse or success).
+    assert!(
+        all.contains("timed out") && all.contains("unreachable"),
+        "expected the timed-out/unreachable probe branch; got ({elapsed:?}):\n{all}"
     );
 }
 
