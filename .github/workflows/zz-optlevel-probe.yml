@@ -1,0 +1,54 @@
+# THROWAWAY probe (perf/ci-windows-lld branch only) — the linker was a measured
+# no (link isn't the bottleneck; compiling the 30k-LOC crate at [profile.test]
+# opt-level=2 is). This measures the real lever: does lowering the test-profile
+# opt-level cut steady-state per-PR CI cost, net of the test-RUNTIME regression?
+#
+# Per arm: prime a full build+run (warms deps at that opt-level), change ONE
+# source line, then time a full `cargo nextest run` = recompile trimwire at that
+# opt-level + link + RUN the whole suite. That measured step is the steady-state
+# per-PR cost, capturing BOTH compile time and test runtime. Compare opt 2/1/0
+# on the two gating platforms (Windows cross-platform + ARM `check`). Delete after.
+name: zz-optlevel-probe
+
+on:
+  push:
+    branches: [perf/ci-windows-lld]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_MULTIPLEXING: "false"
+
+jobs:
+  probe:
+    name: opt=${{ matrix.opt }} on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04-arm]
+        opt: ["2", "1", "0"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      # Override [profile.test] opt-level for this whole job (deps + crate + tests).
+      CARGO_PROFILE_TEST_OPT_LEVEL: ${{ matrix.opt }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
+        with:
+          tool: nextest
+      # Prime: full build+run at this opt-level (warms all dep artifacts).
+      - name: prime (full nextest run)
+        run: cargo nextest run --no-fail-fast
+      - name: touch lib.rs (force trimwire-crate recompile)
+        shell: bash
+        run: printf '\n// ci-optlevel-probe %s\n' "$GITHUB_RUN_ID" >> src/lib.rs
+      # MEASURED: recompile trimwire at this opt-level + link + RUN the suite.
+      # This is the steady-state per-PR cost — compile savings AND runtime cost.
+      - name: MEASURED nextest run (recompile + link + run)
+        run: cargo nextest run --no-fail-fast
