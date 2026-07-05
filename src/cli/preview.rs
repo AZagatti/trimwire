@@ -209,10 +209,14 @@ fn preview_inner(
             // require --yes before making the call (mirrors benchmark.rs).
             let proceed = api_cost_gate(engine, &cfg.summarizer.providers, yes);
             if proceed {
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .build()
-                    .context("build tokio runtime for summarizer preview")?;
+                // BoundedRuntime (#152): guaranteed `shutdown_timeout` teardown
+                // so a hung resolver during the preview call can't stall exit.
+                let rt = super::BoundedRuntime::new(
+                    tokio::runtime::Builder::new_multi_thread()
+                        .enable_all()
+                        .build()
+                        .context("build tokio runtime for summarizer preview")?,
+                );
                 rt.block_on(summarizer::preview_summary(&rc.messages, &cfg))
                     .unwrap_or(None)
             } else {

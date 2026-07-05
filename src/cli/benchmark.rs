@@ -598,10 +598,16 @@ pub fn benchmark(
     use super::render;
     let cfg = Config::load().unwrap_or_else(|_| trimwire::config::profile_baseline("default"));
 
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .context("build tokio runtime")?;
+    // BoundedRuntime (#152): this runtime lives for the whole function and the
+    // scoring loop `block_on`s per model, threaded through many `?` early-returns.
+    // The guard's `Drop` runs `shutdown_timeout` on every one of those exits, so a
+    // wedged resolver mid-benchmark can't hang teardown.
+    let rt = super::BoundedRuntime::new(
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .context("build tokio runtime")?,
+    );
 
     // Classify each requested tag as LOCAL or API.
     // A tag is "API" when it matches a configured [[summarizer.providers]] id.

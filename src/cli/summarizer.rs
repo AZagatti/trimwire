@@ -1617,10 +1617,14 @@ pub fn summarizer_probe(
 
     // runs == 1: the detailed single-run path (summary + false-done + per-fact table).
     if runs == 1 {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("build tokio runtime")?;
+        // BoundedRuntime (#152): guarantees `shutdown_timeout` even on the `?`
+        // early-return below, so a hung resolver can't stall teardown.
+        let rt = super::BoundedRuntime::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .context("build tokio runtime")?,
+        );
         let summary = rt.block_on(engine.call((*prompt).clone()))?;
         let report = probe::ProbeReport::score(&summary, n_turns);
         let r = report.retention();
@@ -1669,10 +1673,15 @@ pub fn summarizer_probe(
     }
 
     let retentions: Vec<f64> = if eff_conc <= 1 {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("build tokio runtime")?;
+        // BoundedRuntime (#152): the runtime is reused across the `--runs` loop
+        // and each `block_on(..)?` can bail early — the guard's `Drop` still runs
+        // `shutdown_timeout`, which a trailing manual call would skip.
+        let rt = super::BoundedRuntime::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .context("build tokio runtime")?,
+        );
         let mut v = Vec::with_capacity(runs);
         for i in 0..runs {
             let summary = rt.block_on(engine.call((*prompt).clone()))?;
@@ -1692,11 +1701,14 @@ pub fn summarizer_probe(
         }
         v
     } else {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(4)
-            .enable_all()
-            .build()
-            .context("build tokio runtime")?;
+        // BoundedRuntime (#152): multi-thread pool; guaranteed bounded teardown.
+        let rt = super::BoundedRuntime::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .enable_all()
+                .build()
+                .context("build tokio runtime")?,
+        );
         rt.block_on(async {
             let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(eff_conc));
             let mut set = tokio::task::JoinSet::new();
