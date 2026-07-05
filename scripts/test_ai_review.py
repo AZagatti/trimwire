@@ -35,13 +35,16 @@ class TestParseJson(unittest.TestCase):
         self.assertEqual(obj["verdict"], "approve")
 
     def test_fenced_with_inner_code_block_in_detail(self):
-        # A fenced response whose `detail` contains an inner ```code``` block with real
-        # newlines must NOT be truncated at that inner fence (regression: greedy DOTALL strip
-        # dropped every finding). The closing fence is the LAST ```, not the first.
+        # A fenced response whose `detail` contains an inner ```code``` block with real (unescaped)
+        # newlines. The rfind strip removes only the OUTER closing fence (not the first inner one),
+        # leaving the fragment intact enough for the control-char SALVAGE path to recover the finding.
+        # Regression guard: the old greedy DOTALL strip truncated at the inner fence, so even salvage
+        # failed and every finding was dropped.
         raw = ('```json\n{"findings": [{"severity": "bug", "file": "a.rs", "line": 5, '
                '"title": "unwrap panic", "detail": "call site:\n```rust\nfoo.unwrap()\n```\n'
                'panics"}]}\n```')
         obj = R.parse_json(raw)
+        self.assertTrue(obj.get("_salvaged"), "expected recovery via the salvage path")
         self.assertEqual(len(obj["findings"]), 1)
         self.assertEqual(obj["findings"][0]["title"], "unwrap panic")
 
@@ -86,6 +89,23 @@ class TestParseJson(unittest.TestCase):
     def test_unrecoverable_text_raises(self):
         with self.assertRaises(ValueError):
             R.parse_json("this is not json at all")
+
+
+class TestStripReasoning(unittest.TestCase):
+    """`_reasoning` (the P1 think-first scratch field) MUST be stripped before display/aggregation,
+    or the model's step-by-step reasoning leaks into the PR comment and can blow the size limit."""
+    def test_strips_top_level_and_nested(self):
+        obj = {"_reasoning": "step 1 ...", "verdict": "comment",
+               "findings": [{"_reasoning": "per-finding", "title": "x", "severity": "bug"}]}
+        out = R._strip_reasoning(obj)
+        self.assertNotIn("_reasoning", out)
+        self.assertNotIn("_reasoning", out["findings"][0])
+        self.assertEqual(out["findings"][0]["title"], "x")     # real fields untouched
+        self.assertEqual(out["verdict"], "comment")
+
+    def test_noop_without_reasoning(self):
+        obj = {"findings": [{"title": "x", "severity": "bug"}]}
+        self.assertEqual(R._strip_reasoning(obj), {"findings": [{"title": "x", "severity": "bug"}]})
 
 
 class TestIterJsonObjects(unittest.TestCase):
