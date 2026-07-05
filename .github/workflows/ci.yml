@@ -20,6 +20,14 @@ env:
   # errors during cargo package/fetch).
   CARGO_NET_RETRY: "10"
   CARGO_HTTP_MULTIPLEXING: "false"
+  # Compile the test profile at opt-level 1 in CI (Cargo.toml keeps opt-level 2 for
+  # local dev). CI compiles the crate on EVERY run and executes the suite ONCE, so
+  # compile time dominates: at opt-2 we pay to optimize ~30k LOC that then runs for
+  # ~14s. Measured steady-state per-PR nextest cost (recompile + link + run) dropped
+  # ARM 98s→57s (−42%, its optimum) and Windows 243s→154s (−37%). opt-1's RUNTIME is
+  # ~opt-2, so the full-suite platforms (macOS/ubuntu) don't regress. Local tight-loop
+  # dev (compile once, re-run tests many times) still wants opt-2, so this is CI-only.
+  CARGO_PROFILE_TEST_OPT_LEVEL: "1"
 
 jobs:
   check:
