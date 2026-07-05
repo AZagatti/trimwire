@@ -273,15 +273,28 @@ fn thinking_block_key(block: &Value) -> Option<String> {
     }
 }
 
-/// Record what the checkpoint prune did, keyed by STABLE identifiers (not
+/// Compute what the checkpoint prune did, keyed by STABLE identifiers (not
 /// position): tool-block overwrites by `tool_use_id`, and removed thinking blocks
 /// by `signature`/`data`. Id/signature keys are position-independent, so this is
 /// correct even though `thinking_strip` shortens a message's content array
 /// (a positional zip would misalign after a removal — that's why this is id-keyed).
-fn record_decisions(orig: &[Value], pruned: &[Value], state: &mut PruneState) {
-    state.result_decisions.clear();
-    state.input_decisions.clear();
-    state.stripped_thinking.clear();
+///
+/// Returns the `(result_decisions, input_decisions, stripped_thinking)` sets as
+/// owned collections rather than writing them into `state` — the caller commits
+/// them into `PruneState` only once the outgoing body has serialized, so a failed
+/// re-serialize never advances the checkpoint to a body that never went on the
+/// wire (#144).
+fn compute_decisions(
+    orig: &[Value],
+    pruned: &[Value],
+) -> (
+    HashMap<String, Value>,
+    HashMap<String, Value>,
+    HashSet<String>,
+) {
+    let mut result_decisions: HashMap<String, Value> = HashMap::new();
+    let mut input_decisions: HashMap<String, Value> = HashMap::new();
+    let mut stripped_thinking: HashSet<String> = HashSet::new();
 
     // Index the ORIGINAL tool values + thinking keys by their stable identifier.
     let mut orig_results: HashMap<&str, &Value> = HashMap::new();
@@ -332,7 +345,7 @@ fn record_decisions(orig: &[Value], pruned: &[Value], state: &mut PruneState) {
                         b.get("content"),
                     ) {
                         if orig_results.get(id).copied() != Some(c) {
-                            state.result_decisions.insert(id.to_owned(), c.clone());
+                            result_decisions.insert(id.to_owned(), c.clone());
                         }
                     }
                 }
@@ -341,7 +354,7 @@ fn record_decisions(orig: &[Value], pruned: &[Value], state: &mut PruneState) {
                         (b.get("id").and_then(Value::as_str), b.get("input"))
                     {
                         if orig_inputs.get(id).copied() != Some(inp) {
-                            state.input_decisions.insert(id.to_owned(), inp.clone());
+                            input_decisions.insert(id.to_owned(), inp.clone());
                         }
                     }
                 }
@@ -356,9 +369,30 @@ fn record_decisions(orig: &[Value], pruned: &[Value], state: &mut PruneState) {
     // Thinking keys in orig but gone from pruned = removed by thinking_strip.
     for k in orig_thinking {
         if !pruned_thinking.contains(&k) {
-            state.stripped_thinking.insert(k);
+            stripped_thinking.insert(k);
         }
     }
+    (result_decisions, input_decisions, stripped_thinking)
+}
+
+/// Install a freshly-computed checkpoint into `state`: the decision sets plus the
+/// advanced checkpoint pointer + prefix snapshot. Called only after the outgoing
+/// body has serialized (or on a no-op re-checkpoint that forwards the original
+/// bytes), so the checkpoint never advances to a body that failed to serialize (#144).
+fn commit_checkpoint(
+    state: &mut PruneState,
+    result_decisions: HashMap<String, Value>,
+    input_decisions: HashMap<String, Value>,
+    stripped_thinking: HashSet<String>,
+    checkpoint_len: usize,
+    checkpoint_prefix: Vec<Value>,
+) {
+    state.result_decisions = result_decisions;
+    state.input_decisions = input_decisions;
+    state.stripped_thinking = stripped_thinking;
+    state.checkpoint_len = checkpoint_len;
+    state.checkpoint_prefix = checkpoint_prefix;
+    state.initialized = true;
 }
 
 /// Re-apply the checkpoint's decisions to `out` by `tool_use_id`. Only overwrites
@@ -769,7 +803,33 @@ pub fn stable_apply_to_body(
         // (run B: a short large-read session ended at 0% because the premature fire
         // reset the checkpoint). So when byte-forced, snapshot the checkpoint state and
         // roll it back if the prune is a no-op, leaving the tail to keep accumulating.
+
+        // #144 nit1: capture the OLD-decision replay length NOW, before the byte-forced
+        // `rollback` below drains the decision sets via `mem::take`. The marginal-vs-
+        // replay telemetry (further down) must diff the pruned body against replaying
+        // the OLD decisions on the longer array; reading it after the drain would replay
+        // against emptied decisions and mis-report total (not marginal) savings. Only on
+        // the append-only rebase (what the deferred gate governs) and only under DEBUG.
+        let debug_replay_len: Option<usize> = (append_only
+            && tracing::enabled!(tracing::Level::DEBUG))
+        .then(|| {
+            replay_decisions(messages, state)
+                .and_then(|(o, _)| serde_json::to_vec(&o).ok())
+                .map(|v| v.len())
+        })
+        .flatten();
+
         let byte_forced = big_new_tail && append_only && grew <= threshold && !prefix_changed;
+        // Load-bearing invariant: a byte-forced re-checkpoint is append-only with an
+        // unchanged prefix, so it can NEVER coincide with a history rewrite. Several
+        // arguments below rely on this (the byte-forced rollback snapshot doesn't cover
+        // `state.summary`, which only `apply_checkpoint_summary` clears — and only when
+        // `prefix_changed`). Assert it so a future edit to either predicate can't silently
+        // break the mutual exclusion.
+        debug_assert!(
+            !(prefix_changed && byte_forced),
+            "byte_forced requires !prefix_changed by construction"
+        );
         let rollback = byte_forced.then(|| {
             (
                 state.checkpoint_len,
@@ -805,69 +865,75 @@ pub fn stable_apply_to_body(
         };
         // Telemetry for the (deferred) minimum-savings gate (IMPROVEMENTS P0 #2): the
         // decision metric is the MARGINAL savings of re-checkpointing vs just replaying
-        // the OLD decisions on the longer array — NOT the total-vs-raw savings. Compute
-        // it here, while the old decisions are still intact (before record_decisions),
-        // and only on the append-only rebase case (the only one the gate would govern).
-        // Guarded so it's free unless DEBUG tracing is on.
-        if append_only && tracing::enabled!(tracing::Level::DEBUG) {
-            if let Some((replay_out, _)) = replay_decisions(messages, state) {
-                let replay_len = serde_json::to_vec(&replay_out)
-                    .map(|v| v.len())
-                    .unwrap_or(0);
-                let pruned_len = serde_json::to_vec(&pruned).map(|v| v.len()).unwrap_or(0);
-                tracing::debug!(
-                    grew,
-                    checkpoint_len = len,
-                    marginal_saved = replay_len.saturating_sub(pruned_len),
-                    "trimwire: re-checkpoint marginal-vs-replay"
-                );
-            }
+        // the OLD decisions on the longer array — NOT the total-vs-raw savings. Uses the
+        // pre-drain replay length captured above (#144 nit1). Guarded: `debug_replay_len`
+        // is `None` unless DEBUG tracing is on and this is the append-only rebase.
+        if let Some(replay_len) = debug_replay_len {
+            let pruned_len = serde_json::to_vec(&pruned).map(|v| v.len()).unwrap_or(0);
+            tracing::debug!(
+                grew,
+                checkpoint_len = len,
+                marginal_saved = replay_len.saturating_sub(pruned_len),
+                "trimwire: re-checkpoint marginal-vs-replay"
+            );
         }
-        record_decisions(messages, &pruned, state);
-        state.checkpoint_len = len;
-        state.checkpoint_prefix = messages.to_vec();
-        state.initialized = true;
+        // #144 nit2: compute the checkpoint's decisions but DON'T write them into
+        // `state` yet — the decision sets + advanced checkpoint pointer are committed
+        // (`commit_checkpoint`) only once the outgoing body has serialized below, so a
+        // failed re-serialize can never advance the checkpoint to a body that never went
+        // on the wire (which would replay stale decisions next turn).
+        let (results, inputs, thinking) = compute_decisions(messages, &pruned);
 
-        // Apply the cached summary (if any) to the freshly-pruned checkpoint so
-        // its prefix matches the stable turns'. Reverted if it would orphan;
-        // cleared on a history rewrite. Never load-bearing.
+        // Apply the cached summary (if any) to the freshly-pruned checkpoint so its
+        // prefix matches the stable turns'. Reverted if it would orphan; cleared on a
+        // history rewrite. Never load-bearing. (Reads/clears `state.summary` only — it
+        // does not touch the not-yet-committed decision sets.)
         let (mut pruned, fired, summary_applied) =
             apply_checkpoint_summary(pruned, fired, messages, state, prefix_changed);
 
         // Always-on correctness sanitize (see strategies::apply_to_body): drop
         // empty-thinking blocks Anthropic rejects on resume. Run AFTER
-        // record_decisions so it is not recorded as a replayable decision — the
+        // compute_decisions so it is not recorded as a replayable decision — the
         // stable branch re-applies the same deterministic pass, so the pruned
         // prefix stays byte-identical across turns (cache-safe).
         let empty_removed = strategies::thinking_strip::strip_empty(&mut pruned);
+
+        // Snapshot the checkpoint prefix as an OWNED value now, while `messages` (a
+        // borrow of `root`) is still freely borrowable — `commit_checkpoint` installs it
+        // AFTER `pruned` is moved into `root` below (which mutably borrows `root`), so it
+        // can't re-borrow `messages` at that point (#144 nit2 reorder).
+        let new_prefix = messages.to_vec();
 
         if fired.iter().all(|(_, s)| s.stubbed == 0)
             && !summary_applied
             && empty_removed == 0
             && !normalized
         {
-            // No-op re-checkpoint. If it was byte-FORCED, roll the checkpoint state
-            // back (don't advance it on a fire that trimmed nothing) so the tail keeps
-            // accumulating and a later re-checkpoint can still trim once content ages.
-            if let Some((cl, init, results, inputs, thinking, prefix)) = rollback {
-                state.checkpoint_len = cl;
-                state.initialized = init;
-                state.result_decisions = results;
-                state.input_decisions = inputs;
-                state.stripped_thinking = thinking;
-                state.checkpoint_prefix = prefix;
+            // No-op re-checkpoint (original bytes preserved). If it was byte-FORCED,
+            // restore the pre-drain snapshot so the checkpoint does NOT advance on a fire
+            // that trimmed nothing (the tail keeps accumulating for a later re-checkpoint
+            // once content ages). Otherwise this is a normal grown-past-threshold
+            // re-checkpoint that happened to prune nothing — advance it as before.
+            match rollback {
+                Some((cl, init, r, i, t, prefix)) => {
+                    state.checkpoint_len = cl;
+                    state.initialized = init;
+                    state.result_decisions = r;
+                    state.input_decisions = i;
+                    state.stripped_thinking = t;
+                    state.checkpoint_prefix = prefix;
+                }
+                None => commit_checkpoint(state, results, inputs, thinking, len, new_prefix),
             }
             return BodyOutcome::Unchanged; // exact-original bytes preserved
         }
-        // A real (non-no-op) re-checkpoint: `rollback`'s snapshot (if any) is dropped
-        // here — we keep the freshly-advanced checkpoint state.
-        drop(rollback);
         // Telemetry: a re-checkpoint MUTATES the prefix → busts the Anthropic prompt
         // cache. Logging `grew` + bytes saved reveals, on real sessions, how often
         // re-checkpoints fire for SMALL savings — the data that would justify (and set
         // the threshold for) a minimum-savings bust gate (IMPROVEMENTS-RESEARCH.md
-        // P0 #2; design ready, deferred pending this telemetry). Guarded so the extra
-        // serialization only runs when DEBUG tracing is enabled.
+        // P0 #2; design ready, deferred pending this telemetry). Runs BEFORE `pruned`
+        // is moved into `root`, and is guarded so the extra serialization only runs when
+        // DEBUG tracing is enabled.
         if tracing::enabled!(tracing::Level::DEBUG) {
             let orig = serde_json::to_vec(messages).map(|v| v.len()).unwrap_or(0);
             let kept = serde_json::to_vec(&pruned).map(|v| v.len()).unwrap_or(0);
@@ -878,12 +944,33 @@ pub fn stable_apply_to_body(
                 "trimwire: reprune re-checkpoint (cache bust)"
             );
         }
+        // #144 nit2: serialize the mutated body BEFORE committing the checkpoint
+        // advance. If the (near-impossible) re-serialize of a just-parsed Value fails we
+        // forward the original bytes with `state` left exactly as it was — the byte-
+        // forced snapshot restored, and the non-byte-forced path never mutated `state`
+        // (decisions still held as locals). Only on success do we install the advanced
+        // checkpoint and drop the snapshot.
         root["messages"] = Value::Array(pruned);
-        match serde_json::to_vec(&root) {
-            Ok(bytes) => BodyOutcome::Mutated { bytes, fired },
+        let bytes = match serde_json::to_vec(&root) {
+            Ok(bytes) => bytes,
             // Re-serialize of a mutated valid body failed → trimwire-caused (#138).
-            Err(_) => rollback_outcome(input_valid),
-        }
+            Err(_) => {
+                if let Some((cl, init, r, i, t, prefix)) = rollback {
+                    state.checkpoint_len = cl;
+                    state.initialized = init;
+                    state.result_decisions = r;
+                    state.input_decisions = i;
+                    state.stripped_thinking = t;
+                    state.checkpoint_prefix = prefix;
+                }
+                return rollback_outcome(input_valid);
+            }
+        };
+        // Serialize succeeded → commit the advanced checkpoint and discard the byte-
+        // forced snapshot (we keep the freshly-advanced state).
+        commit_checkpoint(state, results, inputs, thinking, len, new_prefix);
+        drop(rollback);
+        BodyOutcome::Mutated { bytes, fired }
     }
 }
 
@@ -1729,6 +1816,132 @@ mod tests {
         PairingIndex::build(v["messages"].as_array().unwrap())
             .validate()
             .unwrap();
+    }
+
+    /// #144 nit2 — a MUTATING re-checkpoint advances the checkpoint pointer and
+    /// installs its decision sets *together* (`commit_checkpoint`, only after the body
+    /// serializes). This pins the invariant the fix guarantees: the pointer never
+    /// advances without its decisions (a half-advanced state would replay stale/empty
+    /// decisions next turn). We can't force the near-impossible `to_vec(&Value)` failure
+    /// that motivated the fix, so we assert the post-state is internally consistent AND
+    /// that the committed decisions replay byte-identically on the next stable turn.
+    #[test]
+    fn recheckpoint_commits_pointer_and_decisions_atomically() {
+        let cfg = read_fix_cfg(65_536); // message-cadence governs (reads under the byte trigger)
+        let mut state = PruneState::default();
+
+        // Cold checkpoint over 20 reads: a real mutating prune (old reads bloat_capped).
+        let b20 = read_session_body(20, 8_000);
+        let out20 = bytes_of(&stable_apply_to_body(&b20, &cfg, &mut state, 8), &b20);
+        let cp = state.checkpoint_len;
+
+        // Pointer, prefix, and decisions all advanced together — never half-committed.
+        assert!(
+            state.initialized && cp == 41,
+            "checkpoint advanced to 1 start + 20×2"
+        );
+        assert_eq!(
+            state.checkpoint_prefix.len(),
+            cp,
+            "checkpoint_prefix installed alongside checkpoint_len"
+        );
+        assert!(
+            !state.result_decisions.is_empty(),
+            "a mutating prune's decisions are committed with the pointer, not left empty"
+        );
+
+        // The committed decisions are the REAL ones: a stable turn within the message
+        // threshold replays them to a byte-identical pruned prefix (would diverge if
+        // commit_checkpoint had installed the wrong/empty set).
+        let b22 = read_session_body(22, 8_000);
+        let out22 = bytes_of(&stable_apply_to_body(&b22, &cfg, &mut state, 8), &b22);
+        assert_eq!(state.checkpoint_len, cp, "stable turn — no re-checkpoint");
+        assert_eq!(
+            msgs_prefix(&out20, cp),
+            msgs_prefix(&out22, cp),
+            "committed decisions replay byte-identically (cache holds)"
+        );
+    }
+
+    /// #144 nit1 (MECHANISM) — isolates *why* the telemetry must read decisions before
+    /// the byte-forced `rollback` drains them: replaying the recorded decisions on the
+    /// grown array yields a materially SMALLER body than replaying against an emptied
+    /// state (which equals the raw body). So a metric computed AFTER the drain diffs the
+    /// pruned body against RAW and over-reports. This is a unit test of `replay_decisions`
+    /// in isolation — it pins the mechanism, not the telemetry call site itself. (An
+    /// end-to-end capture of the logged `marginal_saved` was prototyped but dropped: it
+    /// requires a DEBUG tracing subscriber, and `tracing`'s process-global callsite
+    /// interest cache makes such a capture race with other tests in a parallel binary —
+    /// a flaky test is worse than none for DEBUG-only telemetry with no runtime effect.)
+    #[test]
+    fn marginal_replay_must_read_decisions_before_byte_forced_drain() {
+        let cfg = read_fix_cfg(65_536);
+        let mut state = PruneState::default();
+        // A checkpoint over 20 reads records real trim decisions (old reads capped).
+        let b20 = read_session_body(20, 8_000);
+        let _ = stable_apply_to_body(&b20, &cfg, &mut state, 8);
+        assert!(
+            !state.result_decisions.is_empty(),
+            "the checkpoint recorded trim decisions to replay"
+        );
+
+        // A grown, append-only array carrying the same ids r0.. plus two new reads.
+        let b22 = read_session_body(22, 8_000);
+        let v: Value = serde_json::from_slice(&b22).unwrap();
+        let msgs = v["messages"].as_array().unwrap().clone();
+        let raw_len = serde_json::to_vec(&msgs).unwrap().len();
+
+        // Replaying the INTACT decisions trims the old reads → smaller than raw.
+        let (intact_out, _) =
+            replay_decisions(&msgs, &state).expect("overwrite replay never orphans");
+        let intact_len = serde_json::to_vec(&intact_out).unwrap().len();
+
+        // Drain the decisions exactly as the byte-forced `rollback` snapshot does.
+        let mut drained = state;
+        let _ = std::mem::take(&mut drained.result_decisions);
+        let _ = std::mem::take(&mut drained.input_decisions);
+        let _ = std::mem::take(&mut drained.stripped_thinking);
+        let (drained_out, _) =
+            replay_decisions(&msgs, &drained).expect("empty replay is a no-op, never orphans");
+        let drained_len = serde_json::to_vec(&drained_out).unwrap().len();
+
+        assert_eq!(
+            drained_len, raw_len,
+            "a drained (empty) replay equals the raw body"
+        );
+        assert!(
+            intact_len < drained_len,
+            "intact replay ({intact_len}) is smaller than the drained/raw body ({drained_len}); \
+             reading the marginal metric AFTER the drain would diff against raw and over-report"
+        );
+    }
+
+    /// #144 nit2 (WIRING) — `compute_decisions`/`commit_checkpoint` thread three
+    /// same-shaped collections positionally, so a swapped argument would type-check
+    /// silently. Install three DISTINGUISHABLE sets and assert each lands in its own
+    /// `PruneState` field (result vs input vs thinking), plus the pointer/prefix.
+    #[test]
+    fn commit_checkpoint_installs_each_set_in_its_own_field() {
+        let mut state = PruneState::default();
+        let mut results = HashMap::new();
+        results.insert("res".to_owned(), json!("R"));
+        let mut inputs = HashMap::new();
+        inputs.insert("inp".to_owned(), json!("I"));
+        let mut thinking = HashSet::new();
+        thinking.insert("thk".to_owned());
+        let prefix = vec![json!({"role": "user", "content": "p"})];
+
+        commit_checkpoint(&mut state, results, inputs, thinking, 7, prefix.clone());
+
+        assert!(state.initialized);
+        assert_eq!(state.checkpoint_len, 7);
+        assert_eq!(state.checkpoint_prefix, prefix);
+        // Each set in its OWN field — catches an argument-order swap.
+        assert_eq!(state.result_decisions.get("res"), Some(&json!("R")));
+        assert_eq!(state.input_decisions.get("inp"), Some(&json!("I")));
+        assert!(state.stripped_thinking.contains("thk"));
+        assert!(!state.result_decisions.contains_key("inp"));
+        assert!(!state.input_decisions.contains_key("res"));
     }
 
     /// THE cache-stability guarantee for thinking_strip: across consecutive
