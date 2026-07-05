@@ -1010,11 +1010,13 @@ fn summarizer_setup_api_provider_writes_provider_block_without_key() {
 
 /// #145 regression: `summarizer setup`'s entry ollama probe must be BOUNDED — a
 /// filtered/hung endpoint (accepts the connection, never responds) must fail fast
-/// into the "unreachable" path, not hang the wizard forever. The probe has a 2s
-/// timeout; we cap the whole run at 8s and — crucially — poll `try_wait` so that
+/// into the "unreachable" path, not hang the wizard forever. The probe has a 5s
+/// timeout; we cap the whole run at 15s and — crucially — poll `try_wait` so that
 /// if the timeout ever regresses this test FAILS with a clear message instead of
 /// hanging the suite. stdin is closed, so the wizard cancels right after the
-/// probe (we only care that the probe returns; not that setup completes).
+/// probe (we only care that the probe returns; not that setup completes). See the
+/// fast `fetch_ollama_tags_blocking` unit test for the shared-helper coverage that
+/// also protects `summarizer benchmark`.
 #[test]
 fn summarizer_setup_ollama_probe_is_bounded_on_a_hung_endpoint() {
     use std::io::Read;
@@ -1034,14 +1036,15 @@ fn summarizer_setup_ollama_probe_is_bounded_on_a_hung_endpoint() {
         .spawn()
         .expect("spawn summarizer setup");
 
-    // Wait for the child, but never longer than 8s (≫ the 2s probe timeout +
-    // process/stdio overhead). If it's still alive at the deadline the probe hung
-    // → kill it and fail loudly rather than block the whole test suite forever.
+    // Wait for the child, but never longer than 15s (≫ the 5s probe timeout +
+    // process/stdio overhead, with slack for a cold Windows-runner exe scan). If
+    // it's still alive at the deadline the probe hung → kill it and fail loudly
+    // rather than block the whole test suite forever.
     let start = Instant::now();
     let hung = loop {
         match child.try_wait().expect("try_wait") {
             Some(_status) => break false,
-            None if start.elapsed() > Duration::from_secs(8) => {
+            None if start.elapsed() > Duration::from_secs(15) => {
                 let _ = child.kill();
                 let _ = child.wait();
                 break true;

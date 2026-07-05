@@ -186,39 +186,14 @@ pub enum OllamaProbe {
     Unreachable(String),
 }
 
-/// Probe ollama synchronously: build a tiny tokio runtime for the async hyper
-/// call — mirrors the pattern used in `benchmark.rs` (`rt.block_on`).
-///
-/// The whole fetch is bounded by [`PROBE_TIMEOUT`]: the shared hyper client has
-/// no connect timeout, so a *filtered* endpoint (a firewalled host that silently
-/// drops SYNs, rather than one that refuses) would otherwise hang the wizard
-/// forever (#145). A refused port already returns `ECONNREFUSED` instantly; the
-/// timeout only bites the drop-the-packet case, where it fails fast into the
-/// normal "unreachable → configure now, start ollama later" flow. Mirrors the
-/// same `timeout(block_on(...))` pattern `update.rs` uses for the GitHub check.
+/// Probe ollama synchronously via the shared BOUNDED fetch — so a filtered/hung
+/// or slow-remote endpoint fails fast into the "unreachable → configure now,
+/// start ollama later" flow instead of hanging the wizard forever (#145). The
+/// timeout + runtime-teardown bounds live in `fetch_ollama_tags_blocking`.
 fn probe_ollama(endpoint: &str) -> OllamaProbe {
-    // 2s: a healthy localhost ollama answers in single-digit ms, so this has huge
-    // margin against false positives on a slow/warming instance while still
-    // failing fast enough that the interactive wizard never looks frozen.
-    const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-    match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Err(e) => OllamaProbe::Unreachable(format!("could not build runtime: {e}")),
-        // The `timeout` future must be built INSIDE the async block (i.e. within
-        // the runtime context) — constructing it as a bare `block_on` argument
-        // registers its timer before the runtime is entered and panics.
-        Ok(rt) => match rt.block_on(async {
-            tokio::time::timeout(PROBE_TIMEOUT, super::fetch_ollama_tags(endpoint)).await
-        }) {
-            Ok(Ok(tags)) => OllamaProbe::Reachable(tags),
-            Ok(Err(e)) => OllamaProbe::Unreachable(e.to_string()),
-            Err(_elapsed) => OllamaProbe::Unreachable(format!(
-                "timed out after {}s connecting to {endpoint} (is it firewalled?)",
-                PROBE_TIMEOUT.as_secs()
-            )),
-        },
+    match super::fetch_ollama_tags_blocking(endpoint, super::OLLAMA_PROBE_TIMEOUT) {
+        Ok(tags) => OllamaProbe::Reachable(tags),
+        Err(e) => OllamaProbe::Unreachable(e.to_string()),
     }
 }
 

@@ -86,6 +86,53 @@ pub(super) async fn fetch_ollama_tags(endpoint: &str) -> Result<Vec<String>> {
     Ok(names)
 }
 
+/// Default bound for a synchronous ollama-tags probe (#145). It bounds the WHOLE
+/// fetch — DNS + connect + request + response — not just the TCP connect. 5s: a
+/// healthy localhost ollama answers in single-digit ms, so this only bites a
+/// *hung* endpoint (a filtered host that drops packets) or a genuinely slow
+/// remote one (the wizard lets you enter a custom endpoint). On a false timeout
+/// the outcome is only cosmetic — an empty model list — never a blocked/failed
+/// command, so erring generous is safe.
+pub(super) const OLLAMA_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Synchronous, BOUNDED ollama-tags fetch — the safe entry point every CLI probe
+/// site (`summarizer setup`, `summarizer benchmark`, `benchmark --all-installed`)
+/// must use instead of hand-rolling `rt.block_on(fetch_ollama_tags(..))`.
+///
+/// Two independent bounds, because one alone is insufficient (#145):
+/// 1. `tokio::time::timeout` around the fetch caps the *observable* latency; and
+/// 2. `rt.shutdown_timeout` caps the runtime teardown — the shared hyper client
+///    resolves DNS via an **uncancellable** `spawn_blocking` `getaddrinfo`, so if
+///    resolution (not just connect) is what's stuck, dropping the fetch future
+///    leaves that thread running and the runtime's *implicit* `Drop` would block
+///    forever joining it. `shutdown_timeout` waits briefly then LEAKS the
+///    straggler thread instead of hanging the caller.
+///
+/// Returns the model list, or an `Err` (timeout / unreachable / bad response) the
+/// caller renders as a friendly "configure now, start ollama later" message.
+pub(super) fn fetch_ollama_tags_blocking(
+    endpoint: &str,
+    timeout: std::time::Duration,
+) -> Result<Vec<String>> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build ollama-probe runtime")?;
+    // Build the `timeout` future INSIDE the async block — as a bare `block_on`
+    // argument it would register its timer before the runtime is entered and panic.
+    let out =
+        rt.block_on(async { tokio::time::timeout(timeout, fetch_ollama_tags(endpoint)).await });
+    // Bound the teardown so an orphaned getaddrinfo thread can't hang us (see above).
+    rt.shutdown_timeout(std::time::Duration::from_millis(100));
+    match out {
+        Ok(inner) => inner,
+        Err(_elapsed) => anyhow::bail!(
+            "timed out after {}s connecting to {endpoint} (is it firewalled?)",
+            timeout.as_secs()
+        ),
+    }
+}
+
 /// Resolve the gateway listen address from config (for lifecycle commands).
 fn listen_addr() -> Result<std::net::SocketAddr> {
     use trimwire::config::Config;
@@ -907,6 +954,59 @@ fn write_config_if_absent(path: &Path) -> Result<bool> {
 mod tests {
     use super::*;
     use trimwire::config::Config;
+
+    /// #145: the shared bounded fetch used by `summarizer setup` AND
+    /// `summarizer benchmark` must return an error FAST on a black-hole endpoint
+    /// (accepts the connection, never responds) rather than hang. Uses a short
+    /// timeout so the test is quick; asserts it returns `Err("timed out …")` well
+    /// within a bounded window. A literal `127.0.0.1` skips DNS, so this exercises
+    /// the connect/response-hang + timeout + `shutdown_timeout` teardown path.
+    #[test]
+    fn fetch_ollama_tags_blocking_is_bounded_on_a_hung_endpoint() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        let handle = std::thread::spawn(move || {
+            // Accept + hold connections open, never responding; poll `stop` so the
+            // join at the end returns promptly.
+            let mut held: Vec<std::net::TcpStream> = Vec::new();
+            while !stop2.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((s, _)) => held.push(s),
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        let start = Instant::now();
+        let res = fetch_ollama_tags_blocking(
+            &format!("http://127.0.0.1:{port}"),
+            Duration::from_millis(300),
+        );
+        let elapsed = start.elapsed();
+        stop.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+
+        assert!(res.is_err(), "black-hole endpoint must error, got {res:?}");
+        assert!(
+            res.unwrap_err().to_string().contains("timed out"),
+            "expected a timeout error"
+        );
+        // Bounded: the 300ms timeout + runtime teardown must resolve well under 2s.
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "fetch was not bounded ({elapsed:?}) — timeout/shutdown regressed"
+        );
+    }
 
     #[test]
     fn base_url_matches_compares_host_port_not_substring() {
