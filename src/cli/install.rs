@@ -25,22 +25,23 @@ const TARGET = "__TRIMWIRE_GATEWAY__";
 const orig = globalThis.fetch;
 globalThis.fetch = function (input, init) {
   try {
-    const url = typeof input === "string" ? input
+    const raw = typeof input === "string" ? input
       : (input instanceof URL ? input.href : (input && input.url));
-    if (url && url.startsWith("https://api.anthropic.com/")) {
-      // Reroute ONLY `POST /v1/messages` (exact path) — mirrors the gateway's own
-      // dispatch. The Remote-Control channel and every other endpoint go direct.
-      const method = ((init && init.method)
-        || (typeof input === "object" && input && input.method) || "GET").toUpperCase();
-      let path = "";
-      try { path = new URL(url).pathname; } catch (_) {}
-      if (method === "POST" && path === "/v1/messages") {
-        const rewritten = url.replace("https://api.anthropic.com", TARGET);
-        if (typeof input === "string" || input instanceof URL) {
-          return orig.call(this, rewritten, init);
-        }
-        return orig.call(this, new Request(rewritten, input), init);
+    let u = null;
+    try { u = new URL(raw); } catch (_) {}
+    // Reroute ONLY https://api.anthropic.com POST /v1/messages, matched by PARSED
+    // protocol/host/path (never string prefix) so no hostname-prefix or userinfo
+    // trick can smuggle a different origin through. Everything else — including the
+    // Remote-Control channel — goes direct.
+    const method = ((init && init.method)
+      || (typeof input === "object" && input && input.method) || "GET").toUpperCase();
+    if (u && u.protocol === "https:" && u.hostname === "api.anthropic.com"
+        && u.pathname === "/v1/messages" && method === "POST") {
+      const rewritten = TARGET + u.pathname + u.search;
+      if (typeof input === "string" || input instanceof URL) {
+        return orig.call(this, rewritten, init);
       }
+      return orig.call(this, new Request(rewritten, input), init);
     }
   } catch (e) {
     // Fail OPEN (send direct), but make it visible — a silent break would stop
