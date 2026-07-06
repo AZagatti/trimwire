@@ -227,10 +227,19 @@ pub fn on() -> Result<()> {
                 "{} couldn't update your shell rc ({e}) — add the export by hand if needed:",
                 render::warn()
             );
-            println!(
-                "  {} export ANTHROPIC_BASE_URL='{base_url}'",
-                render::dim("→")
-            );
+            if coexist {
+                // Coexist mode: preload the shim; ANTHROPIC_BASE_URL must stay UNSET.
+                println!(
+                    "  {} export BUN_OPTIONS='--preload {}'  (leave ANTHROPIC_BASE_URL unset)",
+                    render::dim("→"),
+                    install::coexist_shim_path().display()
+                );
+            } else {
+                println!(
+                    "  {} export ANTHROPIC_BASE_URL='{base_url}'",
+                    render::dim("→")
+                );
+            }
         }
     }
     if let Ok(addr) = listen.parse() {
@@ -332,12 +341,17 @@ pub fn off() -> Result<()> {
     //    the state clean so a later `trimwire on` starts pruning, not paused.
     let _ = trimwire::bypass::disable();
 
-    // 4. The current shell still has ANTHROPIC_BASE_URL exported; we can't unset a
-    //    parent's env from here — hand the user the exact line.
-    let unset = if install::is_fish_shell() {
-        "set -e ANTHROPIC_BASE_URL"
-    } else {
-        "unset ANTHROPIC_BASE_URL"
+    // 4. The current shell still has the trimwire env exported; we can't unset a
+    //    parent's env from here — hand the user the exact line. In coexist mode the
+    //    variable is BUN_OPTIONS (the shim preload), not ANTHROPIC_BASE_URL.
+    let coexist = trimwire::config::Config::load()
+        .map(|c| c.server.remote_control)
+        .unwrap_or(false);
+    let unset = match (coexist, install::is_fish_shell()) {
+        (true, true) => "set -e BUN_OPTIONS",
+        (true, false) => "unset BUN_OPTIONS",
+        (false, true) => "set -e ANTHROPIC_BASE_URL",
+        (false, false) => "unset ANTHROPIC_BASE_URL",
     };
     println!();
     println!(

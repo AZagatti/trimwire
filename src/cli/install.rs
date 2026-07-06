@@ -21,20 +21,32 @@ const COEXIST_SHIM: &str = r#"// trimwire Remote-Control coexistence shim (gener
 // is left unset so Remote Control's gate is satisfied; this reroutes only the
 // POST /v1/messages inference calls to the local trimwire gateway, which prunes
 // and forwards to the real api.anthropic.com. All data still goes only to Anthropic.
-const TARGET = process.env.TRIMWIRE_GATEWAY || "__TRIMWIRE_GATEWAY__";
+const TARGET = "__TRIMWIRE_GATEWAY__";
 const orig = globalThis.fetch;
 globalThis.fetch = function (input, init) {
   try {
     const url = typeof input === "string" ? input
       : (input instanceof URL ? input.href : (input && input.url));
-    if (url && url.startsWith("https://api.anthropic.com/v1/messages")) {
-      const rewritten = url.replace("https://api.anthropic.com", TARGET);
-      if (typeof input === "string" || input instanceof URL) {
-        return orig.call(this, rewritten, init);
+    if (url && url.startsWith("https://api.anthropic.com/")) {
+      // Reroute ONLY `POST /v1/messages` (exact path) — mirrors the gateway's own
+      // dispatch. The Remote-Control channel and every other endpoint go direct.
+      const method = ((init && init.method)
+        || (typeof input === "object" && input && input.method) || "GET").toUpperCase();
+      let path = "";
+      try { path = new URL(url).pathname; } catch (_) {}
+      if (method === "POST" && path === "/v1/messages") {
+        const rewritten = url.replace("https://api.anthropic.com", TARGET);
+        if (typeof input === "string" || input instanceof URL) {
+          return orig.call(this, rewritten, init);
+        }
+        return orig.call(this, new Request(rewritten, input), init);
       }
-      return orig.call(this, new Request(rewritten, input), init);
     }
-  } catch (_) { /* fall through to the original fetch on any error */ }
+  } catch (e) {
+    // Fail OPEN (send direct), but make it visible — a silent break would stop
+    // pruning for the whole session with no signal.
+    try { console.error("[trimwire] coexist shim error; sending direct:", e); } catch (_) {}
+  }
   return orig.call(this, input, init);
 };
 "#;
@@ -58,12 +70,19 @@ pub(super) fn coexist_shim_path() -> PathBuf {
 /// baked in as the reroute target. Returns the shim's path.
 pub(super) fn write_coexist_shim(base_url: &str) -> Result<PathBuf> {
     let path = coexist_shim_path();
+    write_coexist_shim_at(&path, base_url)?;
+    Ok(path)
+}
+
+/// Path-injectable core of [`write_coexist_shim`] (so tests can write to a
+/// tempdir instead of the real `~/.trimwire/`). Creates parent dirs, bakes
+/// `base_url` into the shim, writes atomically.
+fn write_coexist_shim_at(path: &Path, base_url: &str) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     }
     let js = COEXIST_SHIM.replace("__TRIMWIRE_GATEWAY__", base_url);
-    write_text_atomic(&path, &js).with_context(|| format!("write {}", path.display()))?;
-    Ok(path)
+    write_text_atomic(path, &js).with_context(|| format!("write {}", path.display()))
 }
 
 /// Build the wiring for the current config: coexistence when
@@ -648,15 +667,26 @@ fn rc_block(base_url: &str) -> String {
 /// present. Returns the new content, or `None` if no change is needed.
 /// Only ever appends — never touches the user's existing lines.
 fn ensure_rc_block(existing: &str, block: &str) -> Option<String> {
-    if existing.contains(RC_MARKER_START) {
-        return None;
-    }
-    let mut out = existing.to_owned();
+    // Upsert, not skip-if-present: if a block is already there but its content
+    // differs from `block` (e.g. the user switched between default and coexist
+    // wiring), strip the stale block and re-append the desired one. Only truly
+    // identical content is a no-op — otherwise a mode switch would be silently
+    // ignored. Strip first so we compare/append against a clean base.
+    let base = if existing.contains(RC_MARKER_START) {
+        remove_rc_block(existing).unwrap_or_else(|| existing.to_owned())
+    } else {
+        existing.to_owned()
+    };
+    let mut out = base;
     if !out.is_empty() && !out.ends_with('\n') {
         out.push('\n');
     }
     out.push('\n');
     out.push_str(block);
+    // No-op only when the result is byte-identical to what's already there.
+    if out == existing {
+        return None;
+    }
     Some(out)
 }
 
@@ -745,8 +775,11 @@ pub(super) fn wire_rc(wiring: &Wiring) -> Result<RcWire> {
 /// Strip the guarded trimwire export block from the shell rc (idempotent).
 /// Backs the full-`off` disengage path so new shells go straight to Anthropic.
 pub(super) fn unwire_rc() -> Result<RcUnwire> {
-    // Best-effort: drop the coexistence shim too (no-op if it was never written).
-    let _ = std::fs::remove_file(coexist_shim_path());
+    // NB: we deliberately do NOT delete the coexistence shim here. `off` can't
+    // unset the CURRENT shell's already-exported `BUN_OPTIONS='--preload <shim>'`,
+    // and Bun errors ("preload not found") if that file is gone — which would
+    // break `claude` in that shell. The dormant shim is harmless (new shells get
+    // no BUN_OPTIONS once the rc block is removed); it's overwritten on re-enable.
     match shell_rc_path() {
         Some(rc) => {
             let existing = std::fs::read_to_string(&rc).unwrap_or_default();
@@ -808,7 +841,8 @@ fn rc_block_coexist(shim: &str) -> String {
          # Remote-Control coexistence: preload a shim into Claude Code (Bun) that\n\
          # reroutes only POST /v1/messages through the local trimwire gateway for\n\
          # pruning. ANTHROPIC_BASE_URL is intentionally left UNSET so Claude Code's\n\
-         # Remote Control keeps working (it refuses a custom base URL). See docs/FAQ.md.\n\
+         # Remote Control keeps working (it refuses a custom base URL). See the\n\
+         # [server].remote_control note in your trimwire config.\n\
          export BUN_OPTIONS='--preload {shim}'\n{RC_MARKER_END}\n"
     )
 }
@@ -820,7 +854,8 @@ fn rc_block_coexist_fish(shim: &str) -> String {
          # Remote-Control coexistence: preload a shim into Claude Code (Bun) that\n\
          # reroutes only POST /v1/messages through the local trimwire gateway for\n\
          # pruning. ANTHROPIC_BASE_URL is intentionally left UNSET so Claude Code's\n\
-         # Remote Control keeps working (it refuses a custom base URL). See docs/FAQ.md.\n\
+         # Remote Control keeps working (it refuses a custom base URL). See the\n\
+         # [server].remote_control note in your trimwire config.\n\
          set -gx BUN_OPTIONS '--preload {shim}'\n{RC_MARKER_END}\n"
     )
 }
@@ -895,9 +930,66 @@ mod tests {
             js.contains("http://127.0.0.1:8765"),
             "target URL must be baked in"
         );
-        // It only reroutes the messages endpoint (RC channel + everything else stays direct).
-        assert!(js.contains("api.anthropic.com/v1/messages"));
+        // It reroutes ONLY POST /v1/messages (exact path); the RC channel + all
+        // else stay direct — the shim checks the method and the exact pathname.
+        assert!(js.contains("api.anthropic.com"));
+        assert!(js.contains("\"/v1/messages\""), "must match the exact path");
+        assert!(js.contains("\"POST\""), "must match the POST method");
         assert!(js.contains("globalThis.fetch"));
+        // The env override was dropped (would let any process retarget traffic).
+        assert!(
+            !js.contains("process.env"),
+            "no env-based retarget override"
+        );
+    }
+
+    #[test]
+    fn write_coexist_shim_at_bakes_url_and_creates_dirs() {
+        let dir = std::env::temp_dir().join(format!("tw-shim-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Nested path: exercises the create_dir_all.
+        let path = dir.join("nested").join("coexist-shim.js");
+        write_coexist_shim_at(&path, "http://127.0.0.1:9999").expect("writes the shim");
+        let js = std::fs::read_to_string(&path).unwrap();
+        assert!(js.contains("http://127.0.0.1:9999"), "gateway URL baked in");
+        assert!(
+            !js.contains("__TRIMWIRE_GATEWAY__"),
+            "placeholder fully substituted on disk"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_rc_block_replaces_on_mode_switch() {
+        // Default (base-url) block already wired, then the user enables coexist
+        // (`remote_control = true`) and re-runs `trimwire on`. ensure_rc_block MUST
+        // replace the stale ANTHROPIC_BASE_URL block with the BUN_OPTIONS one — the
+        // #1 blocking bug was that it no-op'd because the marker was already present.
+        let base = ensure_rc_block("# existing\n", &rc_block("http://127.0.0.1:8765"))
+            .expect("adds the default block");
+        assert!(base.contains("ANTHROPIC_BASE_URL="));
+        let switched = ensure_rc_block(
+            &base,
+            &rc_block_coexist("/home/u/.trimwire/coexist-shim.js"),
+        )
+        .expect("mode switch MUST rewrite the block, not no-op");
+        assert!(switched.contains("BUN_OPTIONS"), "coexist block installed");
+        assert!(
+            !switched.contains("ANTHROPIC_BASE_URL="),
+            "stale base-url export removed on switch"
+        );
+        assert!(
+            switched.contains("# existing"),
+            "user's own lines preserved"
+        );
+        // Re-applying the SAME coexist block is now a no-op (idempotent).
+        assert!(
+            ensure_rc_block(
+                &switched,
+                &rc_block_coexist("/home/u/.trimwire/coexist-shim.js")
+            )
+            .is_none()
+        );
     }
 
     #[test]
