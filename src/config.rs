@@ -145,7 +145,6 @@ impl Default for LedgerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-#[non_exhaustive]
 pub struct ServerConfig {
     pub listen: String,
     pub upstream: String,

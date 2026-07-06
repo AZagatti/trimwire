@@ -91,6 +91,22 @@ fn write_coexist_shim_at(path: &Path, base_url: &str) -> Result<()> {
 pub(super) fn wiring_for(cfg: &Config) -> Result<Wiring> {
     let base_url = format!("http://{}", cfg.server.listen);
     if cfg.server.remote_control {
+        // The shim reroutes auth-bearing `/v1/messages` bodies to this address, so
+        // refuse to bake in a NON-loopback gateway — that would exfiltrate request
+        // bodies (with the API token) to a remote host. `listen` is already a valid
+        // SocketAddr (config validation), so this only rejects a non-local IP.
+        let addr: std::net::SocketAddr = cfg
+            .server
+            .listen
+            .parse()
+            .with_context(|| format!("parse [server] listen address {}", cfg.server.listen))?;
+        if !addr.ip().is_loopback() {
+            anyhow::bail!(
+                "remote_control coexistence requires a loopback [server] listen \
+                 (got {}); the preload shim would send request bodies to a non-local host",
+                cfg.server.listen
+            );
+        }
         Ok(Wiring::Coexist(write_coexist_shim(&base_url)?))
     } else {
         Ok(Wiring::BaseUrl(base_url))
@@ -835,7 +851,20 @@ fn rc_block_fish(base_url: &str) -> String {
 /// Code and deliberately does NOT set `ANTHROPIC_BASE_URL`, so Remote Control's
 /// gate stays satisfied. NOTE: this sets (not appends) `BUN_OPTIONS`; if you use
 /// `BUN_OPTIONS` for other Bun tools, merge them yourself.
+/// POSIX single-quote-escape for safely embedding a path in a bash/zsh rc line
+/// (wrap in single quotes, rewrite each `'` as `'\''`). Defends against an exotic
+/// `$HOME` whose path contains shell metacharacters.
+pub(super) fn sh_squote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// fish single-quote-escape (inside fish single quotes only `\` and `'` are special).
+fn fish_squote(s: &str) -> String {
+    format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
+}
+
 fn rc_block_coexist(shim: &str) -> String {
+    let bun = sh_squote(&format!("--preload {shim}"));
     format!(
         "{RC_MARKER_START}\n\
          # Remote-Control coexistence: preload a shim into Claude Code (Bun) that\n\
@@ -843,12 +872,13 @@ fn rc_block_coexist(shim: &str) -> String {
          # pruning. ANTHROPIC_BASE_URL is intentionally left UNSET so Claude Code's\n\
          # Remote Control keeps working (it refuses a custom base URL). See the\n\
          # [server].remote_control note in your trimwire config.\n\
-         export BUN_OPTIONS='--preload {shim}'\n{RC_MARKER_END}\n"
+         export BUN_OPTIONS={bun}\n{RC_MARKER_END}\n"
     )
 }
 
 /// Fish variant of [`rc_block_coexist`] (uses `set -gx`).
 fn rc_block_coexist_fish(shim: &str) -> String {
+    let bun = fish_squote(&format!("--preload {shim}"));
     format!(
         "{RC_MARKER_START}\n\
          # Remote-Control coexistence: preload a shim into Claude Code (Bun) that\n\
@@ -856,7 +886,7 @@ fn rc_block_coexist_fish(shim: &str) -> String {
          # pruning. ANTHROPIC_BASE_URL is intentionally left UNSET so Claude Code's\n\
          # Remote Control keeps working (it refuses a custom base URL). See the\n\
          # [server].remote_control note in your trimwire config.\n\
-         set -gx BUN_OPTIONS '--preload {shim}'\n{RC_MARKER_END}\n"
+         set -gx BUN_OPTIONS {bun}\n{RC_MARKER_END}\n"
     )
 }
 
@@ -957,6 +987,35 @@ mod tests {
             "placeholder fully substituted on disk"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn wiring_for_refuses_non_loopback_gateway_in_coexist() {
+        let mut cfg = Config::default();
+        cfg.server.remote_control = true;
+        cfg.server.listen = "0.0.0.0:8765".to_owned(); // bind-all, non-loopback
+        // Coexist would bake this into the shim as the reroute target → exfil risk.
+        // wiring_for must refuse BEFORE writing the shim (no FS side effect here).
+        assert!(
+            wiring_for(&cfg).is_err(),
+            "coexist must refuse a non-loopback gateway"
+        );
+        // The same non-loopback listen is fine in default mode (no shim, no reroute).
+        cfg.server.remote_control = false;
+        assert!(matches!(wiring_for(&cfg), Ok(Wiring::BaseUrl(_))));
+    }
+
+    #[test]
+    fn coexist_rc_block_shell_quotes_a_pathological_path() {
+        // A shim path containing a single quote must not break out of the shell
+        // quoting (defense-in-depth for an exotic $HOME).
+        let block = rc_block_coexist("/home/o'brien/.trimwire/coexist-shim.js");
+        assert!(
+            block.contains(
+                r#"export BUN_OPTIONS='--preload /home/o'\''brien/.trimwire/coexist-shim.js'"#
+            ),
+            "single quote in the path is POSIX-escaped: {block}"
+        );
     }
 
     #[test]

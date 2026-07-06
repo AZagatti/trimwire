@@ -230,9 +230,12 @@ pub fn on() -> Result<()> {
             if coexist {
                 // Coexist mode: preload the shim; ANTHROPIC_BASE_URL must stay UNSET.
                 println!(
-                    "  {} export BUN_OPTIONS='--preload {}'  (leave ANTHROPIC_BASE_URL unset)",
+                    "  {} export BUN_OPTIONS={}  (leave ANTHROPIC_BASE_URL unset)",
                     render::dim("→"),
-                    install::coexist_shim_path().display()
+                    install::sh_squote(&format!(
+                        "--preload {}",
+                        install::coexist_shim_path().display()
+                    ))
                 );
             } else {
                 println!(
@@ -347,12 +350,7 @@ pub fn off() -> Result<()> {
     let coexist = trimwire::config::Config::load()
         .map(|c| c.server.remote_control)
         .unwrap_or(false);
-    let unset = match (coexist, install::is_fish_shell()) {
-        (true, true) => "set -e BUN_OPTIONS",
-        (true, false) => "unset BUN_OPTIONS",
-        (false, true) => "set -e ANTHROPIC_BASE_URL",
-        (false, false) => "unset ANTHROPIC_BASE_URL",
-    };
+    let unset = coexist_unset_command(coexist, install::is_fish_shell());
     println!();
     println!(
         "{} new shells now talk straight to api.anthropic.com — Remote Control works again.",
@@ -982,39 +980,89 @@ fn ollama_has_model(endpoint: &str, model: &str) -> Option<bool> {
 /// Unlike the default path, coexist mode wants `ANTHROPIC_BASE_URL` UNSET (so
 /// Remote Control's gate is satisfied) and `BUN_OPTIONS` preloading the shim (so
 /// `/v1/messages` still routes through the gateway). Sets `*warned` on any gap.
+/// The shell command that unsets the trimwire env in the CURRENT shell after
+/// `off`. In coexist mode the variable is BUN_OPTIONS (the shim preload), not
+/// ANTHROPIC_BASE_URL — telling the user to unset the wrong one would leave their
+/// shell broken. `fish` selects `set -e` vs `unset`.
+fn coexist_unset_command(coexist: bool, fish: bool) -> &'static str {
+    match (coexist, fish) {
+        (true, true) => "set -e BUN_OPTIONS",
+        (true, false) => "unset BUN_OPTIONS",
+        (false, true) => "set -e ANTHROPIC_BASE_URL",
+        (false, false) => "unset ANTHROPIC_BASE_URL",
+    }
+}
+
+/// The four states coexist-mode wiring can be in, for `doctor`. Pure decision
+/// (no env / FS access) so it's unit-testable; `coexist_wiring_check` maps the
+/// live env/FS onto it and prints.
+#[derive(Debug, PartialEq)]
+enum CoexistState {
+    /// Wired correctly: base URL unset, shim present + preloaded.
+    Ok,
+    /// ANTHROPIC_BASE_URL is set — Remote Control will be blocked.
+    BaseUrlSet(String),
+    /// The shim file is missing.
+    ShimMissing,
+    /// BUN_OPTIONS doesn't preload the shim in this shell.
+    NotPreloaded,
+}
+
+/// Pure classifier for [`coexist_wiring_check`]. `base_url` = value of
+/// ANTHROPIC_BASE_URL if set; `bun_options` = value of BUN_OPTIONS if set.
+fn coexist_state(
+    base_url: Option<&str>,
+    shim_exists: bool,
+    bun_options: Option<&str>,
+    shim_path: &str,
+) -> CoexistState {
+    if let Some(v) = base_url {
+        return CoexistState::BaseUrlSet(v.to_owned());
+    }
+    if !shim_exists {
+        return CoexistState::ShimMissing;
+    }
+    if bun_options.is_some_and(|b| b.contains(shim_path)) {
+        CoexistState::Ok
+    } else {
+        CoexistState::NotPreloaded
+    }
+}
+
 fn coexist_wiring_check(addr: std::net::SocketAddr, warned: &mut bool) {
-    if let Ok(v) = std::env::var("ANTHROPIC_BASE_URL") {
-        println!(
-            "{} coexist mode, but ANTHROPIC_BASE_URL is set ({v}) — Remote Control will be blocked. Open a new shell after `trimwire on`.",
-            render::warn()
-        );
-        *warned = true;
-        return;
-    }
     let shim = install::coexist_shim_path();
-    if !shim.exists() {
-        println!(
-            "{} coexist mode on, but the shim is missing ({}) — run `trimwire on` to (re)write it.",
-            render::warn(),
-            shim.display()
-        );
-        *warned = true;
-        return;
-    }
-    let bun_ok = std::env::var("BUN_OPTIONS")
-        .map(|b| b.contains(&shim.display().to_string()))
-        .unwrap_or(false);
-    if bun_ok {
-        println!(
+    let shim_s = shim.display().to_string();
+    match coexist_state(
+        std::env::var("ANTHROPIC_BASE_URL").ok().as_deref(),
+        shim.exists(),
+        std::env::var("BUN_OPTIONS").ok().as_deref(),
+        &shim_s,
+    ) {
+        CoexistState::Ok => println!(
             "{} Remote-Control coexistence active — /v1/messages routes through the gateway ({addr}); Remote Control works.",
             render::ok()
-        );
-    } else {
-        println!(
-            "{} coexist mode on, but BUN_OPTIONS isn't preloading the shim in THIS shell — open a new shell after `trimwire on`.",
-            render::warn()
-        );
-        *warned = true;
+        ),
+        CoexistState::BaseUrlSet(v) => {
+            println!(
+                "{} coexist mode, but ANTHROPIC_BASE_URL is set ({v}) — Remote Control will be blocked. Open a new shell after `trimwire on`.",
+                render::warn()
+            );
+            *warned = true;
+        }
+        CoexistState::ShimMissing => {
+            println!(
+                "{} coexist mode on, but the shim is missing ({shim_s}) — run `trimwire on` to (re)write it.",
+                render::warn()
+            );
+            *warned = true;
+        }
+        CoexistState::NotPreloaded => {
+            println!(
+                "{} coexist mode on, but BUN_OPTIONS isn't preloading the shim in THIS shell — open a new shell after `trimwire on`.",
+                render::warn()
+            );
+            *warned = true;
+        }
     }
 }
 
@@ -1207,6 +1255,50 @@ fn write_config_if_absent(path: &Path) -> Result<bool> {
 mod tests {
     use super::*;
     use trimwire::config::Config;
+
+    #[test]
+    fn coexist_unset_command_targets_the_right_var() {
+        // Coexist mode → BUN_OPTIONS (the shim preload); default → ANTHROPIC_BASE_URL.
+        assert_eq!(coexist_unset_command(true, false), "unset BUN_OPTIONS");
+        assert_eq!(coexist_unset_command(true, true), "set -e BUN_OPTIONS");
+        assert_eq!(
+            coexist_unset_command(false, false),
+            "unset ANTHROPIC_BASE_URL"
+        );
+        assert_eq!(
+            coexist_unset_command(false, true),
+            "set -e ANTHROPIC_BASE_URL"
+        );
+    }
+
+    #[test]
+    fn coexist_state_classifies_all_four_branches() {
+        let shim = "/home/u/.trimwire/coexist-shim.js";
+        // Happy path: base URL unset, shim present + preloaded.
+        assert_eq!(
+            coexist_state(None, true, Some(&format!("--preload {shim}")), shim),
+            CoexistState::Ok
+        );
+        // ANTHROPIC_BASE_URL set → Remote Control blocked (wins even if the rest is fine).
+        assert_eq!(
+            coexist_state(Some("http://127.0.0.1:8765"), true, Some(shim), shim),
+            CoexistState::BaseUrlSet("http://127.0.0.1:8765".to_owned())
+        );
+        // Shim file missing.
+        assert_eq!(
+            coexist_state(None, false, Some(shim), shim),
+            CoexistState::ShimMissing
+        );
+        // Shim present but BUN_OPTIONS doesn't preload it (this shell not re-sourced).
+        assert_eq!(
+            coexist_state(None, true, None, shim),
+            CoexistState::NotPreloaded
+        );
+        assert_eq!(
+            coexist_state(None, true, Some("--preload /other/thing.js"), shim),
+            CoexistState::NotPreloaded
+        );
+    }
 
     /// #145: the shared bounded fetch used by `summarizer setup` AND
     /// `summarizer benchmark` must return an error FAST on a black-hole endpoint
