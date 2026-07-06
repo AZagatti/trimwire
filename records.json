@@ -1,0 +1,186 @@
+[
+  {
+    "comment_id": 3524300195,
+    "pr": "151",
+    "file": "tests/binary_smoke.rs",
+    "line": 20,
+    "personas": [
+      "CHRONICLER"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3524300195/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3524309059,
+    "pr": "151",
+    "file": "tests/binary_smoke.rs",
+    "line": 20,
+    "personas": [
+      "CHRONICLER"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3524309059/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3524309062,
+    "pr": "151",
+    "file": ".github/workflows/ci.yml",
+    "line": 84,
+    "personas": [
+      "CHRONICLER"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3524309062/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3524318775,
+    "pr": "151",
+    "file": "tests/binary_smoke.rs",
+    "line": 21,
+    "personas": [
+      "CHRONICLER"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3524318775/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3524358224,
+    "pr": "158",
+    "file": "src/cli/summarizer.rs",
+    "line": 455,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3524358224/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3524366900,
+    "pr": "158",
+    "file": "src/cli/summarizer.rs",
+    "line": 367,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3524366900/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3525878473,
+    "pr": "168",
+    "file": "src/cli/run.rs",
+    "line": 58,
+    "personas": [
+      "CHRONICLER"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3525878473/reactions",
+      "total_count": 1,
+      "+1": 0,
+      "-1": 1,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3525878474,
+    "pr": "168",
+    "file": "src/cli/mod.rs",
+    "line": 206,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3525878474/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  }
+]
