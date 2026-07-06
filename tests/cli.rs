@@ -3264,6 +3264,9 @@ fn off_full_disengage_strips_rc_and_env() {
         .arg("off")
         .env("HOME", home)
         .env("SHELL", "/bin/zsh")
+        // Simulate a shell that already exported the gateway var, so `off` emits
+        // the current-shell unset hint (it now detects from the real env).
+        .env("ANTHROPIC_BASE_URL", "http://127.0.0.1:8765")
         .env_remove("XDG_CONFIG_HOME")
         .output()
         .expect("spawn trimwire off");
@@ -3299,6 +3302,33 @@ fn off_full_disengage_strips_rc_and_env() {
     );
 }
 
+/// #159: `trimwire off` in a coexist shell (BUN_OPTIONS preloads the shim,
+/// ANTHROPIC_BASE_URL unset) must tell the user to `unset BUN_OPTIONS` — detected
+/// from the ACTUAL current-shell env, not config (which may have changed since the
+/// shell started). Guards the "off unsets the wrong var" bug.
+#[test]
+fn off_in_coexist_shell_unsets_bun_options_not_base_url() {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = format!(
+        "--preload {}/.trimwire/coexist-shim.js",
+        dir.path().display()
+    );
+    let out = Command::new(bin())
+        .arg("off")
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env("BUN_OPTIONS", &shim) // shell started in coexist mode
+        .env_remove("ANTHROPIC_BASE_URL") // ...with the base URL unset
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn trimwire off");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.contains("unset BUN_OPTIONS") && !s.contains("unset ANTHROPIC_BASE_URL"),
+        "off must unset the var actually exported (BUN_OPTIONS), not config's guess: {s}"
+    );
+}
+
 /// `trimwire off` under fish uses fish's `set -e` to clear the current shell
 /// (not bash's `unset`), and strips the block from `config.fish`.
 #[test]
@@ -3317,6 +3347,9 @@ fn off_fish_shell_uses_set_erase_and_strips_config_fish() {
         .arg("off")
         .env("HOME", home)
         .env("SHELL", "/usr/bin/fish")
+        // Simulate a shell with the gateway var exported so `off` prints the
+        // fish `set -e` unset hint (now detected from the real env).
+        .env("ANTHROPIC_BASE_URL", "http://127.0.0.1:8765")
         .env_remove("XDG_CONFIG_HOME")
         .output()
         .expect("spawn trimwire off (fish)");

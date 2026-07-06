@@ -345,22 +345,30 @@ pub fn off() -> Result<()> {
     let _ = trimwire::bypass::disable();
 
     // 4. The current shell still has the trimwire env exported; we can't unset a
-    //    parent's env from here — hand the user the exact line. In coexist mode the
-    //    variable is BUN_OPTIONS (the shim preload), not ANTHROPIC_BASE_URL.
-    let coexist = trimwire::config::Config::load()
-        .map(|c| c.server.remote_control)
-        .unwrap_or(false);
-    let unset = coexist_unset_command(coexist, install::is_fish_shell());
+    //    parent's env from here — hand the user the exact line. Detect what's
+    //    ACTUALLY exported in THIS shell (default mode → ANTHROPIC_BASE_URL; coexist
+    //    → BUN_OPTIONS) rather than trusting config, which may have changed since
+    //    the shell started — telling the user to unset the wrong var would leave the
+    //    shell still routed. Emit an unset for each that's actually present.
+    let fish = install::is_fish_shell();
+    let shim = install::coexist_shim_path().display().to_string();
+    let base_set = std::env::var("ANTHROPIC_BASE_URL").is_ok();
+    let bun_set = std::env::var("BUN_OPTIONS").is_ok_and(|b| b.contains(&shim));
+    let unsets = shell_unset_commands(base_set, bun_set, fish);
     println!();
     println!(
         "{} new shells now talk straight to api.anthropic.com — Remote Control works again.",
         render::ok()
     );
-    println!(
-        "  {} to fix THIS shell now, run: {}",
-        render::dim("→"),
-        render::accent(unset)
-    );
+    if unsets.is_empty() {
+        println!("  {} this shell is already clean.", render::dim("→"));
+    } else {
+        println!(
+            "  {} to fix THIS shell now, run: {}",
+            render::dim("→"),
+            render::accent(&unsets.join(" ; "))
+        );
+    }
     println!(
         "  {} re-engage any time with {}.",
         render::dim("→"),
@@ -980,17 +988,29 @@ fn ollama_has_model(endpoint: &str, model: &str) -> Option<bool> {
 /// Unlike the default path, coexist mode wants `ANTHROPIC_BASE_URL` UNSET (so
 /// Remote Control's gate is satisfied) and `BUN_OPTIONS` preloading the shim (so
 /// `/v1/messages` still routes through the gateway). Sets `*warned` on any gap.
-/// The shell command that unsets the trimwire env in the CURRENT shell after
-/// `off`. In coexist mode the variable is BUN_OPTIONS (the shim preload), not
-/// ANTHROPIC_BASE_URL — telling the user to unset the wrong one would leave their
-/// shell broken. `fish` selects `set -e` vs `unset`.
-fn coexist_unset_command(coexist: bool, fish: bool) -> &'static str {
-    match (coexist, fish) {
-        (true, true) => "set -e BUN_OPTIONS",
-        (true, false) => "unset BUN_OPTIONS",
-        (false, true) => "set -e ANTHROPIC_BASE_URL",
-        (false, false) => "unset ANTHROPIC_BASE_URL",
+/// The shell command(s) that unset whatever trimwire env is ACTUALLY exported in
+/// the current shell after `off`. Driven by the real environment (`base_url_set`
+/// = ANTHROPIC_BASE_URL present; `bun_set` = BUN_OPTIONS preloads our shim), NOT
+/// config — config may have changed since the shell started, and telling the user
+/// to unset the wrong var would leave the shell still routed. `fish` selects
+/// `set -e` vs `unset`. Empty when the shell carries neither (already clean).
+fn shell_unset_commands(base_url_set: bool, bun_set: bool, fish: bool) -> Vec<&'static str> {
+    let mut cmds = Vec::new();
+    if base_url_set {
+        cmds.push(if fish {
+            "set -e ANTHROPIC_BASE_URL"
+        } else {
+            "unset ANTHROPIC_BASE_URL"
+        });
     }
+    if bun_set {
+        cmds.push(if fish {
+            "set -e BUN_OPTIONS"
+        } else {
+            "unset BUN_OPTIONS"
+        });
+    }
+    cmds
 }
 
 /// The four states coexist-mode wiring can be in, for `doctor`. Pure decision
@@ -1257,18 +1277,29 @@ mod tests {
     use trimwire::config::Config;
 
     #[test]
-    fn coexist_unset_command_targets_the_right_var() {
-        // Coexist mode → BUN_OPTIONS (the shim preload); default → ANTHROPIC_BASE_URL.
-        assert_eq!(coexist_unset_command(true, false), "unset BUN_OPTIONS");
-        assert_eq!(coexist_unset_command(true, true), "set -e BUN_OPTIONS");
+    fn shell_unset_commands_follow_the_actual_env_not_config() {
+        // Only ANTHROPIC_BASE_URL exported (default mode).
         assert_eq!(
-            coexist_unset_command(false, false),
-            "unset ANTHROPIC_BASE_URL"
+            shell_unset_commands(true, false, false),
+            vec!["unset ANTHROPIC_BASE_URL"]
         );
+        // Only BUN_OPTIONS exported (coexist) — even if config now says otherwise.
         assert_eq!(
-            coexist_unset_command(false, true),
-            "set -e ANTHROPIC_BASE_URL"
+            shell_unset_commands(false, true, false),
+            vec!["unset BUN_OPTIONS"]
         );
+        // Both present (config switched mid-shell) → unset both, nothing left routing.
+        assert_eq!(
+            shell_unset_commands(true, true, false),
+            vec!["unset ANTHROPIC_BASE_URL", "unset BUN_OPTIONS"]
+        );
+        // fish syntax.
+        assert_eq!(
+            shell_unset_commands(false, true, true),
+            vec!["set -e BUN_OPTIONS"]
+        );
+        // Neither → already clean.
+        assert!(shell_unset_commands(false, false, false).is_empty());
     }
 
     #[test]
