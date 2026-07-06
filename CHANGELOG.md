@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/AZagatti/trimwire/compare/v0.4.0...v0.5.0) - 2026-07-06
+
+### Added
+
+- *(cli)* opt-in Remote-Control coexistence mode ([#159](https://github.com/AZagatti/trimwire/pull/159))
+- *(cli)* [**breaking**] full-off/on engage-disengage + pause/resume prune toggle (#159, #160) ([#168](https://github.com/AZagatti/trimwire/pull/168))
+- *(cli)* advisory validation of API-provider inputs in the wizard ([#148](https://github.com/AZagatti/trimwire/pull/148)) ([#158](https://github.com/AZagatti/trimwire/pull/158))
+
+### Fixed
+
+- *(reprune)* defer the stale-summary clear to commit_checkpoint ([#164](https://github.com/AZagatti/trimwire/pull/164)) ([#169](https://github.com/AZagatti/trimwire/pull/169))
+- *(reprune)* correct byte-forced re-checkpoint telemetry + serialize-before-commit ([#144](https://github.com/AZagatti/trimwire/pull/144)) ([#162](https://github.com/AZagatti/trimwire/pull/162))
+- *(cli)* finish the bounded-runtime audit — guard ad-hoc runtimes + bound doctor DNS (#152, #153) ([#163](https://github.com/AZagatti/trimwire/pull/163))
+
+### Other
+
+- *(deps)* update dependencies across cargo, npm (site + collector), and actions ([#170](https://github.com/AZagatti/trimwire/pull/170))
+- *(changelog)* restore the release-plz-generated 0.4.0 entry ([#166](https://github.com/AZagatti/trimwire/pull/166))
+
 ## [0.4.0](https://github.com/AZagatti/trimwire/compare/v0.3.16...v0.4.0) - 2026-07-03
 
 ### Changed
