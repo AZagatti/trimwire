@@ -139,10 +139,12 @@ instead of being refused. Set it and forget it.
   [`CONFIGURATION.md`](https://github.com/AZagatti/trimwire/blob/main/docs/CONFIGURATION.md)
   and [`benchmark/`](https://github.com/AZagatti/trimwire/blob/main/benchmark/results/RESULTS.md)
   for what each trades.
-- **Rollback any time.** `trimwire off` routes Claude Code straight to Anthropic
-  again — the gateway keeps serving but forwards **unmodified** (a true bypass),
-  so `ANTHROPIC_BASE_URL` stays valid and Claude keeps working with no pruning in
-  every shell; `trimwire on` resumes. For a single session, `trimwire run
+- **Rollback any time.** `trimwire off` fully disengages — it stops the gateway
+  and removes the `ANTHROPIC_BASE_URL` wiring, so Claude Code talks straight to
+  Anthropic (re-enabling host-gated features like Remote Control); `trimwire on`
+  re-engages. To *pause pruning* without leaving the path, `trimwire pause` keeps
+  the gateway serving but forwards **unmodified**, and `trimwire resume` turns
+  pruning back on. For a single session, `trimwire run
   --bypass`. `trimwire uninstall` removes the service, login autostart, and the statusline
   (only if trimwire added it); it **leaves the shell-rc `ANTHROPIC_BASE_URL`
   block** for you to delete by hand (it prints a reminder). Your config and
@@ -210,7 +212,8 @@ verified model ranking.
 | Command | What it does |
 |---|---|
 | `trimwire install [--boot]` | Config + shell-rc `ANTHROPIC_BASE_URL` export + the always-up service (systemd user / launchd, login-scoped; `--boot` starts it pre-login). Idempotent; does **not** touch your statusline. |
-| `trimwire on` / `off` / `status` | Start / stop / health-check the service. |
+| `trimwire on` / `off` | Fully engage / disengage: wire (or unwire) `ANTHROPIC_BASE_URL` + start (or stop) the gateway. `off` sends Claude Code direct to Anthropic (re-enables Remote Control). |
+| `trimwire pause` / `resume` / `status` | Pause / resume pruning (keeps the gateway in the path, forwarding unmodified) / health-check the service. |
 | `trimwire doctor` | One-shot setup diagnosis: config + active profile, gateway health, `ANTHROPIC_BASE_URL` wiring, ledger. **Exits non-zero** if a hard check fails, so `trimwire doctor && claude` and CI healthchecks work. |
 | `trimwire update` | Read-only check for a newer release (never downloads or changes anything). On a managed install it reports the available version and points you at `trimwire upgrade`; on cargo/manual installs it prints the right update command. |
 | `trimwire upgrade [--dry-run] [--yes]` | Self-update on **managed Linux installs**: verify a signed release (SHA-256 + minisign signature against the pinned key), then atomically replace the binary and restart, rolling back on a failed health check. `--dry-run` verifies without changing anything; `--yes` applies non-interactively. Fail-closed; refuses (exit 2) on macOS/Windows and non-managed installs. |

@@ -290,14 +290,14 @@ async fn handle(
     // endpoint we prune. `rolled_back` (#138) flags a trimwire-caused rollback.
     let mut ledger_entry: Option<(String, String, String, String, Option<String>, bool)> = None;
     let is_messages = method == Method::POST && path_only(&path_and_query) == MESSAGES_PATH;
-    // `trimwire off` flips a runtime sentinel (src/bypass.rs) — when it's set we
-    // forward the body UNMODIFIED (a true bypass), so `off` sends the agent
+    // `trimwire pause` flips a runtime sentinel (src/bypass.rs) — when it's set we
+    // forward the body UNMODIFIED (a true bypass), so `pause` sends the agent
     // straight to Anthropic instead of stranding it on a dead socket. One
     // `stat(2)`, on the messages path only; against the already-buffered body
     // and the upstream round trip it's sub-noise. Skipping the whole prune block
     // means no ledger prune row, no summarizer spawn, and no reprune-cache
     // mutation — the reprune prefix fingerprint self-corrects on the first turn
-    // after `trimwire on`.
+    // after `trimwire resume`.
     let bypassed = is_messages && crate::bypass::is_active();
     if bypassed {
         prune_log = " bypass".to_owned();

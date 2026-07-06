@@ -238,7 +238,7 @@ pub fn install(addr: SocketAddr, boot: bool) -> Result<Installed> {
             } else {
                 Autostart::Login
             };
-            gui_env = write_env_d(addr).unwrap_or(false);
+            gui_env = wire_gui_env(addr);
         }
         Manager::Launchd => {
             let path = launchd_plist_path()?;
@@ -259,7 +259,7 @@ pub fn install(addr: SocketAddr, boot: bool) -> Result<Installed> {
             // A LaunchAgent loads at every login. (macOS agents can't start
             // pre-login; `--boot` is a no-op here.)
             autostart = Autostart::Login;
-            gui_env = install_macos_env_agent(addr).unwrap_or(false);
+            gui_env = wire_gui_env(addr);
         }
         Manager::Supervisor => {
             // No socket activation available; on() spawns the detached daemon.
@@ -329,6 +329,47 @@ pub fn uninstall() -> Result<()> {
 // Shell-rc exports don't reach editors launched from Dock/Spotlight/Start menu
 // (they don't source .zshrc/.bashrc), so their Claude Code extensions wouldn't
 // see ANTHROPIC_BASE_URL. These hooks set it for the graphical session.
+
+/// (Re)write the persistent GUI/login env hook so Dock/Spotlight-launched
+/// editors route through the gateway: Linux `environment.d`, macOS env
+/// LaunchAgent. Best-effort; returns whether anything was written. Shared by
+/// `install` and the full-`on` re-engage path (`cli::on`).
+pub fn wire_gui_env(addr: SocketAddr) -> bool {
+    // Runtime `cfg!` (not `#[cfg]`) so BOTH arms compile on every target and
+    // neither `write_env_d` nor the `install_macos_env_agent` stub goes unused —
+    // matching how the per-manager match arms in `install` reference them.
+    if cfg!(target_os = "macos") {
+        install_macos_env_agent(addr).unwrap_or(false)
+    } else {
+        write_env_d(addr).unwrap_or(false)
+    }
+}
+
+/// Remove the persistent GUI/login env hook — the inverse of [`wire_gui_env`]:
+/// delete the Linux `environment.d` file, or on macOS boot out the env
+/// LaunchAgent, clear the session var, and delete its plist. Best-effort.
+/// Shared by the full-`off` disengage path (`cli::off`); `uninstall` does the
+/// same cleanup inline alongside removing the daemon.
+pub fn remove_gui_env_files() {
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Ok(p) = env_d_path() {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let uid = libc_getuid().to_string();
+        let _ = run(
+            "launchctl",
+            &["bootout", &format!("gui/{uid}/{PLIST_LABEL}.env")],
+        );
+        let _ = run("launchctl", &["unsetenv", "ANTHROPIC_BASE_URL"]);
+        if let Ok(p) = macos_env_plist_path() {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
 
 fn env_d_path() -> Result<PathBuf> {
     let home = std::env::var("HOME").context("HOME not set")?;
@@ -458,10 +499,10 @@ pub fn on() -> Result<()> {
 }
 
 /// Hard-stop the gateway (the process + socket). With socket activation this
-/// also stops accepting. This backs `trimwire off --stop` only — the default
-/// `trimwire off` is a bypass that keeps the gateway serving (see
-/// `crate::bypass` and `cli::off`), so this is the power-user kill switch, not
-/// the everyday "turn off pruning" path.
+/// also stops accepting. Step 1 of the full `cli::off` disengage (which then
+/// strips the base-url wiring). To only pause pruning while keeping the gateway
+/// serving, `cli::pause` flips the `crate::bypass` sentinel instead — this
+/// function is not on that path.
 pub fn off() -> Result<()> {
     match detect() {
         Manager::Systemd => run("systemctl", &["--user", "stop", UNIT_SOCKET, UNIT_SERVICE]),
@@ -504,14 +545,14 @@ pub fn status(addr: SocketAddr) -> Result<()> {
         yesno(listening)
     );
     println!("  {} serving (/healthz): {}", mark(serving), yesno(serving));
-    // Pruning state: `trimwire off` (default) keeps the gateway serving but flips
-    // a bypass sentinel so requests forward unmodified. Surface it so a serving
-    // gateway that isn't pruning doesn't look like a silent failure.
+    // Pruning state: `trimwire pause` keeps the gateway serving but flips a bypass
+    // sentinel so requests forward unmodified. Surface it so a serving gateway that
+    // isn't pruning doesn't look like a silent failure.
     if trimwire::bypass::is_active() {
         println!(
             "  {} pruning: OFF (bypass — forwarding unmodified; {} to resume)",
             render::warn(),
-            render::accent("trimwire on")
+            render::accent("trimwire resume")
         );
     } else {
         println!("  {} pruning: on", render::ok());

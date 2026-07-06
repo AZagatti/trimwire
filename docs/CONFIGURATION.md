@@ -34,10 +34,13 @@ works — no global toggle needed:
   and tears it down afterward.
 
 So "active for this session, off for that one" is just which shells export
-`ANTHROPIC_BASE_URL`, or a single `trimwire run --bypass`. (Note: `trimwire off`
-globally puts the gateway in **bypass** — it keeps serving but forwards
-unmodified, so every shell keeps working with no pruning; `trimwire on` resumes.
-It does **not** edit your rc.)
+`ANTHROPIC_BASE_URL`, or a single `trimwire run --bypass`. (Note: `trimwire
+pause` globally puts the gateway in **bypass** — it keeps serving but forwards
+unmodified, so every shell keeps working with no pruning; `trimwire resume`
+resumes. It does **not** edit your rc. `trimwire off`, by contrast, fully
+disengages: it stops the gateway and removes the `ANTHROPIC_BASE_URL` wiring so
+Claude Code talks directly to Anthropic — use it when you need a host-gated
+feature like Remote Control; `trimwire on` re-engages.)
 
 ## `profile` — the one knob most people need
 

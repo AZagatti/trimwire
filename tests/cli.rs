@@ -3105,40 +3105,42 @@ fn upgrade_apply_rejects_non_stable_tag() {
     assert!(err.contains("not a stable"), "got: {err}");
 }
 
-/// `trimwire off` (default) is a true BYPASS, not a kill switch: it writes the
+/// `trimwire pause` is a true BYPASS, not a kill switch: it writes the
 /// `~/.trimwire/bypass` sentinel (keeping the gateway serving) rather than
-/// stopping the service, and `trimwire status` then reports pruning OFF. This is
-/// the fix for the "off leaves a dead ANTHROPIC_BASE_URL" footgun.
+/// stopping the service or touching the rc, and `trimwire status` then reports
+/// pruning OFF. `trimwire resume` clears the sentinel again. (This is the old
+/// default `trimwire off` behavior; `off` now fully disengages — see
+/// `off_full_disengage_strips_rc_and_env`.)
 ///
 /// Also asserts the honesty guard: when the gateway isn't actually serving,
-/// `off` warns that bypass has nothing to connect to (rather than implying Claude
-/// will keep working) — proven here by pointing at a free port nothing serves.
+/// `pause` warns that bypass has nothing to connect to (rather than implying
+/// Claude keeps working) — proven by pointing at a free port nothing serves.
 #[test]
-fn off_bypasses_and_status_reflects_it() {
+fn pause_resume_toggles_bypass_and_status_reflects_it() {
     let dir = tempfile::tempdir().unwrap();
     let sentinel = dir.path().join(".trimwire").join("bypass");
     // A free port nothing listens on, so the gateway health probe deterministically
     // fails and the "gateway isn't running" warning must fire.
     let listen = format!("127.0.0.1:{}", free_port());
 
-    // `off` writes the sentinel and prints the one-line bypass message.
+    // `pause` writes the sentinel and prints the one-line passthrough message.
     let out = Command::new(bin())
-        .arg("off")
+        .arg("pause")
         .env("HOME", dir.path())
         .env("TRIMWIRE_SERVER__LISTEN", &listen)
         .env_remove("XDG_CONFIG_HOME")
         .output()
-        .expect("spawn trimwire off");
-    assert!(out.status.success(), "off exits 0");
-    assert!(sentinel.exists(), "off creates the bypass sentinel");
+        .expect("spawn trimwire pause");
+    assert!(out.status.success(), "pause exits 0");
+    assert!(sentinel.exists(), "pause creates the bypass sentinel");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("straight to Anthropic") && stdout.contains("no pruning"),
-        "off prints the bypass message: {stdout}"
+        stdout.contains("paused") && stdout.contains("no pruning"),
+        "pause prints the passthrough message: {stdout}"
     );
     assert!(
         stdout.contains("gateway isn't running"),
-        "off warns when the gateway isn't serving: {stdout}"
+        "pause warns when the gateway isn't serving: {stdout}"
     );
 
     // `status` surfaces the bypass state on its `pruning:` line.
@@ -3153,6 +3155,167 @@ fn off_bypasses_and_status_reflects_it() {
     assert!(
         sout.contains("pruning: OFF") && sout.contains("bypass"),
         "status shows bypass: {sout}"
+    );
+
+    // `resume` clears the sentinel and reports pruning active again.
+    let res = Command::new(bin())
+        .arg("resume")
+        .env("HOME", dir.path())
+        .env("TRIMWIRE_SERVER__LISTEN", &listen)
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn trimwire resume");
+    assert!(res.status.success(), "resume exits 0");
+    assert!(!sentinel.exists(), "resume clears the bypass sentinel");
+    let rout = String::from_utf8_lossy(&res.stdout);
+    assert!(
+        rout.contains("resumed") && rout.contains("pruning active"),
+        "resume reports pruning active: {rout}"
+    );
+}
+
+/// `trimwire off` now FULLY disengages: it strips trimwire's shell-rc export
+/// block and the Linux `environment.d` GUI hook, so new shells talk straight to
+/// api.anthropic.com (re-enabling Remote Control, #159/#160), and it prints the
+/// exact `unset` line to fix the current shell. Proven here by pre-seeding an
+/// "installed" HOME (rc block + environment.d file) and asserting both are gone.
+#[test]
+fn off_full_disengage_strips_rc_and_env() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    // Pre-seed an installed-looking state: a .zshrc carrying trimwire's guarded
+    // block (with user lines around it) + the environment.d GUI hook.
+    let zshrc = home.join(".zshrc");
+    fs::write(
+        &zshrc,
+        "export EDITOR=vim\n\n# >>> trimwire >>>\nexport ANTHROPIC_BASE_URL='http://127.0.0.1:8765'\nexport ENABLE_TOOL_SEARCH=true\n# <<< trimwire <<<\nalias ll='ls -la'\n",
+    )
+    .unwrap();
+    // The Linux GUI env hook. (macOS uses a launchd plist instead — gate the
+    // seed + assertion to Linux so this passes on macOS CI, where
+    // `remove_gui_env_files` never touches `environment.d`.)
+    #[cfg(target_os = "linux")]
+    let env_d = {
+        let p = home.join(".config/environment.d/trimwire.conf");
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, "ANTHROPIC_BASE_URL=http://127.0.0.1:8765\n").unwrap();
+        p
+    };
+
+    let out = Command::new(bin())
+        .arg("off")
+        .env("HOME", home)
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn trimwire off");
+    assert!(out.status.success(), "off exits 0");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    // The guarded block is gone; the user's own lines are untouched.
+    let rc = fs::read_to_string(&zshrc).unwrap();
+    assert!(
+        !rc.contains(">>> trimwire >>>") && !rc.contains("ANTHROPIC_BASE_URL"),
+        "off strips the trimwire rc block: {rc:?}"
+    );
+    assert!(
+        rc.contains("export EDITOR=vim") && rc.contains("alias ll='ls -la'"),
+        "off preserves the user's other rc lines: {rc:?}"
+    );
+    // The GUI env hook is removed (Linux `environment.d`).
+    #[cfg(target_os = "linux")]
+    assert!(!env_d.exists(), "off removes the environment.d hook");
+    // The message tells the user how to fix THIS shell + that direct works now.
+    assert!(
+        stdout.contains("api.anthropic.com") && stdout.contains("unset ANTHROPIC_BASE_URL"),
+        "off prints the current-shell fix + direct note: {stdout}"
+    );
+    assert!(
+        stdout.contains("trimwire on"),
+        "off points at how to re-engage: {stdout}"
+    );
+    // Migration cushion: a user who meant the old (pause) behavior is pointed at it.
+    assert!(
+        stdout.contains("trimwire pause"),
+        "off cushions the semantics change by mentioning pause: {stdout}"
+    );
+}
+
+/// `trimwire off` under fish uses fish's `set -e` to clear the current shell
+/// (not bash's `unset`), and strips the block from `config.fish`.
+#[test]
+fn off_fish_shell_uses_set_erase_and_strips_config_fish() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let cfg = home.join(".config/fish/config.fish");
+    fs::create_dir_all(cfg.parent().unwrap()).unwrap();
+    fs::write(
+        &cfg,
+        "set -gx EDITOR vim\n\n# >>> trimwire >>>\nset -gx ANTHROPIC_BASE_URL 'http://127.0.0.1:8765'\nset -gx ENABLE_TOOL_SEARCH true\n# <<< trimwire <<<\n",
+    )
+    .unwrap();
+
+    let out = Command::new(bin())
+        .arg("off")
+        .env("HOME", home)
+        .env("SHELL", "/usr/bin/fish")
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn trimwire off (fish)");
+    assert!(out.status.success(), "off exits 0");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let rc = fs::read_to_string(&cfg).unwrap();
+    assert!(
+        !rc.contains("trimwire") && rc.contains("set -gx EDITOR vim"),
+        "off strips the fish block, keeps user lines: {rc:?}"
+    );
+    assert!(
+        stdout.contains("set -e ANTHROPIC_BASE_URL"),
+        "off uses fish's `set -e` for the current-shell fix: {stdout}"
+    );
+}
+
+/// `trimwire off` on a never-installed HOME is a clean no-op on the rc: it
+/// reports "already clear" and still exits 0 (the `RcUnwire::NotPresent` path).
+#[test]
+fn off_when_not_wired_reports_already_clear() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(bin())
+        .arg("off")
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn trimwire off");
+    assert!(out.status.success(), "off exits 0 with nothing wired");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("already clear"),
+        "off reports the rc is already clear: {stdout}"
+    );
+}
+
+/// #159: when `ANTHROPIC_BASE_URL` routes through the gateway, `doctor` notes that
+/// Remote Control is disabled and points at `trimwire off` to fully disengage.
+#[test]
+fn doctor_hints_remote_control_when_routed_through_gateway() {
+    let dir = tempfile::tempdir().unwrap();
+    let listen = format!("127.0.0.1:{}", free_port());
+    let out = Command::new(bin())
+        .arg("doctor")
+        .env("HOME", dir.path())
+        .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
+        .env("TRIMWIRE_SERVER__LISTEN", &listen)
+        // Point the env at the same gateway addr so base_url_matches() is true and
+        // the Remote-Control note fires (and so doctor skips the pre-install path).
+        .env("ANTHROPIC_BASE_URL", format!("http://{listen}"))
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .expect("spawn doctor");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.contains("Remote Control is disabled") && s.contains("trimwire off"),
+        "doctor hints at Remote Control + full disengage: {s}"
     );
 }
 

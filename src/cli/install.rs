@@ -39,38 +39,25 @@ pub fn install(boot: bool) -> Result<()> {
         .map(|c| c.server.listen)
         .unwrap_or_else(|_| "127.0.0.1:8765".to_owned());
     let base_url = format!("http://{listen}");
-    let block = if is_fish_shell() {
-        rc_block_fish(&base_url)
-    } else {
-        rc_block(&base_url)
-    };
-
-    match shell_rc_path() {
-        Some(rc) => {
-            let existing = std::fs::read_to_string(&rc).unwrap_or_default();
-            match ensure_rc_block(&existing, &block) {
-                Some(updated) => {
-                    write_text_atomic(&rc, &updated)
-                        .with_context(|| format!("write {}", rc.display()))?;
-                    println!(
-                        "{} added trimwire env exports to {}",
-                        render::ok(),
-                        rc.display()
-                    );
-                    println!(
-                        "  {} restart your shell or {}",
-                        render::dim("→"),
-                        render::accent(&format!("source {}", rc.display()))
-                    );
-                }
-                None => println!(
-                    "{} shell rc already has the trimwire block: {}",
-                    render::bullet(),
-                    rc.display()
-                ),
-            }
+    match wire_rc(&base_url)? {
+        RcWire::Added(rc) => {
+            println!(
+                "{} added trimwire env exports to {}",
+                render::ok(),
+                rc.display()
+            );
+            println!(
+                "  {} restart your shell or {}",
+                render::dim("→"),
+                render::accent(&format!("source {}", rc.display()))
+            );
         }
-        None => {
+        RcWire::AlreadyPresent(rc) => println!(
+            "{} shell rc already has the trimwire block: {}",
+            render::bullet(),
+            rc.display()
+        ),
+        RcWire::NoShell(block) => {
             println!(
                 "{} could not detect your shell rc — add these exports manually:",
                 render::warn()
@@ -128,7 +115,7 @@ pub fn install(boot: bool) -> Result<()> {
                 println!(
                     "  {}",
                     render::dim(
-                        "turn it off any time with `trimwire off`; check it with `trimwire status`."
+                        "pause pruning any time with `trimwire pause` (or fully disengage with `trimwire off`); check it with `trimwire status`."
                     )
                 );
             }
@@ -587,6 +574,94 @@ fn ensure_rc_block(existing: &str, block: &str) -> Option<String> {
     Some(out)
 }
 
+/// Strip the guarded trimwire block (both markers and everything between them)
+/// from `existing`, tidying the blank separator the installer inserted before
+/// it. Returns the new content, or `None` if no trimwire block is present. Only
+/// ever removes OUR marked block — never touches the user's other lines. Inverse
+/// of [`ensure_rc_block`].
+fn remove_rc_block(existing: &str) -> Option<String> {
+    let start = existing.find(RC_MARKER_START)?;
+    // End marker is searched from `start` so a stray END above the block can't
+    // truncate early; take the first END at-or-after START.
+    let end_rel = existing[start..].find(RC_MARKER_END)?;
+    let mut end = start + end_rel + RC_MARKER_END.len();
+    // Swallow the newline that terminates the END marker's line, if present.
+    if existing[end..].starts_with('\n') {
+        end += 1;
+    }
+    // Collapse the installer's blank separator: drop trailing newlines the block
+    // followed, then re-add exactly one if there's preceding content.
+    let prefix = existing[..start].trim_end_matches('\n');
+    let suffix = &existing[end..];
+    let mut out = String::with_capacity(prefix.len() + suffix.len() + 1);
+    out.push_str(prefix);
+    if !prefix.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(suffix);
+    Some(out)
+}
+
+/// Outcome of [`wire_rc`] — added the block, found it already present, or
+/// couldn't detect the shell rc (so the caller should print the block to add by
+/// hand). Carries the rc path (or the block text) for an honest message.
+pub(super) enum RcWire {
+    Added(PathBuf),
+    AlreadyPresent(PathBuf),
+    NoShell(String),
+}
+
+/// Outcome of [`unwire_rc`] — removed the block, found nothing to remove, or
+/// couldn't detect the shell rc.
+pub(super) enum RcUnwire {
+    Removed(PathBuf),
+    NotPresent(PathBuf),
+    NoShell,
+}
+
+/// Ensure the guarded trimwire export block is present in the shell rc
+/// (idempotent). Shared by `install` and the full-`on` re-engage path.
+pub(super) fn wire_rc(base_url: &str) -> Result<RcWire> {
+    let block = if is_fish_shell() {
+        rc_block_fish(base_url)
+    } else {
+        rc_block(base_url)
+    };
+    match shell_rc_path() {
+        Some(rc) => {
+            let existing = std::fs::read_to_string(&rc).unwrap_or_default();
+            match ensure_rc_block(&existing, &block) {
+                Some(updated) => {
+                    write_text_atomic(&rc, &updated)
+                        .with_context(|| format!("write {}", rc.display()))?;
+                    Ok(RcWire::Added(rc))
+                }
+                None => Ok(RcWire::AlreadyPresent(rc)),
+            }
+        }
+        None => Ok(RcWire::NoShell(block)),
+    }
+}
+
+/// Strip the guarded trimwire export block from the shell rc (idempotent).
+/// Backs the full-`off` disengage path so new shells go straight to Anthropic.
+pub(super) fn unwire_rc() -> Result<RcUnwire> {
+    match shell_rc_path() {
+        Some(rc) => {
+            let existing = std::fs::read_to_string(&rc).unwrap_or_default();
+            match remove_rc_block(&existing) {
+                Some(updated) => {
+                    write_text_atomic(&rc, &updated)
+                        .with_context(|| format!("write {}", rc.display()))?;
+                    Ok(RcUnwire::Removed(rc))
+                }
+                None => Ok(RcUnwire::NotPresent(rc)),
+            }
+        }
+        None => Ok(RcUnwire::NoShell),
+    }
+}
+
 /// Best-effort shell rc path from `$SHELL` (`~/.zshrc` / `~/.bashrc` /
 /// `~/.config/fish/config.fish`).
 fn shell_rc_path() -> Option<PathBuf> {
@@ -606,7 +681,7 @@ fn shell_rc_path() -> Option<PathBuf> {
 
 /// Returns `true` when the current shell is fish (detected via `$SHELL`),
 /// mirroring `detected_shell_hint()`.
-fn is_fish_shell() -> bool {
+pub(super) fn is_fish_shell() -> bool {
     std::env::var("SHELL").unwrap_or_default().ends_with("fish")
 }
 
@@ -678,6 +753,56 @@ mod tests {
         // No trailing newline on existing content → we insert a separator.
         let updated = ensure_rc_block("noeol", &block).unwrap();
         assert!(updated.starts_with("noeol\n"));
+    }
+
+    #[test]
+    fn ensure_then_remove_rc_block_round_trips() {
+        // ensure → remove restores the original content exactly (the separator the
+        // installer inserted is collapsed back to the single trailing newline).
+        let block = rc_block("http://127.0.0.1:8765");
+        let original = "export FOO=1\n";
+        let wired = ensure_rc_block(original, &block).expect("adds the block");
+        assert!(wired.contains(RC_MARKER_START));
+        let unwired = remove_rc_block(&wired).expect("removes the block");
+        assert_eq!(unwired, original, "round-trip restores the original rc");
+        // Removing again is a no-op (nothing to remove).
+        assert!(remove_rc_block(&unwired).is_none());
+    }
+
+    #[test]
+    fn remove_rc_block_preserves_lines_around_it() {
+        // User lines both before AND after the guarded block must survive; only
+        // OUR marked region is excised.
+        let existing = "export EDITOR=vim\n\n# >>> trimwire >>>\nexport ANTHROPIC_BASE_URL='http://x'\n# <<< trimwire <<<\nalias ll='ls -la'\n";
+        let out = remove_rc_block(existing).expect("removes the block");
+        assert!(!out.contains("trimwire") && !out.contains("ANTHROPIC_BASE_URL"));
+        assert!(out.contains("export EDITOR=vim"));
+        assert!(out.contains("alias ll='ls -la'"));
+    }
+
+    #[test]
+    fn remove_rc_block_none_when_absent() {
+        assert!(remove_rc_block("export FOO=1\n# no trimwire here\n").is_none());
+        assert!(remove_rc_block("").is_none());
+    }
+
+    #[test]
+    fn remove_rc_block_ignores_end_marker_before_start() {
+        // A stray END marker sitting ABOVE the real block must not truncate the
+        // removal early: we search for END only at-or-after START. The guarded
+        // region (START..END) is excised; the earlier stray line is preserved.
+        let existing = format!(
+            "{RC_MARKER_END}  # a user's unrelated line that happens to match\nexport FOO=1\n{RC_MARKER_START}\nexport ANTHROPIC_BASE_URL='http://x'\n{RC_MARKER_END}\n"
+        );
+        let out = remove_rc_block(&existing).expect("removes the real block");
+        assert!(
+            !out.contains("ANTHROPIC_BASE_URL"),
+            "block excised: {out:?}"
+        );
+        assert!(
+            out.contains("a user's unrelated line") && out.contains("export FOO=1"),
+            "content before the real block is preserved: {out:?}"
+        );
     }
 
     #[test]

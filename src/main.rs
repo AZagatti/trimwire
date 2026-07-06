@@ -202,7 +202,7 @@ enum ShareAction {
     about = "Local gateway that prunes Claude Code context on every API call.",
     after_help = "\
 Commands by group:\n\
-\x20 LIFECYCLE    install · uninstall · update · upgrade · on · off · status · doctor · run\n\
+\x20 LIFECYCLE    install · uninstall · update · upgrade · on · off · pause · resume · status · doctor · run\n\
 \x20 INSPECT      stats · recall · preview · dashboard · report\n\
 \x20 SUMMARIZER   summarizer  (setup · status · benchmark · probe)\n\
 \x20 SHARE        share  (enable · disable · stats · benchmark)   — opt-in, content-free\n\
@@ -242,21 +242,27 @@ enum Cmd {
     #[command(display_order = 11)]
     Uninstall,
 
-    /// Start the always-up gateway service.
+    /// Fully engage trimwire: (re-)add the env exports + GUI/login env hook,
+    /// start the gateway service, and enable pruning. Undoes a prior `off`.
     #[command(display_order = 12)]
     On,
 
-    /// Turn off pruning. By default this is a true bypass: the gateway keeps
-    /// serving but forwards every request unmodified to Anthropic, so Claude Code
-    /// keeps working with no env/rc changes. `trimwire on` resumes pruning.
+    /// Fully disengage trimwire: stop the gateway and strip it from the request
+    /// path (remove the shell-rc export + GUI/login env hook) so Claude Code
+    /// talks straight to api.anthropic.com — re-enabling host-gated features like
+    /// Remote Control. To only pause pruning, use `trimwire pause`.
     #[command(display_order = 13)]
-    Off {
-        /// Hard-stop the gateway process instead of bypassing. Frees the port,
-        /// but your shell still exports ANTHROPIC_BASE_URL, so Claude calls fail
-        /// until you `trimwire on` again.
-        #[arg(long)]
-        stop: bool,
-    },
+    Off,
+
+    /// Pause pruning but KEEP the gateway in the path, forwarding every request
+    /// unmodified to Anthropic. Fast, no shell/rc changes; `resume` flips it back.
+    #[command(display_order = 13)]
+    Pause,
+
+    /// Resume pruning after `pause` (clears the pause sentinel; does not touch the
+    /// service or wiring). For a full (re-)engage, use `trimwire on`.
+    #[command(display_order = 13)]
+    Resume,
 
     /// Show whether the gateway is running and serving.
     #[command(display_order = 14)]
@@ -569,7 +575,9 @@ fn main() -> Result<()> {
         Cmd::Install { boot } => cli::install(boot),
         Cmd::Uninstall => cli::uninstall(),
         Cmd::On => cli::on(),
-        Cmd::Off { stop } => cli::off(stop),
+        Cmd::Off => cli::off(),
+        Cmd::Pause => cli::pause(),
+        Cmd::Resume => cli::resume(),
         Cmd::Status => cli::status(),
         Cmd::Doctor { strict } => cli::doctor(strict),
 

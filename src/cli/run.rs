@@ -55,8 +55,8 @@ pub fn run(claude_args: &[String], audit: Option<String>, bypass: bool) -> Resul
             // so rather than let the user think `--audit` took effect.
             eprintln!(
                 "[trimwire] note: --audit/TRIMWIRE_AUDIT ignored — the already-running gateway \
-                 controls its own audit; restart it (e.g. `trimwire off --stop` then \
-                 `trimwire run --audit …`) to change that"
+                 controls its own audit; stop it first (`trimwire off`) then \
+                 `trimwire run --audit …` to change that"
             );
         }
     } else {
