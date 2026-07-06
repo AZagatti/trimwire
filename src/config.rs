@@ -145,9 +145,23 @@ impl Default for LedgerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct ServerConfig {
     pub listen: String,
     pub upstream: String,
+    /// Remote-Control coexistence mode. Claude Code refuses to start Remote
+    /// Control whenever `ANTHROPIC_BASE_URL` points at a non-Anthropic host — so
+    /// trimwire's normal wiring and Remote Control are mutually exclusive. When
+    /// this is on, `install`/`on` wire trimwire a different way: instead of
+    /// exporting `ANTHROPIC_BASE_URL`, they export `BUN_OPTIONS=--preload <shim>`
+    /// (and leave the base URL unset, so Remote Control's gate is satisfied). The
+    /// shim reroutes only Claude Code's `POST /v1/messages` calls to the local
+    /// gateway for pruning; everything else — including the Remote Control
+    /// channel — goes straight to Anthropic. Off by default: it relies on Claude
+    /// Code's Bun runtime + `fetch` internals (works today, but unsupported and
+    /// can break on a Claude Code update), and it works around a deliberate
+    /// Anthropic restriction. All traffic still goes only to Anthropic.
+    pub remote_control: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -391,6 +405,7 @@ impl Default for ServerConfig {
         Self {
             listen: "127.0.0.1:8765".to_owned(),
             upstream: "https://api.anthropic.com".to_owned(),
+            remote_control: false,
         }
     }
 }

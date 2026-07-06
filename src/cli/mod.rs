@@ -200,13 +200,14 @@ pub fn on() -> Result<()> {
     // (path already wired) they're silent no-ops. New shells/GUI apps route
     // through the gateway again; the CURRENT shell needs a re-source (printed
     // only when we actually add the block).
-    let listen = Config::load()
-        .map(|c| c.server.listen)
-        .unwrap_or_else(|_| "127.0.0.1:8765".to_owned());
+    let cfg = Config::load().unwrap_or_default();
+    let listen = cfg.server.listen.clone();
+    let coexist = cfg.server.remote_control;
     let base_url = format!("http://{listen}");
     // A failed rc edit is NON-fatal: the gateway can still come up and pruning can
-    // resume — don't block the whole re-engage on a cosmetic rc write.
-    match install::wire_rc(&base_url) {
+    // resume — don't block the whole re-engage on a cosmetic rc write. In coexist
+    // mode this wires BUN_OPTIONS (+ writes the shim) instead of ANTHROPIC_BASE_URL.
+    match install::wiring_for(&cfg).and_then(|w| install::wire_rc(&w)) {
         Ok(install::RcWire::Added(rc)) => {
             println!(
                 "{} re-added the trimwire env exports to {}",
@@ -233,7 +234,13 @@ pub fn on() -> Result<()> {
         }
     }
     if let Ok(addr) = listen.parse() {
-        let _ = service::wire_gui_env(addr); // best-effort GUI/login env
+        if coexist {
+            // Coexist mode leaves ANTHROPIC_BASE_URL unset everywhere so Remote
+            // Control works; strip any GUI/login env a prior default install wrote.
+            service::remove_gui_env_files();
+        } else {
+            let _ = service::wire_gui_env(addr); // best-effort GUI/login env
+        }
     }
 
     // Clear bypass so pruning is actually active (not merely passthrough). If we
@@ -602,41 +609,46 @@ pub fn doctor(strict: bool) -> Result<()> {
                 );
                 warned = true;
             }
-            match std::env::var("ANTHROPIC_BASE_URL") {
-                Ok(v) if base_url_matches(&v, addr) => {
-                    println!(
-                        "{} ANTHROPIC_BASE_URL points at the gateway ({v})",
-                        render::ok()
-                    );
-                    // #159: Claude Code's Remote Control only runs when the base
-                    // URL is literally api.anthropic.com. Note the trade-off + the
-                    // one command that steps fully out of the path.
-                    println!(
-                        "  {} Remote Control is disabled while routed through trimwire — run {} to fully disengage (direct to Anthropic).",
-                        render::dim("→"),
-                        render::accent("trimwire off")
-                    );
-                }
-                Ok(v) => {
-                    println!(
-                        "{} ANTHROPIC_BASE_URL = {v} — does not match the gateway addr {addr}",
-                        render::warn()
-                    );
-                    warned = true;
-                }
-                Err(_) => {
-                    // Not set in the current shell is recoverable (the env var is
-                    // written to the shell rc by `trimwire install`; opening a new
-                    // terminal or sourcing the rc fixes it). Don't set failed=true.
-                    // With --strict, set warned=true so the caller can exit 1.
-                    println!(
-                        "{} ANTHROPIC_BASE_URL not set in THIS shell — Claude Code launched here \
+            let coexist = cfg.as_ref().is_some_and(|c| c.server.remote_control);
+            if coexist {
+                coexist_wiring_check(addr, &mut warned);
+            } else {
+                match std::env::var("ANTHROPIC_BASE_URL") {
+                    Ok(v) if base_url_matches(&v, addr) => {
+                        println!(
+                            "{} ANTHROPIC_BASE_URL points at the gateway ({v})",
+                            render::ok()
+                        );
+                        // #159: Claude Code's Remote Control only runs when the base
+                        // URL is literally api.anthropic.com. Note the trade-off + the
+                        // one command that steps fully out of the path.
+                        println!(
+                            "  {} Remote Control is disabled while routed through trimwire — run {} to fully disengage (direct to Anthropic).",
+                            render::dim("→"),
+                            render::accent("trimwire off")
+                        );
+                    }
+                    Ok(v) => {
+                        println!(
+                            "{} ANTHROPIC_BASE_URL = {v} — does not match the gateway addr {addr}",
+                            render::warn()
+                        );
+                        warned = true;
+                    }
+                    Err(_) => {
+                        // Not set in the current shell is recoverable (the env var is
+                        // written to the shell rc by `trimwire install`; opening a new
+                        // terminal or sourcing the rc fixes it). Don't set failed=true.
+                        // With --strict, set warned=true so the caller can exit 1.
+                        println!(
+                            "{} ANTHROPIC_BASE_URL not set in THIS shell — Claude Code launched here \
                          won't route through trimwire (install adds it to new shells; an IDE/app \
                          may need it set separately)\n  → to fix this shell: \
                          export ANTHROPIC_BASE_URL='http://{addr}'",
-                        render::warn()
-                    );
-                    warned = true;
+                            render::warn()
+                        );
+                        warned = true;
+                    }
                 }
             }
         }
@@ -952,6 +964,46 @@ fn ollama_has_model(endpoint: &str, model: &str) -> Option<bool> {
 /// must match exactly; the host matches if it equals the listen host, or the
 /// listen host is a wildcard (`0.0.0.0`/`::` serves every interface), or both
 /// are loopback (`127.0.0.1` ≡ `localhost` ≡ `::1`).
+/// Doctor check for Remote-Control coexistence mode (`[server] remote_control`).
+/// Unlike the default path, coexist mode wants `ANTHROPIC_BASE_URL` UNSET (so
+/// Remote Control's gate is satisfied) and `BUN_OPTIONS` preloading the shim (so
+/// `/v1/messages` still routes through the gateway). Sets `*warned` on any gap.
+fn coexist_wiring_check(addr: std::net::SocketAddr, warned: &mut bool) {
+    if let Ok(v) = std::env::var("ANTHROPIC_BASE_URL") {
+        println!(
+            "{} coexist mode, but ANTHROPIC_BASE_URL is set ({v}) — Remote Control will be blocked. Open a new shell after `trimwire on`.",
+            render::warn()
+        );
+        *warned = true;
+        return;
+    }
+    let shim = install::coexist_shim_path();
+    if !shim.exists() {
+        println!(
+            "{} coexist mode on, but the shim is missing ({}) — run `trimwire on` to (re)write it.",
+            render::warn(),
+            shim.display()
+        );
+        *warned = true;
+        return;
+    }
+    let bun_ok = std::env::var("BUN_OPTIONS")
+        .map(|b| b.contains(&shim.display().to_string()))
+        .unwrap_or(false);
+    if bun_ok {
+        println!(
+            "{} Remote-Control coexistence active — /v1/messages routes through the gateway ({addr}); Remote Control works.",
+            render::ok()
+        );
+    } else {
+        println!(
+            "{} coexist mode on, but BUN_OPTIONS isn't preloading the shim in THIS shell — open a new shell after `trimwire on`.",
+            render::warn()
+        );
+        *warned = true;
+    }
+}
+
 fn base_url_matches(v: &str, addr: std::net::SocketAddr) -> bool {
     let authority = v
         .trim()
@@ -1050,6 +1102,14 @@ profile = "default"
 [server]
 listen = "127.0.0.1:8765"
 upstream = "https://api.anthropic.com"
+# Remote-Control coexistence. Claude Code refuses to start Remote Control when
+# ANTHROPIC_BASE_URL is a custom host, so trimwire's normal wiring blocks it. With
+# this on, `install`/`on` wire via BUN_OPTIONS (a preload shim that reroutes only
+# /v1/messages through the gateway) and leave ANTHROPIC_BASE_URL unset, so pruning
+# AND Remote Control both work. Opt-in: relies on Claude Code's Bun runtime (can
+# break on a CC update) and works around a deliberate restriction. Re-run
+# `trimwire on` after changing this. All traffic still goes only to Anthropic.
+# remote_control = false
 
 # The profile above sets every strategy knob. Override individual values only if
 # you want to deviate — anything set here wins over the profile. Examples:
