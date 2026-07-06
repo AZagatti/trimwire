@@ -379,6 +379,10 @@ fn compute_decisions(
 /// advanced checkpoint pointer + prefix snapshot. Called only after the outgoing
 /// body has serialized (or on a no-op re-checkpoint that forwards the original
 /// bytes), so the checkpoint never advances to a body that failed to serialize (#144).
+///
+/// `clear_summary` drops the cached summary as part of the SAME commit — it's
+/// durable state made stale by a prefix change, so it clears here (post-serialize)
+/// rather than eagerly, matching the decision-set discipline (#164).
 fn commit_checkpoint(
     state: &mut PruneState,
     result_decisions: HashMap<String, Value>,
@@ -386,6 +390,7 @@ fn commit_checkpoint(
     stripped_thinking: HashSet<String>,
     checkpoint_len: usize,
     checkpoint_prefix: Vec<Value>,
+    clear_summary: bool,
 ) {
     state.result_decisions = result_decisions;
     state.input_decisions = input_decisions;
@@ -393,6 +398,9 @@ fn commit_checkpoint(
     state.checkpoint_len = checkpoint_len;
     state.checkpoint_prefix = checkpoint_prefix;
     state.initialized = true;
+    if clear_summary {
+        state.summary.clear();
+    }
 }
 
 /// Re-apply the checkpoint's decisions to `out` by `tool_use_id`. Only overwrites
@@ -923,7 +931,15 @@ pub fn stable_apply_to_body(
                     state.stripped_thinking = t;
                     state.checkpoint_prefix = prefix;
                 }
-                None => commit_checkpoint(state, results, inputs, thinking, len, new_prefix),
+                None => commit_checkpoint(
+                    state,
+                    results,
+                    inputs,
+                    thinking,
+                    len,
+                    new_prefix,
+                    prefix_changed,
+                ),
             }
             return BodyOutcome::Unchanged; // exact-original bytes preserved
         }
@@ -966,9 +982,17 @@ pub fn stable_apply_to_body(
                 return rollback_outcome(input_valid);
             }
         };
-        // Serialize succeeded → commit the advanced checkpoint and discard the byte-
-        // forced snapshot (we keep the freshly-advanced state).
-        commit_checkpoint(state, results, inputs, thinking, len, new_prefix);
+        // Serialize succeeded → commit the advanced checkpoint (clearing the now-
+        // stale summary on a prefix change) and discard the byte-forced snapshot.
+        commit_checkpoint(
+            state,
+            results,
+            inputs,
+            thinking,
+            len,
+            new_prefix,
+            prefix_changed,
+        );
         drop(rollback);
         BodyOutcome::Mutated { bytes, fired }
     }
@@ -978,21 +1002,24 @@ pub fn stable_apply_to_body(
 /// summary is cached), so the checkpoint's prefix matches the stable turns'. The
 /// summary is anchored to the ORIGINAL slice and spliced into `pruned` (same
 /// indexing — no strategy adds or removes whole messages); reverted if it would
-/// orphan a pair. Clears a stale summary first when CC rewrote history. Returns
-/// the (possibly updated) `pruned` + `fired` and whether the summary applied.
+/// orphan a pair. A stale summary (CC rewrote history → `prefix_changed`) is
+/// SKIPPED here and cleared later at the commit point (`commit_checkpoint`), not
+/// dropped eagerly — so a failed re-serialize can't lose it before the
+/// checkpoint that replaces it actually commits (#164; mirrors the #144
+/// decision-set fix). Reads `state.summary` only — never mutates it. Returns the
+/// (possibly updated) `pruned` + `fired` and whether the summary applied.
 /// When `[summarizer] engine = "model-free"` (the default), `summary` is always empty
 /// and this is a cheap no-op.
 fn apply_checkpoint_summary(
     mut pruned: Vec<Value>,
     mut fired: Vec<(&'static str, strategies::Stats)>,
     messages: &[Value],
-    state: &mut PruneState,
+    state: &PruneState,
     prefix_changed: bool,
 ) -> (Vec<Value>, Vec<(&'static str, strategies::Stats)>, bool) {
-    if prefix_changed {
-        state.summary.clear();
-    }
-    let applied = if state.summary.is_empty() {
+    // Skip a stale summary on a prefix change (don't splice it into rewritten
+    // history); the clear is deferred to `commit_checkpoint`.
+    let applied = if prefix_changed || state.summary.is_empty() {
         false
     } else {
         let pre = strategies::serialized_len(&pruned);
@@ -1931,7 +1958,22 @@ mod tests {
         thinking.insert("thk".to_owned());
         let prefix = vec![json!({"role": "user", "content": "p"})];
 
-        commit_checkpoint(&mut state, results, inputs, thinking, 7, prefix.clone());
+        // clear_summary=false leaves a cached summary intact (no prefix change).
+        state.summary = vec![crate::summarizer::slice::SummaryDecision {
+            start: 0,
+            end: 1,
+            slice_hash: "h".to_owned(),
+            messages: vec![],
+        }];
+        commit_checkpoint(
+            &mut state,
+            results,
+            inputs,
+            thinking,
+            7,
+            prefix.clone(),
+            false,
+        );
 
         assert!(state.initialized);
         assert_eq!(state.checkpoint_len, 7);
@@ -1942,6 +1984,26 @@ mod tests {
         assert!(state.stripped_thinking.contains("thk"));
         assert!(!state.result_decisions.contains_key("inp"));
         assert!(!state.input_decisions.contains_key("res"));
+        assert!(
+            !state.summary.is_empty(),
+            "clear_summary=false keeps the summary"
+        );
+
+        // #164: clear_summary=true drops the (now-stale) summary as part of the
+        // same commit — only reachable here, post-serialize, never eagerly.
+        commit_checkpoint(
+            &mut state,
+            HashMap::new(),
+            HashMap::new(),
+            HashSet::new(),
+            8,
+            prefix,
+            true,
+        );
+        assert!(
+            state.summary.is_empty(),
+            "clear_summary=true drops the summary"
+        );
     }
 
     /// THE cache-stability guarantee for thinking_strip: across consecutive
