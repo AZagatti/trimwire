@@ -66,7 +66,7 @@ jobs:
       # below (today there are 0 Rust doctests; this guards against a future one
       # being silently skipped).
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
+        uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: nextest
       - name: cargo nextest run
@@ -173,7 +173,7 @@ jobs:
       # on every run (~3m of compile). Prebuilt + a host toolchain runs the same
       # advisory scan in seconds. `cargo audit` exits non-zero on a vulnerability.
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
+      - uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: cargo-audit
       - run: cargo audit
@@ -184,7 +184,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
+      - uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
       # Run the Python invariant suite, then regenerate the reference fixtures
       # and fail if the committed copies drifted. The Rust parity tests diff
       # against these files, so this is what stops the reference and the port
@@ -200,7 +200,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
+      - uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
       # Deterministic gate for the review engine's own Python (the completeness layer:
       # the LLM reviewer is advisory, these checks are non-negotiable).
       - name: ruff (AI-review scripts)
@@ -221,7 +221,7 @@ jobs:
         with:
           fetch-depth: 0   # need history so --baseline-rev can build the base
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
+      - uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: cargo-semver-checks
       # PR-vs-base (not crates.io): flag only breaking public-API changes THIS PR introduces.
@@ -258,7 +258,7 @@ jobs:
       # `#![cfg(unix)]` (shell-shim e2e), so on Windows this runs the
       # platform-independent suite + unit tests; macOS runs everything.
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
+        uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: nextest
       # This RUNS the whole suite (unit + integration) on each OS — including the
