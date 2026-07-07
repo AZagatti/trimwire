@@ -60,6 +60,13 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # Hold @cloudflare/workers-types at v4 until wrangler 5.x ships: wrangler
+      # 4.x peer-requires workers-types ^4, so a v5 major bump ERESOLVE-conflicts
+      # and breaks the collector install (see #170/#171). When wrangler 5 lands,
+      # drop this rule and bump wrangler + workers-types to v5 together.
+      - dependency-name: "@cloudflare/workers-types"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore"
       include: scope
