@@ -76,6 +76,12 @@ documented examples of the **same** pattern. Specifically, trimwire:
 - **forwards your auth header unchanged** and never originates its own model calls on
   your token. No CA cert, no TLS interception, no binary patching.
 
+(This reasoning describes the **default** wiring. The opt-in Remote-Control
+coexistence mode still forwards your same, unmodified auth header and never
+originates its own calls — but it injects a Bun preload script into the Claude
+Code process to reroute `/v1/messages`, a different, more invasive mechanism.
+See the [Remote Control FAQ entry](#can-i-use-claude-codes-remote-control-control-your-session-from-your-phone-with-trimwire).)
+
 **API key →** gateways are explicitly permitted. You're in the clear.
 
 **Pro/Max subscription (OAuth) → the rules tightened in 2026; treat with care.**
@@ -139,6 +145,27 @@ tool**, which Claude Code turns OFF automatically whenever `ANTHROPIC_BASE_URL` 
 set (it assumes a non-Anthropic endpoint). Since trimwire forwards to Anthropic
 unchanged, the feature is safe to keep on — that's all this does. Remove the whole
 block (or run `trimwire uninstall`) to undo both.
+
+## Can I use Claude Code's Remote Control (control your session from your phone) with trimwire?
+
+**Yes — two ways, depending on whether you want that session pruned.**
+
+Claude Code only starts Remote Control when it's talking to `api.anthropic.com`
+directly, so trimwire's normal wiring (`ANTHROPIC_BASE_URL` → the local gateway)
+blocks it. Your options:
+
+- **Remote Control *and* pruning, same session** — set `[server] remote_control =
+  true` and run `trimwire on`. trimwire then wires via a Bun preload shim
+  (`BUN_OPTIONS`) that reroutes only `/v1/messages` through the gateway while
+  leaving the base URL unset, so Remote Control's gate is satisfied and pruning
+  still happens. See [CONFIGURATION](CONFIGURATION.md#remote_control--pruning-and-remote-control-on-the-same-session-opt-in-off).
+  This is **opt-in and unsupported**: it depends on Claude Code's Bun runtime and
+  works around a deliberate restriction (a Claude Code update can break it — it
+  fails safe by going direct). All traffic still goes only to Anthropic.
+- **Remote Control without pruning that session** — run `trimwire off` (fully
+  disengage), or for a one-off `env -u ANTHROPIC_BASE_URL claude`. Claude Code goes
+  straight to Anthropic, Remote Control works, nothing is pruned. `trimwire on`
+  re-engages.
 
 ## Does it add latency, or change Claude's responses?
 

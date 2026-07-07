@@ -141,8 +141,10 @@ instead of being refused. Set it and forget it.
   for what each trades.
 - **Rollback any time.** `trimwire off` fully disengages — it stops the gateway
   and removes the `ANTHROPIC_BASE_URL` wiring, so Claude Code talks straight to
-  Anthropic (re-enabling host-gated features like Remote Control); `trimwire on`
-  re-engages. To *pause pruning* without leaving the path, `trimwire pause` keeps
+  Anthropic (re-enabling host-gated features like Remote Control — or keep Remote
+  Control *and* pruning via the opt-in `[server] remote_control` mode, see the
+  [FAQ](docs/FAQ.md#can-i-use-claude-codes-remote-control-control-your-session-from-your-phone-with-trimwire));
+  `trimwire on` re-engages. To *pause pruning* without leaving the path, `trimwire pause` keeps
   the gateway serving but forwards **unmodified**, and `trimwire resume` turns
   pruning back on. For a single session, `trimwire run
   --bypass`. `trimwire uninstall` removes the service, login autostart, and the statusline
@@ -212,7 +214,7 @@ verified model ranking.
 | Command | What it does |
 |---|---|
 | `trimwire install [--boot]` | Config + shell-rc `ANTHROPIC_BASE_URL` export + the always-up service (systemd user / launchd, login-scoped; `--boot` starts it pre-login). Idempotent; does **not** touch your statusline. |
-| `trimwire on` / `off` | Fully engage / disengage: wire (or unwire) `ANTHROPIC_BASE_URL` + start (or stop) the gateway. `off` sends Claude Code direct to Anthropic (re-enables Remote Control). |
+| `trimwire on` / `off` | Fully engage / disengage: wire (or unwire) `ANTHROPIC_BASE_URL` + start (or stop) the gateway. `off` sends Claude Code direct to Anthropic (re-enables Remote Control; or keep both via opt-in `[server] remote_control` — see [FAQ](docs/FAQ.md#can-i-use-claude-codes-remote-control-control-your-session-from-your-phone-with-trimwire)). |
 | `trimwire pause` / `resume` / `status` | Pause / resume pruning (keeps the gateway in the path, forwarding unmodified) / health-check the service. |
 | `trimwire doctor` | One-shot setup diagnosis: config + active profile, gateway health, `ANTHROPIC_BASE_URL` wiring, ledger. **Exits non-zero** if a hard check fails, so `trimwire doctor && claude` and CI healthchecks work. |
 | `trimwire update` | Read-only check for a newer release (never downloads or changes anything). On a managed install it reports the available version and points you at `trimwire upgrade`; on cargo/manual installs it prints the right update command. |

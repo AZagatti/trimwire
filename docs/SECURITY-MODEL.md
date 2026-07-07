@@ -16,6 +16,15 @@ It forwards to Anthropic over HTTPS with standard certificate validation
 (rustls + webpki-roots). There is no CA certificate to install, no TLS
 interception, and no patched client: Claude Code stays the client, unchanged.
 
+(This describes the **default** `ANTHROPIC_BASE_URL` wiring. The opt-in
+Remote-Control coexistence mode — `[server] remote_control = true`, see
+[CONFIGURATION.md](CONFIGURATION.md#remote_control--pruning-and-remote-control-on-the-same-session-opt-in-off)
+— instead injects a Bun preload script that wraps `fetch` **inside** the running
+Claude Code process to reroute one endpoint. That's a more invasive posture than
+the default gateway wiring, and worth understanding before you enable it — though
+it still installs no CA cert, does no TLS interception, and does not patch any
+on-disk binary, and all traffic still goes only to Anthropic.)
+
 The upstream URL routes your `Authorization` token, so it is deliberately **not**
 configurable from a project-local `./.trimwire.toml` — only the global config or
 `TRIMWIRE_*` environment variables can set it. A cloned repo can't silently

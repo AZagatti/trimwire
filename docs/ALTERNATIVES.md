@@ -1,7 +1,9 @@
 # Alternatives & fallbacks
 
 trimwire is the recommended path (Anthropic-documented `ANTHROPIC_BASE_URL`
-gateway, no CA cert, one binary). But two other approaches exist — documented
+gateway, no CA cert, one binary; plus an opt-in Bun-preload wiring for
+[Remote-Control coexistence](CONFIGURATION.md#remote_control--pruning-and-remote-control-on-the-same-session-opt-in-off)).
+But two other approaches exist — documented
 here honestly so you can pick what fits. See [`SPIKE.md` §8](https://github.com/AZagatti/trimwire/blob/main/SPIKE.md) for
 why these are "documented, not built."
 

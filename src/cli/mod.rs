@@ -1064,22 +1064,25 @@ fn coexist_wiring_check(addr: std::net::SocketAddr, warned: &mut bool) {
         ),
         CoexistState::BaseUrlSet(v) => {
             println!(
-                "{} coexist mode, but ANTHROPIC_BASE_URL is set ({v}) — Remote Control will be blocked. Open a new shell after `trimwire on`.",
-                render::warn()
+                "{} Remote-Control coexistence, but ANTHROPIC_BASE_URL is set ({v}) — Remote Control will be blocked. Open a new shell after {}.",
+                render::warn(),
+                render::accent("trimwire on")
             );
             *warned = true;
         }
         CoexistState::ShimMissing => {
             println!(
-                "{} coexist mode on, but the shim is missing ({shim_s}) — run `trimwire on` to (re)write it.",
-                render::warn()
+                "{} Remote-Control coexistence on, but the shim is missing ({shim_s}) — run {} to (re)write it.",
+                render::warn(),
+                render::accent("trimwire on")
             );
             *warned = true;
         }
         CoexistState::NotPreloaded => {
             println!(
-                "{} coexist mode on, but BUN_OPTIONS isn't preloading the shim in THIS shell — open a new shell after `trimwire on`.",
-                render::warn()
+                "{} Remote-Control coexistence on, but BUN_OPTIONS isn't preloading the shim in THIS shell — open a new shell after {}.",
+                render::warn(),
+                render::accent("trimwire on")
             );
             *warned = true;
         }
