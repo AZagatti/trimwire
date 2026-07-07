@@ -100,17 +100,15 @@ async fn run() -> i32 {
         .parse()
         .unwrap_or(40_000);
 
-    let lm = SummarizerConfig {
-        engine: "local".to_owned(),
-        timeout_secs: 240,
-        local: SummarizerLocalConfig {
-            keep_alive_secs: 30,
-            model: env("TRIMWIRE_COST_MODEL", "qwen3.5:4b"),
-            endpoint: env("TRIMWIRE_COST_ENDPOINT", "http://localhost:11434"),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    // `#[non_exhaustive]` — build from Default and set fields (no struct literal).
+    let mut local = SummarizerLocalConfig::default();
+    local.keep_alive_secs = 30;
+    local.model = env("TRIMWIRE_COST_MODEL", "qwen3.5:4b");
+    local.endpoint = env("TRIMWIRE_COST_ENDPOINT", "http://localhost:11434");
+    let mut lm = SummarizerConfig::default();
+    lm.engine = "local".to_owned();
+    lm.timeout_secs = 240;
+    lm.local = local;
     let cfg = profile_baseline(&profile);
 
     println!("# P0a cost-replay");

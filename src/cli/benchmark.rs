@@ -1461,16 +1461,12 @@ mod tests {
     #[test]
     fn api_safety_warning_returns_false_without_yes() {
         use trimwire::config::SummarizerProviderConfig;
-        let provider = SummarizerProviderConfig {
-            id: "my-api".to_owned(),
-            style: "anthropic".to_owned(),
-            base_url: "https://api.example.com".to_owned(),
-            full_url: None,
-            model: "fast-model".to_owned(),
-            api_key_env: "MY_API_KEY".to_owned(),
-            api_key_file: None,
-            timeout_secs: 30,
-        };
+        let mut provider = SummarizerProviderConfig::default();
+        provider.id = "my-api".to_owned();
+        provider.base_url = "https://api.example.com".to_owned();
+        provider.model = "fast-model".to_owned();
+        provider.api_key_env = "MY_API_KEY".to_owned();
+        provider.timeout_secs = 30;
         // Without yes=true the gate must prevent API calls.
         let proceed = api_safety_warning(&provider, 5, false);
         assert!(
@@ -1482,16 +1478,12 @@ mod tests {
     #[test]
     fn api_safety_warning_returns_true_with_yes() {
         use trimwire::config::SummarizerProviderConfig;
-        let provider = SummarizerProviderConfig {
-            id: "my-api".to_owned(),
-            style: "anthropic".to_owned(),
-            base_url: "https://api.example.com".to_owned(),
-            full_url: None,
-            model: "fast-model".to_owned(),
-            api_key_env: "MY_API_KEY".to_owned(),
-            api_key_file: None,
-            timeout_secs: 30,
-        };
+        let mut provider = SummarizerProviderConfig::default();
+        provider.id = "my-api".to_owned();
+        provider.base_url = "https://api.example.com".to_owned();
+        provider.model = "fast-model".to_owned();
+        provider.api_key_env = "MY_API_KEY".to_owned();
+        provider.timeout_secs = 30;
         // With yes=true the warning prints but execution proceeds.
         let proceed = api_safety_warning(&provider, 5, true);
         assert!(proceed, "with --yes the safety gate must permit API calls");
@@ -1521,16 +1513,12 @@ mod tests {
             std::env::set_var("BENCH_TEST_API_KEY", "sk-test");
         }
 
-        let provider = trimwire::config::SummarizerProviderConfig {
-            id: "test-api".to_owned(),
-            style: "anthropic".to_owned(),
-            base_url: server.uri(),
-            full_url: None,
-            model: "test-model".to_owned(),
-            api_key_env: "BENCH_TEST_API_KEY".to_owned(),
-            api_key_file: None,
-            timeout_secs: 5,
-        };
+        let mut provider = trimwire::config::SummarizerProviderConfig::default();
+        provider.id = "test-api".to_owned();
+        provider.base_url = server.uri();
+        provider.model = "test-model".to_owned();
+        provider.api_key_env = "BENCH_TEST_API_KEY".to_owned();
+        provider.timeout_secs = 5;
         let big_slice = "### user\n".to_owned() + &"[tool_result] noise ".repeat(60);
         let corpus = vec![CorpusSlice {
             id: "s1".to_owned(),
@@ -1577,16 +1565,12 @@ mod tests {
             std::env::set_var("BENCH_MAX_CALLS_KEY", "sk-test");
         }
 
-        let provider = trimwire::config::SummarizerProviderConfig {
-            id: "test-api".to_owned(),
-            style: "anthropic".to_owned(),
-            base_url: server.uri(),
-            full_url: None,
-            model: "test-model".to_owned(),
-            api_key_env: "BENCH_MAX_CALLS_KEY".to_owned(),
-            api_key_file: None,
-            timeout_secs: 5,
-        };
+        let mut provider = trimwire::config::SummarizerProviderConfig::default();
+        provider.id = "test-api".to_owned();
+        provider.base_url = server.uri();
+        provider.model = "test-model".to_owned();
+        provider.api_key_env = "BENCH_MAX_CALLS_KEY".to_owned();
+        provider.timeout_secs = 5;
         let big = "### user\n[tool_result] ".to_owned() + &"x".repeat(400);
         let corpus = vec![
             CorpusSlice {
@@ -1637,16 +1621,12 @@ mod tests {
             std::env::set_var("BENCH_ERROR_KEY", "sk-test");
         }
 
-        let provider = trimwire::config::SummarizerProviderConfig {
-            id: "test-api".to_owned(),
-            style: "anthropic".to_owned(),
-            base_url: server.uri(),
-            full_url: None,
-            model: "test-model".to_owned(),
-            api_key_env: "BENCH_ERROR_KEY".to_owned(),
-            api_key_file: None,
-            timeout_secs: 5,
-        };
+        let mut provider = trimwire::config::SummarizerProviderConfig::default();
+        provider.id = "test-api".to_owned();
+        provider.base_url = server.uri();
+        provider.model = "test-model".to_owned();
+        provider.api_key_env = "BENCH_ERROR_KEY".to_owned();
+        provider.timeout_secs = 5;
         let corpus = vec![CorpusSlice {
             id: "s1".to_owned(),
             false_done_trap: false,
