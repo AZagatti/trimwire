@@ -250,6 +250,16 @@ pub fn on() -> Result<()> {
             // Coexist mode leaves ANTHROPIC_BASE_URL unset everywhere so Remote
             // Control works; strip any GUI/login env a prior default install wrote.
             service::remove_gui_env_files();
+            // (Re)write the process-local launcher for GUI/editor surfaces (#173) and
+            // remind how to point an editor wrapper at it. Best-effort: a launcher
+            // write failure must not block re-engaging pruning.
+            match install::write_coexist_launcher(&install::coexist_shim_path()) {
+                Ok(launcher) => install::print_gui_coexist_guidance(&launcher),
+                Err(e) => println!(
+                    "{} couldn't write the GUI coexistence launcher ({e}).",
+                    render::warn()
+                ),
+            }
         } else {
             let _ = service::wire_gui_env(addr); // best-effort GUI/login env
         }
@@ -315,6 +325,13 @@ pub fn off() -> Result<()> {
     //    user how to finish by hand (the gateway is already down, so leaving the
     //    export pointing at it would otherwise strand them silently).
     service::remove_gui_env_files();
+    if install::remove_coexist_launcher() {
+        println!(
+            "  {} removed the GUI coexistence launcher; clear any editor {} setting pointing at it.",
+            render::dim("→"),
+            render::accent("claudeCode.claudeProcessWrapper")
+        );
+    }
     match install::unwire_rc() {
         Ok(install::RcUnwire::Removed(rc)) => println!(
             "{} removed the trimwire env exports from {}",
@@ -1086,6 +1103,25 @@ fn coexist_wiring_check(addr: std::net::SocketAddr, warned: &mut bool) {
             );
             *warned = true;
         }
+    }
+    // GUI/editor surfaces (#173): the launcher is the opt-in injection point for
+    // Claude Code launched outside a shell (which never sees the rc block above).
+    // Informational — not a failure, since terminal-launched Claude Code prunes via
+    // the rc block regardless.
+    let launcher = install::coexist_launcher_path();
+    if launcher.exists() {
+        println!(
+            "  {} GUI/editor launcher ready ({}); point VS Code {} at it to prune GUI-launched Claude Code too.",
+            render::dim("→"),
+            render::accent(&launcher.display().to_string()),
+            render::accent("claudeCode.claudeProcessWrapper")
+        );
+    } else {
+        println!(
+            "  {} no GUI/editor launcher yet — run {} to write it (lets the VS Code panel prune too).",
+            render::dim("→"),
+            render::accent("trimwire on")
+        );
     }
 }
 

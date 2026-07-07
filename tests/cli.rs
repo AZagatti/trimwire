@@ -289,6 +289,30 @@ fn install_remote_control_flag_enables_coexistence() {
         dir.path().join(".trimwire/coexist-shim.js").exists(),
         "coexist shim written"
     );
+    // GUI/editor launcher written + executable + points at the shim (#173): the
+    // injection point for surfaces (VS Code panel, etc.) that never source the rc.
+    let launcher = dir.path().join(".trimwire/claude-launch.sh");
+    let body = fs::read_to_string(&launcher).expect("GUI coexistence launcher written");
+    assert!(
+        body.contains("--preload") && body.contains("coexist-shim.js") && body.contains("\"$@\""),
+        "launcher preloads the shim then execs the real binary: {body}"
+    );
+    assert!(
+        !body.contains("ANTHROPIC_BASE_URL"),
+        "launcher never sets ANTHROPIC_BASE_URL (RC must keep working)"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&launcher).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755, "launcher is executable");
+    }
+    // Install guided the user to the VS Code wrapper setting.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("claudeCode.claudeProcessWrapper"),
+        "install prints the VS Code wrapper guidance: {stdout}"
+    );
 }
 
 /// `trimwire install` (no curl|sh installer) records an install receipt with
