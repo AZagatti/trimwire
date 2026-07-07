@@ -21,6 +21,11 @@ Claude Code's API context on every request.
   gate). Model choice is the safeguard.
 - Profiles are **cleanliness levels, not cost tiers** — don't pick `gentle` to manage
   short-session cost (cost is a separate cache-stability concern).
+- **Remote Control:** the default wiring and Claude Code's Remote Control are mutually
+  exclusive (RC refuses a non-Anthropic base URL). They CAN coexist via the **opt-in**
+  `[server] remote_control = true` mode (a Bun preload shim reroutes only `/v1/messages`;
+  `ANTHROPIC_BASE_URL` left unset) — opt-in/fragile, see CONFIGURATION.md / FAQ.md. Don't
+  state them as always mutually exclusive.
 - **ToS:** with an **API key** you're clearly fine (`ANTHROPIC_BASE_URL` is Anthropic's documented
   gateway mechanism); a **Pro/Max OAuth** subscription is a greyer, fast-moving area — defer to FAQ.
 

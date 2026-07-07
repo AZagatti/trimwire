@@ -20,7 +20,7 @@ Commands to install, start, stop, and verify the gateway.
 
 ### `trimwire install`
 
-Write a starter config, add the `ANTHROPIC_BASE_URL` env export, and register the always-up service.
+Write a starter config, add the `ANTHROPIC_BASE_URL` env export (or `BUN_OPTIONS`, if `[server] remote_control = true` — see [CONFIGURATION.md](CONFIGURATION.md#remote_control--pruning-and-remote-control-on-the-same-session-opt-in-off)), and register the always-up service.
 
 | Flag | Description |
 |---|---|
@@ -39,11 +39,11 @@ Remove the service, the GUI/login env hooks, and lingering that `install` set up
 
 ### `trimwire on`
 
-**Fully engage trimwire.** (Re-)adds the env exports to your shell rc + the GUI/login env hook, (re)starts the gateway service, and enables pruning — undoing a prior `trimwire off`. Idempotent: if the path is already wired (the common case) it just makes sure the service is up and pruning is on. If it had to re-add the rc block, it tells you to `source` it (or open a new shell) so the current shell routes through trimwire too.
+**Fully engage trimwire.** (Re-)adds the env exports to your shell rc (`ANTHROPIC_BASE_URL`, or `BUN_OPTIONS` in `[server] remote_control` coexistence mode) + the GUI/login env hook, (re)starts the gateway service, and enables pruning — undoing a prior `trimwire off`. Idempotent: if the path is already wired (the common case) it just makes sure the service is up and pruning is on. If it had to re-add the rc block, it tells you to `source` it (or open a new shell) so the current shell routes through trimwire too.
 
 ### `trimwire off`
 
-**Fully disengage trimwire.** Stops the gateway **and** removes trimwire from the request path — strips the `# >>> trimwire >>>` export block from your shell rc and removes the GUI/login env hook — so Claude Code talks **straight to `api.anthropic.com`**. New shells and GUI apps go direct immediately; because a program can't unset a variable in its parent shell, `off` prints the one line that fixes the **current** shell (`unset ANTHROPIC_BASE_URL`). Going direct re-enables host-gated Claude Code features — most notably **Remote Control**, which only runs on `api.anthropic.com`. Re-engage any time with `trimwire on`.
+**Fully disengage trimwire.** Stops the gateway **and** removes trimwire from the request path — strips the `# >>> trimwire >>>` export block from your shell rc and removes the GUI/login env hook — so Claude Code talks **straight to `api.anthropic.com`**. New shells and GUI apps go direct immediately; because a program can't unset a variable in its parent shell, `off` prints the one line that fixes the **current** shell (`unset ANTHROPIC_BASE_URL`). Going direct re-enables host-gated Claude Code features — most notably **Remote Control**, which only runs on `api.anthropic.com`. Re-engage any time with `trimwire on`. (To keep Remote Control **and** pruning at once — without disengaging — enable the opt-in `[server] remote_control` coexistence mode instead; see [CONFIGURATION](CONFIGURATION.md#remote_control--pruning-and-remote-control-on-the-same-session-opt-in-off).)
 
 > Just want to stop pruning for a bit without leaving the path? Use `trimwire pause` / `trimwire resume` instead — they keep the gateway in place and don't touch your rc.
 
@@ -72,7 +72,7 @@ Show whether the gateway is running and serving, plus a `pruning:` line — `on`
 
 ### `trimwire doctor`
 
-Diagnose the setup: config, active profile, gateway health, `ANTHROPIC_BASE_URL` wiring, ledger, and summarizer state. Run this first whenever something looks wrong.
+Diagnose the setup: config, active profile, gateway health, wiring (`ANTHROPIC_BASE_URL`, or `BUN_OPTIONS` + the shim in coexistence mode), ledger, and summarizer state. Run this first whenever something looks wrong.
 
 ![trimwire doctor](https://raw.githubusercontent.com/AZagatti/trimwire/main/docs/cli/doctor.gif)
 
@@ -479,7 +479,8 @@ trimwire man --out ./man/      # write all pages for packaging
 
 | Variable | Description |
 |---|---|
-| `ANTHROPIC_BASE_URL` | Points Claude Code at the trimwire gateway. Set automatically by `trimwire install`; `unset` it to send Claude Code straight to Anthropic. You rarely need to touch it: `trimwire off` fully disengages (stops the gateway and removes this export), `trimwire pause` keeps the var valid but forwards unmodified, and `trimwire run --bypass` overrides it for a single session. |
+| `ANTHROPIC_BASE_URL` | Points Claude Code at the trimwire gateway (the **default** wiring). Set automatically by `trimwire install`; `unset` it to send Claude Code straight to Anthropic. You rarely need to touch it: `trimwire off` fully disengages (stops the gateway and removes this export), `trimwire pause` keeps the var valid but forwards unmodified, and `trimwire run --bypass` overrides it for a single session. Deliberately left **unset** in Remote-Control coexistence mode (see `BUN_OPTIONS`). |
+| `BUN_OPTIONS` | Set **instead of** `ANTHROPIC_BASE_URL` when `[server] remote_control = true` — `trimwire install`/`on` write `--preload ~/.trimwire/coexist-shim.js`, preloading the coexistence shim into Claude Code's Bun runtime so `/v1/messages` still routes through the gateway while Remote Control keeps working. See [CONFIGURATION.md](CONFIGURATION.md#remote_control--pruning-and-remote-control-on-the-same-session-opt-in-off). |
 | `TRIMWIRE_LOG` | Log verbosity for the gateway: `warn` (default), `info`, `debug`. Logs go to stderr. Example: `TRIMWIRE_LOG=info trimwire run` (the foreground gateway picks up the env). |
 | `TRIMWIRE_AUDIT` | Opt-in metadata-only wire audit: append one JSONL line per request describing its *shape* (counts/flags + cache-prefix structure, never content) to `<file>`. Same as `--audit <file>`. See [CONFIGURATION.md](CONFIGURATION.md). Off when unset |
 

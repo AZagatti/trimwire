@@ -40,7 +40,8 @@ unmodified, so every shell keeps working with no pruning; `trimwire resume`
 resumes. It does **not** edit your rc. `trimwire off`, by contrast, fully
 disengages: it stops the gateway and removes the `ANTHROPIC_BASE_URL` wiring so
 Claude Code talks directly to Anthropic — use it when you need a host-gated
-feature like Remote Control; `trimwire on` re-engages.)
+feature like Remote Control (or, to keep pruning too, enable `[server]
+remote_control` — see below); `trimwire on` re-engages.)
 
 ## `profile` — the one knob most people need
 
@@ -77,6 +78,34 @@ upstream = "https://api.anthropic.com" # where slimmed requests are forwarded
 `listen` must be a **numeric IP:port** (e.g. `127.0.0.1:8765` or `[::1]:8765`),
 not a hostname — `localhost:8765` is rejected (it falls back to the default with
 a warning). If you change `listen`, set `ANTHROPIC_BASE_URL` to match.
+
+### `remote_control` — pruning **and** Remote Control on the same session (opt-in, off)
+
+Claude Code refuses to start **Remote Control** (driving your session from your
+phone / claude.ai) whenever `ANTHROPIC_BASE_URL` points at a non-Anthropic host —
+so trimwire's normal wiring and Remote Control are otherwise mutually exclusive.
+
+```toml
+[server]
+remote_control = true
+```
+
+With this on, `trimwire install` / `trimwire on` wire trimwire a **different way**:
+instead of exporting `ANTHROPIC_BASE_URL`, they export
+`BUN_OPTIONS=--preload ~/.trimwire/coexist-shim.js` and leave the base URL **unset**
+(so Remote Control's gate is satisfied). A tiny preload shim inside Claude Code
+reroutes only `POST /v1/messages` through the gateway for pruning; everything else —
+including the Remote Control channel — goes straight to Anthropic. Re-run
+`trimwire on` after changing this, and open a new shell (or `source` your rc).
+
+**Opt-in and fragile, by design.** It relies on Claude Code's Bun runtime + `fetch`
+internals — it works today, but a Claude Code update can break it (it fails safe,
+falling back to going direct) — and it works around a deliberate Anthropic
+restriction. All traffic still goes **only to Anthropic**; trimwire just prunes
+context, exactly like the default path. Requires a **loopback** `listen` (trimwire
+refuses to wire this mode for a non-local gateway). `trimwire doctor` verifies the
+wiring. GUI-launched Claude Code isn't pruned in this mode (Remote Control works
+everywhere; shell-launched sessions prune). See also the [FAQ entry](FAQ.md#can-i-use-claude-codes-remote-control-control-your-session-from-your-phone-with-trimwire).
 
 ## Strategies
 
