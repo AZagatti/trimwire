@@ -9,6 +9,13 @@
 //! still yields a complete `Config`. The struct `Default` has all strategies
 //! **off** (so the gateway is a transparent pass-through with no config);
 //! `trimwire install` writes a starter config that turns the workhorses on.
+//!
+//! All public config structs are `#[non_exhaustive]`: they are only ever built
+//! by deserialization or `Default`, never by downstream struct literals, so a
+//! new knob is a non-breaking addition (no `cargo-semver-checks`
+//! `constructible_struct_adds_field` churn). Construct them out-of-crate (tests,
+//! examples, the CLI binary) via `X::default()` + field assignment, not a
+//! struct literal or `..Default::default()`.
 
 use std::path::PathBuf;
 
@@ -23,6 +30,7 @@ use serde::{Deserialize, Serialize};
 /// type's `Default` impl, so partial TOML files are fine.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct Config {
     /// Pruning profile: `"default"` (aggressive, all eight cache-safe strategies — the
     /// shipped default) or `"gentle"` (lightest touch: dedup + purge + conservative
@@ -49,6 +57,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct ShareConfig {
     /// Explicit user consent to upload telemetry. **`false` by default** — nothing
     /// is ever sent without the user setting this to `true` (via `trimwire config edit`
@@ -79,6 +88,7 @@ pub struct ShareConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct RepruneConfig {
     /// Stable-prefix re-pruning: while the conversation is append-only, reuse the
     /// previous turn's pruning decisions (keeping the pruned prefix byte-stable so
@@ -124,6 +134,7 @@ impl Default for RepruneConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct LedgerConfig {
     /// When false, the gateway proxies normally but records nothing.
     pub enabled: bool,
@@ -145,6 +156,7 @@ impl Default for LedgerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct ServerConfig {
     pub listen: String,
     pub upstream: String,
@@ -165,6 +177,7 @@ pub struct ServerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct Strategies {
     pub cross_turn_dedup: CrossTurnDedupConfig,
     pub failed_input_purge: FailedInputPurgeConfig,
@@ -184,6 +197,7 @@ pub struct Strategies {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SystemShapeNormalizeConfig {
     /// POC (default false = OFF): when Claude Code emits a malformed body with a
     /// `role:"system"` entry as `messages[0]` (seen after `/compact`, `/clear`,
@@ -197,6 +211,7 @@ pub struct SystemShapeNormalizeConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct CrossTurnDedupConfig {
     pub enabled: bool,
     /// Tool-name patterns never deduped (supports `*`). Defaults to the subagent
@@ -210,6 +225,7 @@ pub struct CrossTurnDedupConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct FailedInputPurgeConfig {
     pub enabled: bool,
     /// Only purge errored-call inputs older than this many assistant turns.
@@ -224,6 +240,7 @@ pub struct FailedInputPurgeConfig {
 /// (`keep_recent_turns = 2`), off in `gentle`. Override in `~/.config/trimwire.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct StaleInputCapConfig {
     /// When false this strategy is a no-op (default).
     pub enabled: bool,
@@ -251,6 +268,7 @@ pub struct StaleInputCapConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct BloatCapConfig {
     pub enabled: bool,
     /// Only trim string `tool_result` content longer than this many bytes.
@@ -350,6 +368,7 @@ pub struct BloatCapConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SlidingWindowConfig {
     pub enabled: bool,
     /// Keep the most-recent N assistant turns untouched; stub denylisted
@@ -367,6 +386,7 @@ pub struct SlidingWindowConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct ImageStripConfig {
     pub enabled: bool,
     /// Tool-name patterns whose image `tool_result`s are candidates for
@@ -380,6 +400,7 @@ pub struct ImageStripConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct ThinkingStripConfig {
     /// Remove `thinking` / `redacted_thinking` blocks from assistant turns older
     /// than `keep_recent_turns`. On reasoning-heavy sessions accumulated OLD thinking
@@ -575,6 +596,7 @@ impl Default for ThinkingStripConfig {
 /// `~/.config/trimwire.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct StaleReadsConfig {
     /// When false this strategy is a no-op (default).
     pub enabled: bool,
@@ -639,6 +661,7 @@ impl Default for StaleReadsConfig {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SimHashDedupConfig {
     /// When false this strategy is a no-op (default).
     pub enabled: bool,
@@ -691,6 +714,7 @@ impl Default for SimHashDedupConfig {
 /// (systemd/launchd) where the service does not inherit interactive-shell exports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SummarizerProviderConfig {
     /// Short user-chosen identifier (no spaces). Referenced by `engine`/`fallback`.
     pub id: String,
@@ -739,6 +763,7 @@ impl Default for SummarizerProviderConfig {
 /// See also [`SummarizerProviderConfig`] for cloud API providers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SummarizerLocalConfig {
     /// Base URL of the local model server (ollama's `/api/chat` is appended).
     pub endpoint: String,
@@ -798,6 +823,7 @@ impl Default for SummarizerLocalConfig {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SummarizerConfig {
     /// Which backend to use. `"model-free"` (the default) disables the
     /// summarizer. `"local"` uses a local ollama server. Any other string is

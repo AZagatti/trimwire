@@ -48,18 +48,18 @@ async fn run() -> i32 {
 
     // The aggressive default profile (reprune + all model-free strategies on).
     let cfg = profile_baseline("default");
-    let lm = SummarizerConfig {
-        engine: "local".to_owned(),
-        timeout_secs: 240,
-        local: SummarizerLocalConfig {
-            model: std::env::var("TRIMWIRE_HARM_MODEL")
-                .unwrap_or_else(|_| SummarizerLocalConfig::default().model),
-            endpoint: std::env::var("TRIMWIRE_HARM_ENDPOINT")
-                .unwrap_or_else(|_| SummarizerLocalConfig::default().endpoint),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    // `#[non_exhaustive]` — build from Default and set fields (no struct literal).
+    let mut local = SummarizerLocalConfig::default();
+    if let Ok(model) = std::env::var("TRIMWIRE_HARM_MODEL") {
+        local.model = model;
+    }
+    if let Ok(endpoint) = std::env::var("TRIMWIRE_HARM_ENDPOINT") {
+        local.endpoint = endpoint;
+    }
+    let mut lm = SummarizerConfig::default();
+    lm.engine = "local".to_owned();
+    lm.timeout_secs = 240;
+    lm.local = local;
 
     println!("── compaction bench: {path} ──");
     println!(

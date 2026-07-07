@@ -32,13 +32,14 @@ async fn run() -> i32 {
     const RESCUE_TOOL_FRACTION: f64 = 0.5; // density-aware rescue safety margin (prod)
     const KEEP: usize = 6; // local_model default keep_recent_turns
 
-    let lm = SummarizerLocalConfig {
-        model: std::env::var("TRIMWIRE_HARM_MODEL")
-            .unwrap_or_else(|_| SummarizerLocalConfig::default().model),
-        endpoint: std::env::var("TRIMWIRE_HARM_ENDPOINT")
-            .unwrap_or_else(|_| SummarizerLocalConfig::default().endpoint),
-        ..Default::default()
-    };
+    // `#[non_exhaustive]` — build from Default and set fields (no struct literal).
+    let mut lm = SummarizerLocalConfig::default();
+    if let Ok(model) = std::env::var("TRIMWIRE_HARM_MODEL") {
+        lm.model = model;
+    }
+    if let Ok(endpoint) = std::env::var("TRIMWIRE_HARM_ENDPOINT") {
+        lm.endpoint = endpoint;
+    }
     let timeout_secs: u64 = 180;
     let full_cfg = Config::default(); // for summary_is_smaller's model-free baseline
 

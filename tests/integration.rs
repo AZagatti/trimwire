@@ -61,13 +61,14 @@ fn load_fixture_messages(name: &str) -> Vec<Value> {
 /// The standard SlidingWindow config the Python invariant suite exercises
 /// (denylist `Bash`, keep 4, no exempt). Matches `dump_expected.py`.
 fn standard_sliding_cfg() -> trimwire::config::SlidingWindowConfig {
-    trimwire::config::SlidingWindowConfig {
-        enabled: true,
-        keep_recent_turns: 4,
-        denylist_tools: vec!["Bash".to_owned()],
-        exempt_tools: vec![],
-        stub: "[trimwire: elided, older than sliding window]".to_owned(),
-    }
+    // `#[non_exhaustive]` — build from Default and set fields (no struct literal).
+    let mut cfg = trimwire::config::SlidingWindowConfig::default();
+    cfg.enabled = true;
+    cfg.keep_recent_turns = 4;
+    cfg.denylist_tools = vec!["Bash".to_owned()];
+    cfg.exempt_tools = vec![];
+    cfg.stub = "[trimwire: elided, older than sliding window]".to_owned();
+    cfg
 }
 
 /// Deterministic, snapshot-friendly view of a `PairingIndex`. `BTreeMap`
@@ -555,12 +556,13 @@ async fn gateway_passes_through_get() {
 /// Standard ImageStrip config matching dump_expected.py (exact screenshot
 /// tool, keep 1).
 fn standard_image_cfg() -> trimwire::config::ImageStripConfig {
-    trimwire::config::ImageStripConfig {
-        enabled: true,
-        applies_to_tools: vec!["mcp__playwright__browser_take_screenshot".to_owned()],
-        keep_recent_count: 1,
-        stub: "[trimwire: image stripped]".to_owned(),
-    }
+    // `#[non_exhaustive]` — build from Default and set fields (no struct literal).
+    let mut cfg = trimwire::config::ImageStripConfig::default();
+    cfg.enabled = true;
+    cfg.applies_to_tools = vec!["mcp__playwright__browser_take_screenshot".to_owned()];
+    cfg.keep_recent_count = 1;
+    cfg.stub = "[trimwire: image stripped]".to_owned();
+    cfg
 }
 
 /// Rust ImageStrip output must be byte-identical to the Python reference on

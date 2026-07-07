@@ -40,21 +40,21 @@ async fn run() -> i32 {
 
     let slice = probe::build_probe_slice(target_bytes);
 
-    let provider = SummarizerProviderConfig {
-        id: "harm".to_owned(),
-        style: std::env::var("TRIMWIRE_API_HARM_STYLE").unwrap_or_else(|_| "anthropic".to_owned()),
-        base_url: std::env::var("TRIMWIRE_API_HARM_BASE_URL")
-            .unwrap_or_else(|_| "https://api.z.ai/api/anthropic".to_owned()),
-        full_url: std::env::var("TRIMWIRE_API_HARM_FULL_URL")
-            .ok()
-            .filter(|u| !u.trim().is_empty()),
-        model: std::env::var("TRIMWIRE_API_HARM_MODEL")
-            .unwrap_or_else(|_| "GLM-4.5-Air".to_owned()),
-        api_key_env: std::env::var("TRIMWIRE_API_HARM_KEY_ENV")
-            .unwrap_or_else(|_| "ZAI_API_KEY".to_owned()),
-        api_key_file: None,
-        timeout_secs: 300,
-    };
+    // `#[non_exhaustive]` — build from Default and set fields (no struct literal).
+    let mut provider = SummarizerProviderConfig::default();
+    provider.id = "harm".to_owned();
+    provider.style =
+        std::env::var("TRIMWIRE_API_HARM_STYLE").unwrap_or_else(|_| "anthropic".to_owned());
+    provider.base_url = std::env::var("TRIMWIRE_API_HARM_BASE_URL")
+        .unwrap_or_else(|_| "https://api.z.ai/api/anthropic".to_owned());
+    provider.full_url = std::env::var("TRIMWIRE_API_HARM_FULL_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty());
+    provider.model =
+        std::env::var("TRIMWIRE_API_HARM_MODEL").unwrap_or_else(|_| "GLM-4.5-Air".to_owned());
+    provider.api_key_env =
+        std::env::var("TRIMWIRE_API_HARM_KEY_ENV").unwrap_or_else(|_| "ZAI_API_KEY".to_owned());
+    provider.timeout_secs = 300;
     if std::env::var(&provider.api_key_env)
         .map(|v| v.is_empty())
         .unwrap_or(true)

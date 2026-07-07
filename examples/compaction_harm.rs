@@ -90,15 +90,16 @@ async fn run() -> i32 {
         ]}));
     }
 
-    let cfg = SummarizerLocalConfig {
-        // Override the model/endpoint from the env to A/B different local models,
-        // e.g. TRIMWIRE_HARM_MODEL=qwen2.5-coder:3b.
-        model: std::env::var("TRIMWIRE_HARM_MODEL")
-            .unwrap_or_else(|_| SummarizerLocalConfig::default().model),
-        endpoint: std::env::var("TRIMWIRE_HARM_ENDPOINT")
-            .unwrap_or_else(|_| SummarizerLocalConfig::default().endpoint),
-        ..Default::default()
-    };
+    // `#[non_exhaustive]` — build from Default and set fields (no struct literal).
+    // Override the model/endpoint from the env to A/B different local models,
+    // e.g. TRIMWIRE_HARM_MODEL=qwen2.5-coder:3b.
+    let mut cfg = SummarizerLocalConfig::default();
+    if let Ok(model) = std::env::var("TRIMWIRE_HARM_MODEL") {
+        cfg.model = model;
+    }
+    if let Ok(endpoint) = std::env::var("TRIMWIRE_HARM_ENDPOINT") {
+        cfg.endpoint = endpoint;
+    }
     let timeout_secs: u64 = 180;
 
     // Default: the hand-curated synthetic planted-fact slice. Override with a REAL
