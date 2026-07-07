@@ -233,6 +233,11 @@ enum Cmd {
         /// Also start before login / survive logout (systemd lingering).
         #[arg(long)]
         boot: bool,
+        /// Wire Remote-Control coexistence mode: sets `[server] remote_control =
+        /// true`, so Claude Code's Remote Control works alongside pruning (leaves
+        /// ANTHROPIC_BASE_URL unset + preloads the shim). See docs/CONFIGURATION.md.
+        #[arg(long)]
+        remote_control: bool,
     },
 
     /// Remove the service and GUI/login env hooks that `install` set up.
@@ -572,7 +577,10 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         // LIFECYCLE
-        Cmd::Install { boot } => cli::install(boot),
+        Cmd::Install {
+            boot,
+            remote_control,
+        } => cli::install(boot, remote_control),
         Cmd::Uninstall => cli::uninstall(),
         Cmd::On => cli::on(),
         Cmd::Off => cli::off(),

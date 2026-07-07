@@ -114,14 +114,63 @@ pub(super) fn wiring_for(cfg: &Config) -> Result<Wiring> {
     }
 }
 
+/// Set `[server] remote_control = true` in the config file, preserving the user's
+/// comments and formatting (a line-based edit, not a TOML re-serialize). Backs the
+/// `trimwire install --remote-control` flag (#174).
+fn enable_remote_control_in_config(path: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let updated = enable_remote_control_in_text(&text);
+    write_text_atomic(path, &updated).with_context(|| format!("write {}", path.display()))
+}
+
+/// Pure core of [`enable_remote_control_in_config`]. Toggles an existing
+/// `remote_control = …` line (commented or not) to `true`; else inserts it under
+/// the `[server]` header; else appends a `[server]` section. Idempotent.
+fn enable_remote_control_in_text(text: &str) -> String {
+    let had_final_nl = text.ends_with('\n');
+    let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
+    let join = |lines: Vec<String>| -> String {
+        let mut out = lines.join("\n");
+        if had_final_nl {
+            out.push('\n');
+        }
+        out
+    };
+    // (1) Toggle an existing `remote_control = …` (commented or not).
+    for l in lines.iter_mut() {
+        let bare = l.trim_start().trim_start_matches('#').trim_start();
+        if bare
+            .strip_prefix("remote_control")
+            .is_some_and(|rest| rest.trim_start().starts_with('='))
+        {
+            *l = "remote_control = true".to_owned();
+            return join(lines);
+        }
+    }
+    // (2) Insert under the `[server]` header if present.
+    if let Some(i) = lines.iter().position(|l| l.trim() == "[server]") {
+        lines.insert(i + 1, "remote_control = true".to_owned());
+        return join(lines);
+    }
+    // (3) No `[server]` section — append one.
+    if lines.last().is_some_and(|l| !l.is_empty()) {
+        lines.push(String::new());
+    }
+    lines.push("[server]".to_owned());
+    lines.push("remote_control = true".to_owned());
+    join(lines)
+}
+
 /// Write a starter config (if absent) and add the gateway env exports to the
 /// shell rc via an idempotent guarded block. `boot` additionally enables
 /// start-before-login (systemd lingering); the default is login-scoped.
+/// `remote_control` first sets `[server] remote_control = true` (Remote-Control
+/// coexistence), so this install wires that mode.
 ///
 /// Deliberately does **not** touch Claude Code's statusline — that's an
 /// explicit, separate step (`trimwire statusline add`). install is idempotent,
 /// so you can re-run it freely.
-pub fn install(boot: bool) -> Result<()> {
+pub fn install(boot: bool, remote_control: bool) -> Result<()> {
     use super::render;
     println!("{}\n", render::strong("trimwire install"));
     let cfg_path = config::global_config_path();
@@ -135,6 +184,19 @@ pub fn install(boot: bool) -> Result<()> {
         println!(
             "{} config already exists: {} (left unchanged)",
             render::bullet(),
+            cfg_path.display()
+        );
+    }
+
+    // `--remote-control`: persist `[server] remote_control = true` BEFORE we read
+    // the config below to pick the wiring — so this install wires coexistence and
+    // `on`/`off`/`doctor` remember the mode.
+    if remote_control {
+        enable_remote_control_in_config(&cfg_path)?;
+        println!(
+            "{} enabled Remote-Control coexistence ({} in {})",
+            render::ok(),
+            render::accent("[server] remote_control = true"),
             cfg_path.display()
         );
     }
@@ -865,7 +927,11 @@ fn fish_squote(s: &str) -> String {
 }
 
 fn rc_block_coexist(shim: &str) -> String {
-    let bun = sh_squote(&format!("--preload {shim}"));
+    // Idempotently PREPEND our preload while PRESERVING any existing BUN_OPTIONS the
+    // user set for other Bun tools (#175). `sh_squote` keeps the path safe in both
+    // the case pattern and the assignment; the case guard makes re-sourcing the rc a
+    // no-op instead of accumulating duplicate `--preload` entries.
+    let val = sh_squote(&format!("--preload {shim}"));
     format!(
         "{RC_MARKER_START}\n\
          # Remote-Control coexistence: preload a shim into Claude Code (Bun) that\n\
@@ -873,13 +939,18 @@ fn rc_block_coexist(shim: &str) -> String {
          # pruning. ANTHROPIC_BASE_URL is intentionally left UNSET so Claude Code's\n\
          # Remote Control keeps working (it refuses a custom base URL). See the\n\
          # [server].remote_control note in your trimwire config.\n\
-         export BUN_OPTIONS={bun}\n{RC_MARKER_END}\n"
+         case \" $BUN_OPTIONS \" in\n\
+         \x20\x20*{val}*) ;;\n\
+         \x20\x20*) export BUN_OPTIONS={val}\"${{BUN_OPTIONS:+ $BUN_OPTIONS}}\" ;;\n\
+         esac\n{RC_MARKER_END}\n"
     )
 }
 
 /// Fish variant of [`rc_block_coexist`] (uses `set -gx`).
 fn rc_block_coexist_fish(shim: &str) -> String {
-    let bun = fish_squote(&format!("--preload {shim}"));
+    // fish variant of the idempotent, existing-preserving append (#175): set
+    // BUN_OPTIONS only if it doesn't already carry our preload.
+    let val = fish_squote(&format!("--preload {shim}"));
     format!(
         "{RC_MARKER_START}\n\
          # Remote-Control coexistence: preload a shim into Claude Code (Bun) that\n\
@@ -887,7 +958,7 @@ fn rc_block_coexist_fish(shim: &str) -> String {
          # pruning. ANTHROPIC_BASE_URL is intentionally left UNSET so Claude Code's\n\
          # Remote Control keeps working (it refuses a custom base URL). See the\n\
          # [server].remote_control note in your trimwire config.\n\
-         set -gx BUN_OPTIONS {bun}\n{RC_MARKER_END}\n"
+         string match -q -- \"*\"{val}\"*\" \"$BUN_OPTIONS\"; or set -gx BUN_OPTIONS {val}\" $BUN_OPTIONS\"\n{RC_MARKER_END}\n"
     )
 }
 
@@ -937,6 +1008,71 @@ mod tests {
         assert!(ensure_rc_block(&updated, &block).is_none());
         // A coexist block round-trips through remove_rc_block (shared markers).
         assert_eq!(remove_rc_block(&updated).as_deref(), Some("# existing\n"));
+    }
+
+    #[test]
+    fn coexist_rc_block_appends_and_is_idempotent() {
+        let shim = "/home/u/.trimwire/coexist-shim.js";
+        // #175: PRESERVE an existing BUN_OPTIONS (append) instead of clobbering.
+        let block = rc_block_coexist(shim);
+        assert!(
+            block.contains("${BUN_OPTIONS:+ $BUN_OPTIONS}"),
+            "bash block appends any existing BUN_OPTIONS: {block}"
+        );
+        // Idempotent: a case guard skips re-adding when our preload is already there.
+        assert!(
+            block.contains("case \" $BUN_OPTIONS \" in"),
+            "guarded: {block}"
+        );
+        assert!(
+            block.contains(&format!("*'--preload {shim}'*) ;;")),
+            "guard matches our own preload: {block}"
+        );
+        // fish variant: `string match` guard + append (never clobbers).
+        let fish = rc_block_coexist_fish(shim);
+        assert!(
+            fish.contains("string match -q") && fish.contains("\" $BUN_OPTIONS\""),
+            "fish block guards + appends: {fish}"
+        );
+    }
+
+    #[test]
+    fn enable_remote_control_toggles_the_template_comment() {
+        // The starter template ships `# remote_control = false`.
+        let cfg =
+            "[server]\nlisten = \"127.0.0.1:8765\"\n# remote_control = false\nupstream = \"x\"\n";
+        let out = enable_remote_control_in_text(cfg);
+        assert!(out.contains("remote_control = true"), "sets it true: {out}");
+        assert!(
+            !out.contains("# remote_control"),
+            "the commented line is replaced: {out}"
+        );
+        assert!(
+            out.contains("listen =") && out.contains("upstream ="),
+            "other keys preserved: {out}"
+        );
+        // Idempotent.
+        assert_eq!(enable_remote_control_in_text(&out), out);
+    }
+
+    #[test]
+    fn enable_remote_control_inserts_or_appends_when_absent() {
+        // `[server]` present but no remote_control line → insert under it.
+        let a = enable_remote_control_in_text("[server]\nlisten = \"x\"\n");
+        assert!(
+            a.contains("[server]\nremote_control = true"),
+            "inserted under [server]: {a}"
+        );
+        // No `[server]` section at all → append one, preserving existing content.
+        let b = enable_remote_control_in_text("[strategies]\nfoo = 1\n");
+        assert!(
+            b.contains("[server]\nremote_control = true"),
+            "appended [server]: {b}"
+        );
+        assert!(
+            b.contains("[strategies]"),
+            "existing content preserved: {b}"
+        );
     }
 
     #[test]

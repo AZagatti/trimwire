@@ -25,12 +25,14 @@ Write a starter config, add the `ANTHROPIC_BASE_URL` env export (or `BUN_OPTIONS
 | Flag | Description |
 |---|---|
 | `--boot` | Enable lingering (systemd) so the service survives logout and starts before login |
+| `--remote-control` | Wire [Remote-Control coexistence](CONFIGURATION.md#remote_control--pruning-and-remote-control-on-the-same-session-opt-in-off) mode: sets `[server] remote_control = true` for you (preloads the shim + leaves `ANTHROPIC_BASE_URL` unset), so Claude Code's Remote Control works alongside pruning |
 
 After install, source your shell rc (`source ~/.zshrc` or `source ~/.bashrc`) or open a new terminal to pick up the new env export, then run `trimwire doctor` to verify.
 
 ```sh
-trimwire install            # standard install
-trimwire install --boot     # also survive logout (systemd lingering)
+trimwire install                  # standard install
+trimwire install --boot           # also survive logout (systemd lingering)
+trimwire install --remote-control # opt into Remote-Control coexistence
 ```
 
 ### `trimwire uninstall`
