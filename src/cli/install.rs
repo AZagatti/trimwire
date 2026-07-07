@@ -136,7 +136,10 @@ fn enable_remote_control_in_text(text: &str) -> String {
         }
         out
     };
-    // (1) Toggle an existing `remote_control = …` (commented or not).
+    // (1) Toggle an existing `remote_control = …` (commented or not). The scan is
+    // section-unaware and edits the first match anywhere — safe because
+    // `remote_control` is a unique field name across the whole config schema
+    // (only `[server]`); revisit if another table ever reuses the name.
     for l in lines.iter_mut() {
         let bare = l.trim_start().trim_start_matches('#').trim_start();
         if bare
@@ -947,10 +950,29 @@ fn rc_block_coexist(shim: &str) -> String {
 }
 
 /// Fish variant of [`rc_block_coexist`] (uses `set -gx`).
+/// Escape a value for a fish DOUBLE-quoted `string match` GLOB pattern: fish-dq
+/// specials (`\ $ "`) plus glob metacharacters (`* ?`) get a backslash, so the
+/// path matches LITERALLY. Unlike POSIX `case`, fish's quoting does NOT make `*`/`?`
+/// literal in a `string match` pattern, so an unescaped glob char in the shim path
+/// (from `$HOME`) could false-match unrelated BUN_OPTIONS and skip wiring.
+fn fish_glob_escape(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        if matches!(c, '\\' | '$' | '"' | '*' | '?') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn rc_block_coexist_fish(shim: &str) -> String {
     // fish variant of the idempotent, existing-preserving append (#175): set
-    // BUN_OPTIONS only if it doesn't already carry our preload.
+    // BUN_OPTIONS only if it doesn't already carry our preload. The match pattern
+    // glob-escapes the path (fish `string match` re-globs `*`/`?`); the assignment
+    // avoids a trailing space when BUN_OPTIONS started empty (unlike bash's `${x:+ }`).
     let val = fish_squote(&format!("--preload {shim}"));
+    let pat = format!("\"*{}*\"", fish_glob_escape(&format!("--preload {shim}")));
     format!(
         "{RC_MARKER_START}\n\
          # Remote-Control coexistence: preload a shim into Claude Code (Bun) that\n\
@@ -958,7 +980,9 @@ fn rc_block_coexist_fish(shim: &str) -> String {
          # pruning. ANTHROPIC_BASE_URL is intentionally left UNSET so Claude Code's\n\
          # Remote Control keeps working (it refuses a custom base URL). See the\n\
          # [server].remote_control note in your trimwire config.\n\
-         string match -q -- \"*\"{val}\"*\" \"$BUN_OPTIONS\"; or set -gx BUN_OPTIONS {val}\" $BUN_OPTIONS\"\n{RC_MARKER_END}\n"
+         if not string match -q -- {pat} \"$BUN_OPTIONS\"\n\
+         \x20\x20\x20\x20if test -n \"$BUN_OPTIONS\"; set -gx BUN_OPTIONS {val}\" $BUN_OPTIONS\"; else; set -gx BUN_OPTIONS {val}; end\n\
+         end\n{RC_MARKER_END}\n"
     )
 }
 
@@ -1084,6 +1108,26 @@ mod tests {
         );
         assert!(!block.contains("export "), "fish block must not use export");
         assert!(!block.contains("ANTHROPIC_BASE_URL="));
+    }
+
+    #[test]
+    fn coexist_rc_block_fish_glob_escapes_and_avoids_trailing_space() {
+        // fish `string match` re-globs `*`/`?` even when quoted (unlike POSIX `case`),
+        // so a shim path with a glob char must be escaped in the match PATTERN or the
+        // idempotence guard false-matches unrelated BUN_OPTIONS and skips wiring.
+        let block = rc_block_coexist_fish("/home/u/wei*rd/coexist-shim.js");
+        assert!(
+            block.contains("string match -q -- \"*--preload /home/u/wei\\*rd/coexist-shim.js*\""),
+            "glob char escaped in the match pattern: {block}"
+        );
+        // The value (single-quoted) keeps the literal `*` — no escaping needed there.
+        // And the empty-BUN_OPTIONS branch appends no trailing space.
+        assert!(
+            block.contains(
+                "else; set -gx BUN_OPTIONS '--preload /home/u/wei*rd/coexist-shim.js'; end"
+            ),
+            "empty BUN_OPTIONS gets the bare value, no trailing space: {block}"
+        );
     }
 
     #[test]
