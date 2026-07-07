@@ -256,6 +256,41 @@ fn install_coexist_switches_rc_to_bun_options_and_writes_shim() {
     );
 }
 
+/// #174: `trimwire install --remote-control` sets `[server] remote_control = true`
+/// in the config AND wires coexistence (BUN_OPTIONS, shim) in one shot — no need
+/// to hand-edit the config first.
+#[test]
+fn install_remote_control_flag_enables_coexistence() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(bin())
+        .args(["install", "--remote-control"])
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn trimwire install --remote-control");
+    assert!(out.status.success(), "install --remote-control succeeds");
+
+    // Config persisted the flag (so on/off/doctor remember the mode).
+    let cfg = fs::read_to_string(dir.path().join(".config/trimwire.toml")).unwrap();
+    assert!(
+        cfg.contains("remote_control = true"),
+        "flag persisted to config: {cfg}"
+    );
+    // rc wired coexistence: BUN_OPTIONS, and ANTHROPIC_BASE_URL deliberately unset.
+    let rc = fs::read_to_string(dir.path().join(".zshrc")).unwrap();
+    assert!(
+        rc.contains("BUN_OPTIONS") && !rc.contains("ANTHROPIC_BASE_URL="),
+        "coexist wiring: {rc}"
+    );
+    // Shim written.
+    assert!(
+        dir.path().join(".trimwire/coexist-shim.js").exists(),
+        "coexist shim written"
+    );
+}
+
 /// `trimwire install` (no curl|sh installer) records an install receipt with
 /// method "unknown" — a cargo/manual install we did not place, which a future
 /// `trimwire update` must NOT assume is self-updatable. Records the build target.
