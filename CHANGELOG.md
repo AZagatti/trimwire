@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1](https://github.com/AZagatti/trimwire/compare/v0.6.0...v0.6.1) - 2026-07-08
+
+### Added
+
+- *(cli)* coexist for GUI/editor Claude Code via a process-local launcher ([#173](https://github.com/AZagatti/trimwire/pull/173)) ([#186](https://github.com/AZagatti/trimwire/pull/186))
+
 ## [0.6.0](https://github.com/AZagatti/trimwire/compare/v0.5.1...v0.6.0) - 2026-07-07
 
 ### Added
