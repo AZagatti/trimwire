@@ -316,6 +316,41 @@ fn install_remote_control_flag_enables_coexistence() {
 }
 
 #[test]
+fn off_removes_the_gui_coexist_launcher() {
+    // `off` (full disengage) removes ~/.trimwire/claude-launch.sh and reminds the
+    // user to clear the editor wrapper setting (#173).
+    let dir = tempfile::tempdir().unwrap();
+    let launcher = dir.path().join(".trimwire/claude-launch.sh");
+
+    let a = Command::new(bin())
+        .args(["install", "--remote-control"])
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn coexist install");
+    assert!(a.status.success());
+    assert!(launcher.exists(), "coexist install wrote the launcher");
+
+    let b = Command::new(bin())
+        .arg("off")
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn off");
+    assert!(b.status.success());
+    assert!(!launcher.exists(), "off removed the launcher");
+    let s = String::from_utf8_lossy(&b.stdout);
+    assert!(
+        s.contains("claudeCode.claudeProcessWrapper"),
+        "off reminds the user to clear the editor wrapper setting: {s}"
+    );
+}
+
+#[test]
 fn install_default_mode_removes_a_stale_coexist_launcher() {
     // Switching a coexist install back to default (base-url) mode must not strand
     // the GUI launcher — install removes it symmetrically (#173 review gap).
