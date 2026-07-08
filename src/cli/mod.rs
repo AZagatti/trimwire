@@ -207,7 +207,15 @@ pub fn on() -> Result<()> {
     // A failed rc edit is NON-fatal: the gateway can still come up and pruning can
     // resume — don't block the whole re-engage on a cosmetic rc write. In coexist
     // mode this wires BUN_OPTIONS (+ writes the shim) instead of ANTHROPIC_BASE_URL.
-    match install::wiring_for(&cfg).and_then(|w| install::wire_rc(&w)) {
+    let wiring = install::wiring_for(&cfg);
+    // Capture the coexist shim (written as a side effect only when wiring_for
+    // succeeds) so the GUI launcher is written ONLY when coexist wiring actually
+    // took — never pointing at a shim a bailed wiring_for never created.
+    let coexist_shim = match &wiring {
+        Ok(install::Wiring::Coexist(shim)) => Some(shim.clone()),
+        _ => None,
+    };
+    match wiring.and_then(|w| install::wire_rc(&w)) {
         Ok(install::RcWire::Added(rc)) => {
             println!(
                 "{} re-added the trimwire env exports to {}",
@@ -251,16 +259,20 @@ pub fn on() -> Result<()> {
             // Control works; strip any GUI/login env a prior default install wrote.
             service::remove_gui_env_files();
             // (Re)write the process-local launcher for GUI/editor surfaces (#173) and
-            // remind how to point an editor wrapper at it. Best-effort: a launcher
-            // write failure must not block re-engaging pruning.
-            match install::write_coexist_launcher(&install::coexist_shim_path()) {
-                Ok(launcher) => install::print_gui_coexist_guidance(&launcher),
-                Err(e) => println!(
-                    "{} couldn't write the GUI coexistence launcher ({e}).",
-                    render::warn()
-                ),
+            // remind how to point an editor wrapper at it — but only if coexist wiring
+            // actually produced the shim (skip if wiring_for bailed, e.g. non-loopback).
+            // Best-effort: a launcher write failure must not block re-engaging pruning.
+            if let Some(shim) = &coexist_shim {
+                match install::write_coexist_launcher(shim) {
+                    Ok(launcher) => install::print_gui_coexist_guidance(&launcher),
+                    Err(e) => println!(
+                        "{} couldn't write the GUI coexistence launcher ({e}).",
+                        render::warn()
+                    ),
+                }
             }
         } else {
+            install::remove_coexist_launcher(); // symmetric cleanup on mode-switch
             let _ = service::wire_gui_env(addr); // best-effort GUI/login env
         }
     }

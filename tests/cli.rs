@@ -315,6 +315,42 @@ fn install_remote_control_flag_enables_coexistence() {
     );
 }
 
+#[test]
+fn install_default_mode_removes_a_stale_coexist_launcher() {
+    // Switching a coexist install back to default (base-url) mode must not strand
+    // the GUI launcher — install removes it symmetrically (#173 review gap).
+    let dir = tempfile::tempdir().unwrap();
+    let launcher = dir.path().join(".trimwire/claude-launch.sh");
+
+    // Coexist install writes the launcher.
+    let a = Command::new(bin())
+        .args(["install", "--remote-control"])
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn coexist install");
+    assert!(a.status.success());
+    assert!(launcher.exists(), "coexist install wrote the launcher");
+
+    // A default-mode install (remote_control forced off via env) removes it.
+    let b = Command::new(bin())
+        .arg("install")
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env("TRIMWIRE_SERVER__REMOTE_CONTROL", "false")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn default-mode install");
+    assert!(b.status.success());
+    assert!(
+        !launcher.exists(),
+        "default-mode install removed the stale coexist launcher"
+    );
+}
+
 /// `trimwire install` (no curl|sh installer) records an install receipt with
 /// method "unknown" — a cargo/manual install we did not place, which a future
 /// `trimwire update` must NOT assume is self-updatable. Records the build target.
@@ -3466,6 +3502,53 @@ fn doctor_hints_remote_control_when_routed_through_gateway() {
     assert!(
         s.contains("Remote Control is disabled") && s.contains("trimwire off"),
         "doctor hints at Remote Control + full disengage: {s}"
+    );
+}
+
+#[test]
+fn doctor_reports_gui_coexist_launcher_status() {
+    // In coexist mode, `doctor` reports the GUI/editor launcher status. Install
+    // first so a config exists (doctor won't take its pre-install early return),
+    // then toggle the launcher file to exercise both branches (#173).
+    let dir = tempfile::tempdir().unwrap();
+    let installed = Command::new(bin())
+        .args(["install", "--remote-control"])
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn install --remote-control");
+    assert!(installed.status.success());
+    let launcher = dir.path().join(".trimwire/claude-launch.sh");
+    assert!(launcher.exists(), "install wrote the launcher");
+
+    let run_doctor = || {
+        Command::new(bin())
+            .arg("doctor")
+            .env("HOME", dir.path())
+            .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
+            .env_remove("ANTHROPIC_BASE_URL") // coexist: base url must be unset
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_DATA_HOME")
+            .output()
+            .expect("spawn doctor")
+    };
+
+    // Launcher present → "ready" + the VS Code setting.
+    let ready = String::from_utf8_lossy(&run_doctor().stdout).into_owned();
+    assert!(
+        ready.contains("GUI/editor launcher ready")
+            && ready.contains("claudeCode.claudeProcessWrapper"),
+        "doctor reports the launcher ready + the VS Code setting: {ready}"
+    );
+
+    // Remove it → the "run trimwire on" remediation hint.
+    std::fs::remove_file(&launcher).unwrap();
+    let missing = String::from_utf8_lossy(&run_doctor().stdout).into_owned();
+    assert!(
+        missing.contains("no GUI/editor launcher yet"),
+        "doctor reports the missing launcher: {missing}"
     );
 }
 

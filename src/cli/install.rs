@@ -144,8 +144,13 @@ fn write_coexist_launcher_at(path: &Path, shim_path: &Path) -> Result<()> {
 /// Remove the coexistence launcher (`off`/`uninstall`). Returns `true` if a file
 /// was actually removed. Best-effort: a missing launcher is not an error.
 pub(super) fn remove_coexist_launcher() -> bool {
-    let path = coexist_launcher_path();
-    matches!(std::fs::remove_file(&path), Ok(()))
+    remove_coexist_launcher_at(&coexist_launcher_path())
+}
+
+/// Path-injectable core of [`remove_coexist_launcher`] (so tests can target a
+/// tempdir). `true` iff a file was actually removed.
+fn remove_coexist_launcher_at(path: &Path) -> bool {
+    matches!(std::fs::remove_file(path), Ok(()))
 }
 
 /// Print how to point an editor's Claude "process wrapper" at the coexistence
@@ -298,7 +303,12 @@ pub fn install(boot: bool, remote_control: bool) -> Result<()> {
     // by pointing their "process wrapper" setting at it.
     let gui_launcher = match &wiring {
         Wiring::Coexist(shim) => Some(write_coexist_launcher(shim)?),
-        Wiring::BaseUrl(_) => None,
+        // Default (base-url) mode: remove any launcher a prior coexist install left,
+        // so switching modes doesn't strand a stale ~/.trimwire/claude-launch.sh.
+        Wiring::BaseUrl(_) => {
+            remove_coexist_launcher();
+            None
+        }
     };
     match wire_rc(&wiring)? {
         RcWire::Added(rc) => {
@@ -1300,6 +1310,17 @@ mod tests {
             let mode = std::fs::metadata(&launcher).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o755, "launcher must be executable (0755)");
         }
+        // Removal (the `off` path): removes the file once, then reports "nothing to
+        // remove" — so a second `off` doesn't error on an already-clean tree.
+        assert!(
+            remove_coexist_launcher_at(&launcher),
+            "removes the launcher on off"
+        );
+        assert!(!launcher.exists(), "launcher gone after removal");
+        assert!(
+            !remove_coexist_launcher_at(&launcher),
+            "idempotent: already-absent launcher reports not-removed, not an error"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
