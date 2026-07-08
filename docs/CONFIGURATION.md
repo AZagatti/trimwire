@@ -104,8 +104,22 @@ falling back to going direct) — and it works around a deliberate Anthropic
 restriction. All traffic still goes **only to Anthropic**; trimwire just prunes
 context, exactly like the default path. Requires a **loopback** `listen` (trimwire
 refuses to wire this mode for a non-local gateway). `trimwire doctor` verifies the
-wiring. GUI-launched Claude Code isn't pruned in this mode (Remote Control works
-everywhere; shell-launched sessions prune). See also the [FAQ entry](FAQ.md#can-i-use-claude-codes-remote-control-control-your-session-from-your-phone-with-trimwire).
+wiring.
+
+**GUI/editor-launched Claude Code.** The shell rc only reaches terminal-launched
+sessions. For Claude Code launched outside a shell (the VS Code panel, the desktop
+app), `trimwire install`/`on` also writes a process-local launcher at
+`~/.trimwire/claude-launch.sh` — it execs the real `claude` with the same preload
+set **only in that process** (no session-global env var, so no other Bun process is
+touched). Point your editor's Claude "process wrapper" at it: in VS Code set
+`claudeCode.claudeProcessWrapper` to `~/.trimwire/claude-launch.sh` (Remote-WSL/SSH:
+put it in `~/.vscode-server/data/Machine/settings.json` on the remote host). The
+launcher execs whatever binary the extension hands it, which works when the extension
+bundles a Claude binary for your platform (the common macOS/Linux case); on a platform
+with no bundled binary the extension passes only CLI args, so point the setting at a
+real `claude` binary directly instead. Terminal and JetBrains sessions already prune
+via the rc block. See also the
+[FAQ entry](FAQ.md#can-i-use-claude-codes-remote-control-control-your-session-from-your-phone-with-trimwire).
 
 ## Strategies
 

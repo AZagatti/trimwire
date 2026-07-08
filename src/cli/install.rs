@@ -86,6 +86,94 @@ fn write_coexist_shim_at(path: &Path, base_url: &str) -> Result<()> {
     write_text_atomic(path, &js).with_context(|| format!("write {}", path.display()))
 }
 
+/// Where the coexistence *launcher* lives (`~/.trimwire/claude-launch.sh`). Unlike
+/// the shell rc (which only covers terminal-launched Claude Code), this launcher is
+/// the injection point for GUI/editor surfaces that don't source the shell rc — an
+/// editor "process wrapper" setting points at it, and it execs the real `claude`
+/// binary (handed to it as arguments) with a PROCESS-LOCAL `BUN_OPTIONS`. See #173.
+pub(super) fn coexist_launcher_path() -> PathBuf {
+    trimwire::ledger::resolve_path("~/.trimwire/claude-launch.sh")
+}
+
+/// The launcher script body: exec the arguments (the real claude binary + its args)
+/// with a process-local `BUN_OPTIONS` that preloads `shim`. The preload is set only
+/// in the exec'd process's environment — never exported to the shell or login
+/// session — so no other Bun process on the machine is touched (zero blast radius,
+/// unlike a session-global `environment.d` / `launchctl setenv`). Any inherited
+/// `BUN_OPTIONS` is preserved (appended).
+fn coexist_launcher_body(shim: &str) -> String {
+    let val = sh_squote(&format!("--preload {shim}"));
+    format!(
+        "#!/bin/sh\n\
+         # trimwire Remote-Control coexistence launcher (generated — do not edit).\n\
+         # Execs the real Claude Code binary (passed as arguments by an editor/GUI\n\
+         # \"process wrapper\" setting) with a PROCESS-LOCAL BUN_OPTIONS that preloads\n\
+         # the reroute shim into this claude only — never exported to the shell or\n\
+         # login session, so no other Bun process is affected. See the\n\
+         # [server].remote_control note in your trimwire config.\n\
+         exec env BUN_OPTIONS={val}\"${{BUN_OPTIONS:+ $BUN_OPTIONS}}\" \"$@\"\n"
+    )
+}
+
+/// Write the coexistence launcher (chmod 0755) that preloads the shim at `shim_path`
+/// into the claude process handed to it. Returns the launcher's path.
+pub(super) fn write_coexist_launcher(shim_path: &Path) -> Result<PathBuf> {
+    let path = coexist_launcher_path();
+    write_coexist_launcher_at(&path, shim_path)?;
+    Ok(path)
+}
+
+/// Path-injectable core of [`write_coexist_launcher`] (so tests can write to a
+/// tempdir). Creates parent dirs, writes the script atomically, and marks it
+/// executable (0755) so an editor/GUI wrapper setting can exec it directly.
+fn write_coexist_launcher_at(path: &Path, shim_path: &Path) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    }
+    let body = coexist_launcher_body(&shim_path.to_string_lossy());
+    write_text_atomic(path, &body).with_context(|| format!("write {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+            .with_context(|| format!("chmod 0755 {}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// Remove the coexistence launcher (`off`/`uninstall`). Returns `true` if a file
+/// was actually removed. Best-effort: a missing launcher is not an error.
+pub(super) fn remove_coexist_launcher() -> bool {
+    remove_coexist_launcher_at(&coexist_launcher_path())
+}
+
+/// Path-injectable core of [`remove_coexist_launcher`] (so tests can target a
+/// tempdir). `true` iff a file was actually removed.
+fn remove_coexist_launcher_at(path: &Path) -> bool {
+    matches!(std::fs::remove_file(path), Ok(()))
+}
+
+/// Print how to point an editor's Claude "process wrapper" at the coexistence
+/// launcher, so GUI/editor-launched Claude Code (which never sources the shell rc)
+/// also prunes — without a session-global env var. Shared by `install`/`on`/`doctor`.
+pub(super) fn print_gui_coexist_guidance(launcher: &Path) {
+    use super::render;
+    println!(
+        "  {} GUI/editor-launched Claude Code (e.g. the VS Code panel) doesn't read your shell rc.",
+        render::dim("→")
+    );
+    println!(
+        "    To prune those too, set VS Code {} to {}",
+        render::accent("claudeCode.claudeProcessWrapper"),
+        render::accent(&launcher.display().to_string())
+    );
+    println!(
+        "    {} Remote-WSL/SSH: put it in {} on the remote host.",
+        render::dim("·"),
+        render::accent("~/.vscode-server/data/Machine/settings.json")
+    );
+}
+
 /// Build the wiring for the current config: coexistence when
 /// `[server] remote_control` is set (writing the shim as a side effect),
 /// otherwise the default `ANTHROPIC_BASE_URL` wiring.
@@ -210,6 +298,18 @@ pub fn install(boot: bool, remote_control: bool) -> Result<()> {
     // Coexist mode wires via BUN_OPTIONS (+ writes the shim) and leaves
     // ANTHROPIC_BASE_URL unset so Claude Code's Remote Control keeps working.
     let wiring = wiring_for(&cfg)?;
+    // Coexist also gets a process-local launcher for GUI/editor surfaces that don't
+    // source the shell rc (#173). Writing it is cheap and harmless; surfaces opt in
+    // by pointing their "process wrapper" setting at it.
+    let gui_launcher = match &wiring {
+        Wiring::Coexist(shim) => Some(write_coexist_launcher(shim)?),
+        // Default (base-url) mode: remove any launcher a prior coexist install left,
+        // so switching modes doesn't strand a stale ~/.trimwire/claude-launch.sh.
+        Wiring::BaseUrl(_) => {
+            remove_coexist_launcher();
+            None
+        }
+    };
     match wire_rc(&wiring)? {
         RcWire::Added(rc) => {
             println!(
@@ -243,6 +343,9 @@ pub fn install(boot: bool, remote_control: bool) -> Result<()> {
             );
             println!("{block}");
         }
+    }
+    if let Some(launcher) = &gui_launcher {
+        print_gui_coexist_guidance(launcher);
     }
 
     // Install + start the always-up service so the global export above is safe:
@@ -1166,6 +1269,57 @@ mod tests {
         assert!(
             !js.contains("__TRIMWIRE_GATEWAY__"),
             "placeholder fully substituted on disk"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn coexist_launcher_body_is_process_local_and_execs_args() {
+        let body = coexist_launcher_body("/home/u/.trimwire/coexist-shim.js");
+        assert!(body.starts_with("#!/bin/sh\n"), "has a shebang: {body}");
+        // Preloads our shim PROCESS-LOCALLY, then execs whatever binary+args the
+        // editor/GUI wrapper hands it — the preload never leaks to the parent env.
+        assert!(
+            body.contains(
+                "exec env BUN_OPTIONS='--preload /home/u/.trimwire/coexist-shim.js'\
+                 \"${BUN_OPTIONS:+ $BUN_OPTIONS}\" \"$@\"\n"
+            ),
+            "process-local preload + exec \"$@\": {body}"
+        );
+        // Coexist invariant: never touch ANTHROPIC_BASE_URL (RC must keep working),
+        // and never `export` (would leak the preload to the whole shell/session).
+        assert!(!body.contains("ANTHROPIC_BASE_URL"));
+        assert!(!body.contains("export "));
+    }
+
+    #[test]
+    fn write_coexist_launcher_at_writes_executable_script() {
+        let dir = std::env::temp_dir().join(format!("tw-launch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let launcher = dir.join("nested").join("claude-launch.sh");
+        let shim = dir.join(".trimwire").join("coexist-shim.js");
+        write_coexist_launcher_at(&launcher, &shim).expect("writes the launcher");
+        let body = std::fs::read_to_string(&launcher).unwrap();
+        assert!(
+            body.contains(&format!("--preload {}", shim.display())),
+            "bakes the shim path: {body}"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&launcher).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o755, "launcher must be executable (0755)");
+        }
+        // Removal (the `off` path): removes the file once, then reports "nothing to
+        // remove" — so a second `off` doesn't error on an already-clean tree.
+        assert!(
+            remove_coexist_launcher_at(&launcher),
+            "removes the launcher on off"
+        );
+        assert!(!launcher.exists(), "launcher gone after removal");
+        assert!(
+            !remove_coexist_launcher_at(&launcher),
+            "idempotent: already-absent launcher reports not-removed, not an error"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

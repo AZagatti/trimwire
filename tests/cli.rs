@@ -289,6 +289,101 @@ fn install_remote_control_flag_enables_coexistence() {
         dir.path().join(".trimwire/coexist-shim.js").exists(),
         "coexist shim written"
     );
+    // GUI/editor launcher written + executable + points at the shim (#173): the
+    // injection point for surfaces (VS Code panel, etc.) that never source the rc.
+    let launcher = dir.path().join(".trimwire/claude-launch.sh");
+    let body = fs::read_to_string(&launcher).expect("GUI coexistence launcher written");
+    assert!(
+        body.contains("--preload") && body.contains("coexist-shim.js") && body.contains("\"$@\""),
+        "launcher preloads the shim then execs the real binary: {body}"
+    );
+    assert!(
+        !body.contains("ANTHROPIC_BASE_URL"),
+        "launcher never sets ANTHROPIC_BASE_URL (RC must keep working)"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&launcher).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755, "launcher is executable");
+    }
+    // Install guided the user to the VS Code wrapper setting.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("claudeCode.claudeProcessWrapper"),
+        "install prints the VS Code wrapper guidance: {stdout}"
+    );
+}
+
+#[test]
+fn off_removes_the_gui_coexist_launcher() {
+    // `off` (full disengage) removes ~/.trimwire/claude-launch.sh and reminds the
+    // user to clear the editor wrapper setting (#173).
+    let dir = tempfile::tempdir().unwrap();
+    let launcher = dir.path().join(".trimwire/claude-launch.sh");
+
+    let a = Command::new(bin())
+        .args(["install", "--remote-control"])
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn coexist install");
+    assert!(a.status.success());
+    assert!(launcher.exists(), "coexist install wrote the launcher");
+
+    let b = Command::new(bin())
+        .arg("off")
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn off");
+    assert!(b.status.success());
+    assert!(!launcher.exists(), "off removed the launcher");
+    let s = String::from_utf8_lossy(&b.stdout);
+    assert!(
+        s.contains("claudeCode.claudeProcessWrapper"),
+        "off reminds the user to clear the editor wrapper setting: {s}"
+    );
+}
+
+#[test]
+fn install_default_mode_removes_a_stale_coexist_launcher() {
+    // Switching a coexist install back to default (base-url) mode must not strand
+    // the GUI launcher — install removes it symmetrically (#173 review gap).
+    let dir = tempfile::tempdir().unwrap();
+    let launcher = dir.path().join(".trimwire/claude-launch.sh");
+
+    // Coexist install writes the launcher.
+    let a = Command::new(bin())
+        .args(["install", "--remote-control"])
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn coexist install");
+    assert!(a.status.success());
+    assert!(launcher.exists(), "coexist install wrote the launcher");
+
+    // A default-mode install (remote_control forced off via env) removes it.
+    let b = Command::new(bin())
+        .arg("install")
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env("TRIMWIRE_SERVER__REMOTE_CONTROL", "false")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn default-mode install");
+    assert!(b.status.success());
+    assert!(
+        !launcher.exists(),
+        "default-mode install removed the stale coexist launcher"
+    );
 }
 
 /// `trimwire install` (no curl|sh installer) records an install receipt with
@@ -3442,6 +3537,53 @@ fn doctor_hints_remote_control_when_routed_through_gateway() {
     assert!(
         s.contains("Remote Control is disabled") && s.contains("trimwire off"),
         "doctor hints at Remote Control + full disengage: {s}"
+    );
+}
+
+#[test]
+fn doctor_reports_gui_coexist_launcher_status() {
+    // In coexist mode, `doctor` reports the GUI/editor launcher status. Install
+    // first so a config exists (doctor won't take its pre-install early return),
+    // then toggle the launcher file to exercise both branches (#173).
+    let dir = tempfile::tempdir().unwrap();
+    let installed = Command::new(bin())
+        .args(["install", "--remote-control"])
+        .env("HOME", dir.path())
+        .env("SHELL", "/bin/zsh")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("spawn install --remote-control");
+    assert!(installed.status.success());
+    let launcher = dir.path().join(".trimwire/claude-launch.sh");
+    assert!(launcher.exists(), "install wrote the launcher");
+
+    let run_doctor = || {
+        Command::new(bin())
+            .arg("doctor")
+            .env("HOME", dir.path())
+            .env("TRIMWIRE_UPDATE_API_BASE", "http://127.0.0.1:1")
+            .env_remove("ANTHROPIC_BASE_URL") // coexist: base url must be unset
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_DATA_HOME")
+            .output()
+            .expect("spawn doctor")
+    };
+
+    // Launcher present → "ready" + the VS Code setting.
+    let ready = String::from_utf8_lossy(&run_doctor().stdout).into_owned();
+    assert!(
+        ready.contains("GUI/editor launcher ready")
+            && ready.contains("claudeCode.claudeProcessWrapper"),
+        "doctor reports the launcher ready + the VS Code setting: {ready}"
+    );
+
+    // Remove it → the "run trimwire on" remediation hint.
+    std::fs::remove_file(&launcher).unwrap();
+    let missing = String::from_utf8_lossy(&run_doctor().stdout).into_owned();
+    assert!(
+        missing.contains("no GUI/editor launcher yet"),
+        "doctor reports the missing launcher: {missing}"
     );
 }
 
