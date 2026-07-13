@@ -182,5 +182,327 @@
       "eyes": 0
     },
     "replies": []
+  },
+  {
+    "comment_id": 3532173180,
+    "pr": "172",
+    "file": "src/config.rs",
+    "line": null,
+    "personas": [
+      "CHRONICLER"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3532173180/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3532173183,
+    "pr": "172",
+    "file": "src/cli/install.rs",
+    "line": 23,
+    "personas": [
+      "SCRIBE"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3532173183/reactions",
+      "total_count": 1,
+      "+1": 0,
+      "-1": 1,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3532173195,
+    "pr": "172",
+    "file": "src/cli/install.rs",
+    "line": 93,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3532173195/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3532173196,
+    "pr": "172",
+    "file": "src/cli/mod.rs",
+    "line": 989,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3532173196/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3532173201,
+    "pr": "172",
+    "file": "src/cli/install.rs",
+    "line": null,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3532173201/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3532253072,
+    "pr": "172",
+    "file": "src/cli/mod.rs",
+    "line": 988,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3532253072/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3532253076,
+    "pr": "172",
+    "file": "src/cli/mod.rs",
+    "line": null,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3532253076/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3532499073,
+    "pr": "172",
+    "file": "src/cli/mod.rs",
+    "line": 1064,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3532499073/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3532527553,
+    "pr": "172",
+    "file": "src/cli/mod.rs",
+    "line": null,
+    "personas": [
+      "SENTINEL"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3532527553/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3540350719,
+    "pr": "186",
+    "file": "src/cli/install.rs",
+    "line": 143,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3540350719/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3540350722,
+    "pr": "186",
+    "file": "src/cli/mod.rs",
+    "line": 1124,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3540350722/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3540350724,
+    "pr": "186",
+    "file": "src/cli/mod.rs",
+    "line": null,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3540350724/reactions",
+      "total_count": 1,
+      "+1": 0,
+      "-1": 1,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3540413603,
+    "pr": "186",
+    "file": "src/cli/mod.rs",
+    "line": 265,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3540413603/reactions",
+      "total_count": 1,
+      "+1": 0,
+      "-1": 1,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
+  },
+  {
+    "comment_id": 3540413605,
+    "pr": "186",
+    "file": "src/cli/mod.rs",
+    "line": 342,
+    "personas": [
+      "SURVEYOR"
+    ],
+    "consensus": 1,
+    "reactions": {
+      "url": "https://api.github.com/repos/AZagatti/trimwire/pulls/comments/3540413605/reactions",
+      "total_count": 1,
+      "+1": 1,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "replies": []
   }
 ]
